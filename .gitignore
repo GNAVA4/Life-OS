@@ -1,0 +1,41 @@
+# ---- Dependencies ----
+node_modules/
+app/node_modules/
+
+# ---- Build output (веб-бандл содержит инлайненные ключи Firebase — НЕ коммитить) ----
+app/dist/
+dist/
+
+# ---- Секреты / ключи (НЕ коммитить) ----
+app/src/firebaseConfig.js
+**/google-services.json
+**/GoogleService-Info.plist
+*.keystore
+*.jks
+.env
+.env.*
+
+# ---- Android (нативный проект: собираемое и машинно-зависимое) ----
+app/android/.gradle/
+app/android/build/
+app/android/app/build/
+app/android/local.properties
+app/android/.idea/
+app/android/captures/
+# сгенерировано `cap sync` (веб-копия с ключами + конфиги плагинов)
+app/android/app/src/main/assets/public/
+app/android/app/src/main/assets/capacitor.config.json
+app/android/app/src/main/assets/capacitor.plugins.json
+*.apk
+*.aab
+
+# ---- Память проекта / ассистент / IDE (по запросу — не публиковать) ----
+.project-brain/
+.claude/
+CLAUDE.md
+.idea/
+
+# ---- Прочее ----
+*.log
+.DS_Store
+Thumbs.db

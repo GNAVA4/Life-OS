@@ -1,0 +1,46 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;700&display=swap');
+:root{
+  --bg:#0B0E13; --panel:#141A22; --panel-alt:#1B222C; --border:#2A323D;
+  --text:#E7EAEE; --dim:#8992A3; --amber:#F2A93B; --cyan:#4FD1C5;
+  --red:#E2584F; --green:#6FCF97; --purple:#9B7BD9;
+}
+*{box-sizing:border-box;}
+html,body{margin:0;background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;overflow-x:hidden;}
+/* корень никогда не шире экрана — иначе одиночный широкий потомок сдвигает всё вправо и обрезает края */
+#root{max-width:100%;overflow-x:hidden;}
+input,textarea,select,button{font-family:'Inter',sans-serif;}
+::placeholder{color:var(--dim);opacity:.6;}
+.tab-btn:hover{background:var(--panel-alt);}
+.row-hover:hover{background:var(--panel-alt);}
+.chip{cursor:pointer;user-select:none;padding:6px 12px;border-radius:20px;font-size:12px;border:1px solid var(--border);}
+.icon-btn{background:none;border:none;cursor:pointer;display:flex;padding:4px;color:var(--dim);}
+.icon-btn:hover{opacity:.7;}
+input[type=checkbox]{accent-color:var(--green);width:16px;height:16px;cursor:pointer;}
+input[type=range]{accent-color:var(--amber);}
+/* grid-колонки должны уметь сжиматься уже своего содержимого — иначе 1fr(=minmax(auto,1fr)) распирает сетку шире экрана */
+@media (max-width:720px){ .grid2{grid-template-columns:minmax(0,1fr) !important;} .grid3{grid-template-columns:minmax(0,1fr) !important;} }
+.grid2>*,.grid3>*{min-width:0;}
+.sel-pop::-webkit-scrollbar{width:8px;} .sel-pop::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px;}
+/* полноэкранная модалка на телефоне */
+@media (max-width:720px){ .modal-card-mobile{max-width:100% !important;max-height:100% !important;height:100%;border-radius:0 !important;} }
+
+/* ---------- анимации ---------- */
+@keyframes lo-fade{from{opacity:0}to{opacity:1}}
+@keyframes lo-pop{from{opacity:0;transform:translateY(8px) scale(.985)}to{opacity:1;transform:none}}
+@keyframes lo-slideup{from{transform:translateY(100%)}to{transform:translateY(0)}}
+@keyframes lo-toast{from{opacity:0;transform:translateX(26px)}to{opacity:1;transform:none}}
+@keyframes lo-collapse{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
+.anim-fade{animation:lo-fade .18s ease both}
+.anim-pop{animation:lo-pop .22s cubic-bezier(.2,.8,.2,1) both}
+.anim-sheet{animation:lo-slideup .26s cubic-bezier(.2,.8,.2,1) both}
+.anim-toast{animation:lo-toast .22s cubic-bezier(.2,.8,.2,1) both}
+.anim-collapse{animation:lo-collapse .18s ease both}
+.anim-tab{animation:lo-fade .2s ease both}
+.sel-pop{animation:lo-pop .14s ease both;transform-origin:top;}
+/* тактильные переходы */
+button,.chip,.icon-btn{transition:background .15s ease,border-color .15s ease,color .15s ease,transform .08s ease,opacity .15s ease;}
+button:active,.chip:active{transform:scale(.96);}
+.cnt-btn:hover{background:rgba(255,255,255,.06);}
+input,textarea{transition:border-color .15s ease,background .15s ease;}
+.row-hover{transition:background .12s ease;}
+@media (prefers-reduced-motion:reduce){*{animation-duration:.01ms !important;animation-iteration-count:1 !important;}}

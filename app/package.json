@@ -1,0 +1,32 @@
+{
+  "name": "life-os",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "android:sync": "vite build && cap sync android",
+    "android:open": "cap open android",
+    "android:apk": "cd android && gradlew.bat assembleDebug"
+  },
+  "dependencies": {
+    "@capacitor-firebase/authentication": "^8.3.0",
+    "@capacitor/android": "^8.4.2",
+    "@capacitor/core": "^8.4.2",
+    "@capacitor/filesystem": "^8.1.2",
+    "@capacitor/local-notifications": "^8.2.1",
+    "@capacitor/share": "^8.0.1",
+    "chart.js": "^4.5.0",
+    "firebase": "^12.16.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.4.2",
+    "@vitejs/plugin-react": "^4.3.4",
+    "vite": "^5.4.11"
+  }
+}

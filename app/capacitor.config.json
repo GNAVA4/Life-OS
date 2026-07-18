@@ -1,0 +1,11 @@
+{
+  "appId": "com.lifeos.app",
+  "appName": "Life OS",
+  "webDir": "dist",
+  "plugins": {
+    "FirebaseAuthentication": {
+      "skipNativeAuth": true,
+      "providers": ["google.com"]
+    }
+  }
+}
