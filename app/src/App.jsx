@@ -9,7 +9,7 @@ Chart.register(...registerables);
 
 // Видимый штамп сборки — показывается в Настройках. Меняй при каждой пересборке APK,
 // чтобы точно знать, свежую версию установили или старую (session 013 не смогла это исключить).
-const BUILD_ID = '2026-07-18l-backup-carryover-notes-weekly-morning';
+const BUILD_ID = '2026-07-18m-stats-range-analysis-plantoggle-achxp-about';
 
 // ---------- tokens & helpers ----------
 const C = {bg:'#0B0E13',panel:'#141A22',panelAlt:'#1B222C',border:'#2A323D',text:'#E7EAEE',dim:'#8992A3',amber:'#F2A93B',cyan:'#4FD1C5',red:'#E2584F',green:'#6FCF97',purple:'#9B7BD9'};
@@ -181,6 +181,7 @@ const MODULE_GROUPS = [
     {id:'tab.achievements', label:'Вкладка «Награды»'},
   ]},
   {group:'Сегодня', items:[
+    {id:'today.carryover', label:'Кнопка «Перенести незакрытые со вчера»'},
     {id:'today.daily', label:'Ежедневные'},
     {id:'today.ongoing', label:'На несколько дней'},
     {id:'today.tags', label:'Теги дня'},
@@ -203,7 +204,8 @@ const MODULE_GROUPS = [
     {id:'assets.accountTrends', label:'Баланс по счетам во времени'},
   ]},
   {group:'Статистика', items:[
-    {id:'stats.weekly', label:'Обзор недели'},
+    {id:'stats.weekly', label:'Обзор за период'},
+    {id:'stats.analysis', label:'Анализ факторов оценки дня'},
     {id:'stats.heatmap', label:'Дисциплин-грид'},
     {id:'stats.tasks', label:'Выполнение задач'},
     {id:'stats.rating', label:'Оценка дня'},
@@ -1110,6 +1112,10 @@ function App(){
     // (первый заход, синк, рост каталога) — молча. Откаты/удаления тоже без тостов.
     const silent = (Date.now() - mountAtRef.current) < 4000;
     if(silent || !fresh.length) return;
+    // XP-бонус за новые достижения (взвешенно по «крутости»: обычная +5 … легендарная +50). session 020.
+    // Только за открытые ДЕЙСТВИЯМИ в сессии (silent-окно отсеивает первичный seed/синк — без ретро-накрутки).
+    const bonusXp = fresh.reduce((s,id)=>{ const a=ACHIEVEMENTS.find(x=>x.id===id); return s + (a?ACH_TIERS[a.tier].pts*5:0); }, 0);
+    if(bonusXp) addXp(bonusXp);
     if(!settings.soundOff) playAchSound();
     if(fresh.length > 4) setToasts(prev => [...prev, {tid:uid(), summary:fresh.length}]);
     else setToasts(prev => [...prev, ...fresh.map(id=>({tid:uid(), id}))]);
@@ -1521,7 +1527,7 @@ function TodayTab({entry, selectedDate, setSelectedDate, addTask, toggleTask, de
               {!entry.tasks.length && <div style={{...S.dimSpan,marginLeft:0,marginTop:4,display:'block',fontSize:10.5}}>Добавь задачи в этот день, чтобы сохранить их как шаблон.</div>}
             </div>
           )}
-          {prevUndoneCount>0 && (
+          {prevUndoneCount>0 && vis('today.carryover') && (
             <div style={{marginTop:8}}>
               <button style={{...S.exportBtn,borderColor:C.cyan,color:C.cyan,width:'100%'}} onClick={carryOverTasks}>🔁 Перенести незакрытые со вчера · {prevUndoneCount}</button>
             </div>
@@ -2227,7 +2233,7 @@ function FinanceTab(props){
 
 // Панель планов (расходы/доходы): все категории редактируются сразу, одна кнопка «Сохранить планы»,
 // прогресс-бары по установленным планам + итоговая сумма. Черновик сбрасывается при смене месяца (resetKey).
-function PlanPanel({title, open, setOpen, planSwitcher, categories, actualByCat, plans, onSaveBatch, onRemove, barColor, spentWord, resetKey}){
+function PlanPanel({title, open, setOpen, planSwitcher, kindToggle, categories, actualByCat, plans, onSaveBatch, onRemove, barColor, spentWord, resetKey}){
   const [draft,setDraft] = useState({});
   useEffect(()=>{ setDraft({}); }, [resetKey]);
   const valOf = (c) => draft[c]!==undefined ? draft[c] : (plans[c]!=null ? String(plans[c]) : '');
@@ -2242,6 +2248,7 @@ function PlanPanel({title, open, setOpen, planSwitcher, categories, actualByCat,
         <div style={{display:'flex',alignItems:'center',gap:8,cursor:'pointer'}} onClick={()=>setOpen(o=>!o)}>
           <span style={{color:C.dim,fontSize:11,transform:open?'none':'rotate(-90deg)',transition:'transform .12s'}}>▾</span>
           <div style={{...S.panelTitle,marginBottom:0}}>{title}</div>
+          {kindToggle}
         </div>
         {open && planSwitcher}
       </div>
@@ -2277,8 +2284,8 @@ function PlanPanel({title, open, setOpen, planSwitcher, categories, actualByCat,
 }
 
 function OpsSection({finance, categories, budgets, incomePlans, bills, monthTx, defaults={}, addTransaction, deleteTransaction, addCategory, removeCategory, setBudget, removeBudget, setIncomePlan, removeIncomePlan, setBudgetsBatch, setIncomePlansBatch, addBill, deleteBill}){
-  const [expPlanOpen,setExpPlanOpen] = useState(false);
-  const [incPlanOpen,setIncPlanOpen] = useState(false);
+  const [planOpen,setPlanOpen] = useState(false);
+  const [planKind,setPlanKind] = useState('expense'); // переключатель внутри плашки планов (session 020)
   // категория по умолчанию: из настроек, если валидна, иначе первая в списке
   const defExpenseCat = categories.expense.includes(defaults.expenseCat) ? defaults.expenseCat : categories.expense[0];
   const defIncomeCat = categories.income.includes(defaults.incomeCat) ? defaults.incomeCat : categories.income[0];
@@ -2418,17 +2425,29 @@ function OpsSection({finance, categories, budgets, incomePlans, bills, monthTx, 
         </div>
       )}
 
-      {vis('ops.planExpense') && txType==='expense' && categories.expense.length>0 && (
-        <PlanPanel title="Планируемые расходы" open={expPlanOpen} setOpen={setExpPlanOpen} planSwitcher={planSwitcher} resetKey={planMonth}
-          categories={categories.expense} actualByCat={planExpenseByCat} plans={monthBudgets}
-          onSaveBatch={patch=>setBudgetsBatch(planMonth,patch)} onRemove={c=>removeBudget(planMonth,c)} barColor={C.green} spentWord="потрачено" />
-      )}
-
-      {vis('ops.planIncome') && txType==='income' && categories.income.length>0 && (
-        <PlanPanel title="Планируемые доходы" open={incPlanOpen} setOpen={setIncPlanOpen} planSwitcher={planSwitcher} resetKey={planMonth}
-          categories={categories.income} actualByCat={planIncomeByCat} plans={monthIncomePlans}
-          onSaveBatch={patch=>setIncomePlansBatch(planMonth,patch)} onRemove={c=>removeIncomePlan(planMonth,c)} barColor={C.cyan} spentWord="получено" />
-      )}
+      {(() => {
+        // Единая плашка планов с переключателем Расходы/Доходы прямо в заголовке (session 020).
+        // Больше НЕ зависит от типа новой операции — своё независимое переключение.
+        const showExp = vis('ops.planExpense'), showInc = vis('ops.planIncome');
+        if(!showExp && !showInc) return null;
+        const effKind = (planKind==='income' && showInc) ? 'income' : (showExp ? 'expense' : 'income');
+        const isExp = effKind==='expense';
+        const kindToggle = (
+          <div style={{display:'flex',gap:6}}>
+            {showExp && <div className="chip" onClick={(e)=>{e.stopPropagation(); setPlanKind('expense');}} style={{background:isExp?C.amber:C.panelAlt,color:isExp?'#1A1200':C.dim,borderColor:isExp?C.amber:C.border,padding:'3px 10px',fontSize:11}}>Расходы</div>}
+            {showInc && <div className="chip" onClick={(e)=>{e.stopPropagation(); setPlanKind('income');}} style={{background:!isExp?C.amber:C.panelAlt,color:!isExp?'#1A1200':C.dim,borderColor:!isExp?C.amber:C.border,padding:'3px 10px',fontSize:11}}>Доходы</div>}
+          </div>
+        );
+        return (
+          <PlanPanel title="Планируемые" kindToggle={kindToggle} open={planOpen} setOpen={setPlanOpen} planSwitcher={planSwitcher} resetKey={planMonth+'_'+effKind}
+            categories={isExp?categories.expense:categories.income}
+            actualByCat={isExp?planExpenseByCat:planIncomeByCat}
+            plans={isExp?monthBudgets:monthIncomePlans}
+            onSaveBatch={patch=> isExp?setBudgetsBatch(planMonth,patch):setIncomePlansBatch(planMonth,patch)}
+            onRemove={c=> isExp?removeBudget(planMonth,c):removeIncomePlan(planMonth,c)}
+            barColor={isExp?C.green:C.cyan} spentWord={isExp?'потрачено':'получено'} />
+        );
+      })()}
 
       {vis('ops.bills') && (
       <div style={S.panel}>
@@ -2621,41 +2640,50 @@ function DebtorsSection({debtors, addDebtor, updateDebtor, deleteDebtor}){
 // ============================================================ Stats
 function StatsTab({days, finance, budgets, incomePlans, habits=[]}){
   const [range,setRange] = useState('30');
+  const rangeDays = range==='7'?7 : range==='30'?30 : range==='90'?90 : range==='year'?365 : 1000;
+  const rangeLabel = range==='7'?'7 дней' : range==='30'?'30 дней' : range==='90'?'90 дней' : range==='year'?'год' : 'всё время';
 
-  // 📈 Обзор недели (последние 7 дней) + корреляция сон↔оценка (по всей истории). session 019.
-  const weekly = useMemo(()=>{
+  // 📈 Обзор за выбранный период (реагирует на селектор диапазона вверху). session 019; диапазон — 020.
+  const periodOverview = useMemo(()=>{
     let tasksDone=0, habitDone=0; const ratings=[], sleeps=[];
-    for(let i=0;i<7;i++){ const ds=daysAgoStr(i); const e=days[ds];
-      tasksDone += (e?.tasks||[]).filter(t=>t.done).length;
+    for(let i=0;i<rangeDays;i++){ const ds=daysAgoStr(i); const e=days[ds]; if(!e) continue;
+      tasksDone += (e.tasks||[]).filter(t=>t.done).length;
       habitDone += habits.reduce((n,h)=> n + (h.log && h.log[ds] ? 1 : 0), 0);
-      if(e?.rating!=null) ratings.push(e.rating);
-      if(e?.sleepHours!=null) sleeps.push(e.sleepHours);
+      if(e.rating!=null) ratings.push(e.rating);
+      if(e.sleepHours!=null) sleeps.push(e.sleepHours);
     }
-    const weekStart = daysAgoStr(6); let exp=0, inc=0;
-    finance.transactions.forEach(t=>{ if(t.exclude || t.date<weekStart) return; if(t.type==='expense') exp+=t.amount; else inc+=t.amount; });
+    const start = daysAgoStr(rangeDays-1); let exp=0, inc=0;
+    finance.transactions.forEach(t=>{ if(t.exclude || t.date<start) return; if(t.type==='expense') exp+=t.amount; else inc+=t.amount; });
     const avg = a => a.length ? Math.round(a.reduce((s,x)=>s+x,0)/a.length*10)/10 : null;
     return { tasksDone, habitDone, avgRating:avg(ratings), avgSleep:avg(sleeps), exp, inc };
-  }, [days, habits, finance.transactions]);
+  }, [days, habits, finance.transactions, rangeDays]);
 
-  const sleepRatingCorr = useMemo(()=>{
-    const xs=[], ys=[];
-    Object.values(days).forEach(e=>{ if(e && e.rating!=null && e.sleepHours!=null){ xs.push(e.sleepHours); ys.push(e.rating); } });
-    const n=xs.length; if(n<4) return { n, r:null };
-    const mean = a => a.reduce((s,x)=>s+x,0)/a.length; const mx=mean(xs), my=mean(ys);
-    let num=0, dx=0, dy=0; for(let i=0;i<n;i++){ const a=xs[i]-mx, b=ys[i]-my; num+=a*b; dx+=a*a; dy+=b*b; }
-    const r = (dx&&dy) ? num/Math.sqrt(dx*dy) : 0;
-    return { n, r: Math.round(r*100)/100 };
-  }, [days]);
-  const corrText = (c) => {
-    if(c.r==null) return `мало данных (нужно ≥4 дня с оценкой и сном; есть ${c.n})`;
-    const a = Math.abs(c.r); const strength = a<0.2?'почти нет связи' : a<0.4?'слабая' : a<0.6?'заметная' : a<0.8?'сильная' : 'очень сильная';
-    const dir = c.r>0 ? 'больше спишь — выше оценка дня' : 'больше спишь — ниже оценка дня';
-    return `r=${c.r} · ${strength} связь (${dir}), по ${c.n} дн.`;
-  };
+  // 🔬 Детальный анализ: что коррелирует с оценкой дня (сон, задачи, привычки, теги) за период. session 020.
+  const factorCorrelations = useMemo(()=>{
+    const rows=[];
+    for(let i=0;i<rangeDays;i++){ const ds=daysAgoStr(i); const e=days[ds]; if(!e || e.rating==null) continue;
+      rows.push({ rating:e.rating, sleep:e.sleepHours,
+        tasksDone:(e.tasks||[]).filter(t=>t.done).length, tasksPlanned:(e.tasks||[]).length,
+        habitsDone: habits.reduce((n,h)=> n + (h.log && h.log[ds]?1:0), 0), tags:(e.tags||[]).length });
+    }
+    const pearson = (key) => {
+      const xs=[], ys=[]; rows.forEach(r=>{ if(r[key]!=null){ xs.push(r[key]); ys.push(r.rating); } });
+      const n=xs.length; if(n<4) return {n, r:null};
+      const mean=a=>a.reduce((s,x)=>s+x,0)/a.length; const mx=mean(xs), my=mean(ys);
+      let num=0,dx=0,dy=0; for(let i=0;i<n;i++){ const a=xs[i]-mx,b=ys[i]-my; num+=a*b; dx+=a*a; dy+=b*b; }
+      return {n, r:(dx&&dy)?Math.round(num/Math.sqrt(dx*dy)*100)/100:0};
+    };
+    const factors = [
+      {key:'sleep', label:'😴 Сон'}, {key:'tasksDone', label:'✅ Задач выполнено'},
+      {key:'tasksPlanned', label:'📋 Задач запланировано'}, {key:'habitsDone', label:'🔁 Привычек отмечено'},
+      {key:'tags', label:'🏷 Тегов за день'},
+    ];
+    return factors.map(f=>({...f, ...pearson(f.key)})).sort((a,b)=> Math.abs(b.r||0)-Math.abs(a.r||0));
+  }, [days, habits, rangeDays]);
+  const corrStrength = (r) => { const a=Math.abs(r); return a<0.2?'почти нет':a<0.4?'слабая':a<0.6?'заметная':a<0.8?'сильная':'очень сильная'; };
 
   const [pfMonth,setPfMonth] = useState(todayStr().slice(0,7));
 
-  const rangeDays = range==='7'?7 : range==='30'?30 : range==='90'?90 : range==='year'?365 : 1000;
   const heatWeeks = Math.min(52, Math.ceil(rangeDays/7));
 
   const heatmapDays = useMemo(()=>{ const arr=[]; for(let i=heatWeeks*7-1;i>=0;i--){ const ds=daysAgoStr(i); const e=days[ds];
@@ -2731,18 +2759,37 @@ function StatsTab({days, finance, budgets, incomePlans, habits=[]}){
 
       {vis('stats.weekly') && (
       <div style={S.panel}>
-        <div style={S.panelTitle}>📈 Обзор недели · 7 дней</div>
+        <div style={S.panelTitle}>📈 Обзор · {rangeLabel}</div>
         <div className="grid3" style={{...S.grid3,gap:10}}>
-          <div style={S.statCard}><div style={S.statVal}>{weekly.tasksDone}</div><div style={S.dimSpan}>задач выполнено</div></div>
-          <div style={S.statCard}><div style={S.statVal}>{weekly.habitDone}</div><div style={S.dimSpan}>привычек отмечено</div></div>
-          <div style={S.statCard}><div style={S.statVal}>{weekly.avgRating!=null?weekly.avgRating:'–'}</div><div style={S.dimSpan}>средняя оценка</div></div>
-          <div style={S.statCard}><div style={S.statVal}>{weekly.avgSleep!=null?`${weekly.avgSleep} ч`:'–'}</div><div style={S.dimSpan}>средний сон</div></div>
-          <div style={S.statCard}><div style={{...S.statVal,color:C.red}}>{fmtMoney(weekly.exp)}</div><div style={S.dimSpan}>расход за неделю</div></div>
-          <div style={S.statCard}><div style={{...S.statVal,color:C.green}}>{fmtMoney(weekly.inc)}</div><div style={S.dimSpan}>доход за неделю</div></div>
+          <div style={S.statCard}><div style={S.statVal}>{periodOverview.tasksDone}</div><div style={S.dimSpan}>задач выполнено</div></div>
+          <div style={S.statCard}><div style={S.statVal}>{periodOverview.habitDone}</div><div style={S.dimSpan}>привычек отмечено</div></div>
+          <div style={S.statCard}><div style={S.statVal}>{periodOverview.avgRating!=null?periodOverview.avgRating:'–'}</div><div style={S.dimSpan}>средняя оценка</div></div>
+          <div style={S.statCard}><div style={S.statVal}>{periodOverview.avgSleep!=null?`${periodOverview.avgSleep} ч`:'–'}</div><div style={S.dimSpan}>средний сон</div></div>
+          <div style={S.statCard}><div style={{...S.statVal,color:C.red}}>{fmtMoney(periodOverview.exp)}</div><div style={S.dimSpan}>расход за период</div></div>
+          <div style={S.statCard}><div style={{...S.statVal,color:C.green}}>{fmtMoney(periodOverview.inc)}</div><div style={S.dimSpan}>доход за период</div></div>
         </div>
-        <div style={{marginTop:12,padding:'9px 11px',background:C.panelAlt,border:`1px solid ${C.border}`,borderRadius:8,fontSize:12.5}}>
-          <span style={{color:C.cyan}}>😴 Сон ↔ 🙂 оценка дня:</span> {corrText(sleepRatingCorr)}
-        </div>
+      </div>
+      )}
+
+      {vis('stats.analysis') && (
+      <div style={S.panel}>
+        <div style={S.panelTitle}>🔬 Анализ: что влияет на оценку дня · {rangeLabel}</div>
+        <div style={{...S.dimSpan,marginLeft:0,marginBottom:10,display:'block'}}>Корреляция (Пирсон) между оценкой дня и факторами. Ближе к ±1 — сильнее связь; знак = направление. Нужно ≥4 дня с оценкой.</div>
+        {factorCorrelations.every(f=>f.r==null) && <div style={S.emptyState}>Мало данных за период — ставь оценку дня почаще.</div>}
+        {factorCorrelations.filter(f=>f.r!=null).map(f=>(
+          <div key={f.key} style={{marginBottom:10}}>
+            <div style={{display:'flex',justifyContent:'space-between',fontSize:12.5,marginBottom:3,gap:8}}>
+              <span>{f.label}</span>
+              <span style={{color:C.dim,fontFamily:"'JetBrains Mono',monospace",flexShrink:0}}>r={f.r} · {corrStrength(f.r)} · {f.n} дн.</span>
+            </div>
+            {/* полоса от центра: вправо (зелёная) при r>0, влево (красная) при r<0 */}
+            <div style={{position:'relative',height:6,background:C.panelAlt,borderRadius:3,overflow:'hidden'}}>
+              <div style={{position:'absolute',left:'50%',top:0,bottom:0,width:1,background:C.border}}/>
+              <div style={{position:'absolute',top:0,bottom:0,background:f.r>=0?C.green:C.red,
+                left: f.r>=0?'50%':`${50-Math.abs(f.r)*50}%`, width:`${Math.abs(f.r)*50}%`}}/>
+            </div>
+          </div>
+        ))}
       </div>
       )}
 
@@ -3085,6 +3132,35 @@ function SettingsTab({hidden, toggleModule, defaults, setDefault, categories, ac
             ))}
           </div>
         ))}
+      </SettingsSection>
+
+      <SettingsSection title="О приложении" icon="ℹ️">
+        <div style={{fontSize:14,fontWeight:700,marginBottom:4}}>Life OS</div>
+        <div style={{...S.dimSpan,marginLeft:0,marginBottom:12,display:'block'}}>Персональный трекер жизни: планирование, привычки, цели, финансы и рефлексия в одном месте — с геймификацией, чтобы держать ритм.</div>
+
+        <SubHead>Что умеет</SubHead>
+        <div style={{fontSize:12.5,lineHeight:1.7,color:C.text}}>
+          <div>📅 <b>Сегодня</b> — задачи дня (сложность→XP), ежедневные и многодневные дела, теги, оценка дня, сон, заметка. Перенос незакрытых задач и шаблоны наборов.</div>
+          <div>🔁 <b>Привычки</b> — расписание, сгорающий стрик, заморозки, челленджи, напоминания, архив.</div>
+          <div>🎯 <b>Цели</b> — год/месяц/неделя/день; ползунок/чек-лист/счётчик; периодизация с архивом; привязка задач к нескольким целям.</div>
+          <div>🗂 <b>Дела</b> — эпики, статусы, важность/срочность, дедлайны, архив.</div>
+          <div>📝 <b>Заметки</b> — заметки и напоминания (с повтором), закрепление, чек-листы.</div>
+          <div>💰 <b>Финансы</b> — операции, счета, должники, планы по месяцам, бюджет-алерты с прогнозом, графики.</div>
+          <div>📊 <b>Статистика</b> — дисциплин-грид, обзор за период, тренды, план/факт, анализ факторов оценки дня.</div>
+          <div>🏅 <b>Геймификация</b> — XP и уровень, стрик, здоровье, ⚡импульс, ~286 достижений.</div>
+          <div>🔔 <b>Уведомления</b> — привычки, напоминания, дедлайны, утренняя сводка (на телефоне).</div>
+          <div>☁ <b>Синхронизация и бэкап</b> — Firebase (вход Google), экспорт/импорт JSON и Excel, «Поделиться» на телефоне.</div>
+        </div>
+
+        <SettingsDivider/>
+        <SubHead>Как считается уровень</SubHead>
+        <div style={{fontSize:12.5,lineHeight:1.7,color:C.text}}>
+          Уровень растёт от <b>XP</b> (100 XP = уровень). XP даётся за: выполнение задач (по сложности), ежедневные (±10), многодневные дела (+15), дела со статусом «Выполнено» (+15), привычки (±10), закрытие целей (+20) и <b>за новые достижения</b> (обычная +5 … легендарная +50). XP снимается при откате действия.
+        </div>
+
+        <SettingsDivider/>
+        <div style={{fontSize:12,color:C.dim}}>Версия сборки: <b style={{color:C.text}}>{BUILD_ID}</b></div>
+        <div style={{fontSize:11,color:C.dim,marginTop:4}}>Данные хранятся на устройстве (localStorage) и в облаке при входе. Полный бэкап — экспорт JSON.</div>
       </SettingsSection>
     </div>
   );
