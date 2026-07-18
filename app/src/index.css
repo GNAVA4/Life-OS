@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;700&display=swap');
+/* Шрифты подключаются локально через @fontsource в main.jsx (офлайн-safe). session 022. */
 :root{
   --bg:#0B0E13; --panel:#141A22; --panel-alt:#1B222C; --border:#2A323D;
   --text:#E7EAEE; --dim:#8992A3; --amber:#F2A93B; --cyan:#4FD1C5;

@@ -12,6 +12,7 @@ app/src/firebaseConfig.js
 **/GoogleService-Info.plist
 *.keystore
 *.jks
+keystore.properties
 .env
 .env.*
 

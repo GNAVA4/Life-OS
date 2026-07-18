@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Chart, registerables } from 'chart.js';
-import * as XLSX from 'xlsx';
+// xlsx грузится лениво (динамический import в exportExcel) — иначе ~400КБ в стартовом бандле. session 022.
 import { onAuth, login, logout, getCloudState, pushKey, subscribe, LIFEOS_KEYS } from './sync.js';
 import { saveOrShare } from './backup.js';
 import { syncNotifications, requestNotif, testNotification, notifDiagnostics } from './notifications.js';
@@ -9,7 +9,7 @@ Chart.register(...registerables);
 
 // Видимый штамп сборки — показывается в Настройках. Меняй при каждой пересборке APK,
 // чтобы точно знать, свежую версию установили или старую (session 013 не смогла это исключить).
-const BUILD_ID = '2026-07-18m-stats-range-analysis-plantoggle-achxp-about';
+const BUILD_ID = '2026-07-18o-privacy-fonts-codesplit-goalarchive-compactconfirm';
 
 // ---------- tokens & helpers ----------
 const C = {bg:'#0B0E13',panel:'#141A22',panelAlt:'#1B222C',border:'#2A323D',text:'#E7EAEE',dim:'#8992A3',amber:'#F2A93B',cyan:'#4FD1C5',red:'#E2584F',green:'#6FCF97',purple:'#9B7BD9'};
@@ -52,6 +52,8 @@ const isoWeek = (ds) => {
   return `${t.getFullYear()}-W${String(1+Math.round(diff/(7*864e5))).padStart(2,'0')}`;
 };
 const fmtMoney = (n) => (Math.round(n)||0).toLocaleString('ru-RU')+' ₽';
+// приватность: если hidden — показываем ••••••, иначе сумму. session 022.
+const maskMoney = (hidden, n) => hidden ? '••••••' : fmtMoney(n);
 const uid = () => Math.random().toString(36).slice(2,10);
 const formatDateRu = (ds) => new Date(ds+'T00:00:00').toLocaleDateString('ru-RU',{weekday:'long',day:'numeric',month:'long'});
 const formatDateShort = (ds) => new Date(ds+'T00:00:00').toLocaleDateString('ru-RU',{weekday:'short',day:'numeric',month:'short'});
@@ -518,12 +520,13 @@ function Select({value, onChange, options, placeholder='—', style, disabled, s
 }
 
 // ---------- reusable modal (полноэкранный на телефоне, карточка на десктопе) ----------
-function Modal({onClose, children, title}){
+function Modal({onClose, children, title, compact}){
   useEffect(()=>{ const on=(e)=>{ if(e.key==='Escape') onClose(); }; document.addEventListener('keydown',on);
     return ()=>document.removeEventListener('keydown',on); }, [onClose]);
+  // compact — небольшая карточка по центру (для подтверждений); обычная модалка на телефоне фуллскрин.
   return (
     <div className="anim-fade" style={S.modalOverlay} onClick={onClose}>
-      <div className="modal-card-mobile anim-pop" style={S.modalCard} onClick={e=>e.stopPropagation()}>
+      <div className={(compact?'':'modal-card-mobile ')+'anim-pop'} style={compact?{...S.modalCard, maxWidth:360}:S.modalCard} onClick={e=>e.stopPropagation()}>
         <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14}}>
           <div style={{fontFamily:"'Space Grotesk',sans-serif",fontSize:16,fontWeight:700}}>{title}</div>
           <button className="icon-btn" style={{fontSize:20}} onClick={onClose}>✕</button>
@@ -582,6 +585,33 @@ function ConfirmIconBtn({onConfirm, title='удалить', icon='✕', confirmL
   useEffect(()=>{ if(!armed) return; const t=setTimeout(()=>setArmed(false),3000); return ()=>clearTimeout(t); },[armed]);
   if(armed) return <button className="icon-btn" style={{color:C.red,fontSize:11,fontWeight:700,whiteSpace:'nowrap'}} onClick={(e)=>{ e.stopPropagation(); setArmed(false); onConfirm(); }}>{confirmLabel}</button>;
   return <button className="icon-btn" title={title} onClick={(e)=>{ e.stopPropagation(); setArmed(true); }}>{icon}</button>;
+}
+
+// ---------- rollover целей: по каждому скоупу (неделя/месяц/год) свой выбор carry/fresh ----------
+function RolloverModal({scopes, onApply, onClose}){
+  const [choices,setChoices] = useState(()=>Object.fromEntries(scopes.map(s=>[s,'carry'])));
+  return (
+    <Modal onClose={onClose} title="Новый период">
+      <div style={{fontSize:13.5,color:C.text,marginBottom:14,lineHeight:1.5}}>
+        Начался новый период. Что сделать с целями прошлого периода — по каждому типу отдельно:
+      </div>
+      <div style={{display:'flex',flexDirection:'column',gap:12}}>
+        {scopes.map(sc=>(
+          <div key={sc} style={{...S.panel,padding:12,marginBottom:0}}>
+            <div style={{fontSize:13,fontWeight:700,marginBottom:8}}>{PERIOD_LABEL[sc]||sc}</div>
+            <div style={{display:'flex',gap:6}}>
+              {[{id:'carry',label:'Перенести незавершённые'},{id:'fresh',label:'Начать заново'}].map(({id,label})=>(
+                <div key={id} className="chip" onClick={()=>setChoices(c=>({...c,[sc]:id}))}
+                  style={{flex:1,textAlign:'center',background:choices[sc]===id?C.amber:C.panelAlt,color:choices[sc]===id?'#1A1200':C.dim,borderColor:choices[sc]===id?C.amber:C.border}}>{label}</div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+      <button style={{...S.sheetBtn,marginTop:14,width:'100%',flex:'none',borderColor:C.amber,color:C.amber}} onClick={()=>onApply(choices)}>Применить</button>
+      <div style={{fontSize:11,color:C.dim,marginTop:12}}>Ничего не удаляется — при «Начать заново» цели уходят в архив (вкладка «Цели»).</div>
+    </Modal>
+  );
 }
 
 // ---------- reusable chart canvas ----------
@@ -654,6 +684,8 @@ function App(){
   const [importPending,setImportPending] = useState(null); // {keys, data} — ждёт подтверждения
   const [importMsg,setImportMsg] = useState('');           // ошибка чтения бэкапа
   const [rollover,setRollover] = useState(null); // {scopes:[...]} когда цели прошлого периода ждут решения
+  const [confirmDialog,setConfirmDialog] = useState(null); // {message, onYes} — WebView-safe подтверждение вместо window.confirm
+  const [lsWarnDismissed,setLsWarnDismissed] = useState(false); // предупреждение о квоте localStorage закрыто в этой сессии
 
   useEffect(() => {
     setDays(loadKey('lifeos:days', {}));
@@ -858,12 +890,20 @@ function App(){
     persist.goals({...goals, [sc]:[...(goals[sc]||[]), {...rest, period:periodOf(sc)}]});
     persistArchive(goalsArchive.filter(x=>!(x.id===id && x.archivedAt===archivedAt)));
   };
-  // rollover: mode 'carry' (перенести незавершённые, завершённые в архив) | 'fresh' (всё прошлое в архив)
-  const applyRollover = (mode) => {
+  // ручная архивация цели (в т.ч. завершённой) — снимок в goalsArchive, удаление из активных. session 022.
+  const archiveGoal = (scope, id) => {
+    const g = (goals[scope]||[]).find(x=>x.id===id); if(!g) return;
+    persistArchive([...goalsArchive, {...g, scope, archivedAt:todayStr()}]);
+    persist.goals({...goals, [scope]:goals[scope].filter(x=>x.id!==id)});
+  };
+  // rollover ПО-СКОУПНО: choices={week:'carry'|'fresh', month:..., year:...}. 'carry' — перенести
+  // незавершённые (завершённые в архив); 'fresh' — всё прошлое в архив. Каждый скоуп решается отдельно.
+  const applyRollover = (choices) => {
     const arch=[...goalsArchive]; const ng={...goals};
     ['week','month','year'].forEach(sc=>{ const cur=periodOf(sc);
       const stale=(goals[sc]||[]).filter(x=>x.period && x.period!==cur);
       const fresh=(goals[sc]||[]).filter(x=>!x.period || x.period===cur);
+      const mode = choices[sc] || 'carry';
       stale.forEach(x=>{
         if(mode==='carry' && (x.progress||0)<100){ fresh.push({...x, period:cur}); }
         else { arch.push({...x, scope:sc, archivedAt:todayStr()}); }
@@ -872,14 +912,20 @@ function App(){
     });
     persist.goals(ng); persistArchive(arch); setRollover(null);
   };
-  // подтверждение закрытия цели на 100% для нед/мес/год (чтобы не закрыть случайно)
-  const confirmClose = (scope,g) => (!PERIOD_SCOPES.includes(scope)) || (g.progress>=100) || window.confirm(`Закрыть цель «${g.title}» на 100%?`);
+  // Закрытие цели на 100% (нед/мес/год) спрашивает подтверждение через модалку — window.confirm
+  // не рисуется в Android WebView (session 018). needClose = стоит ли спрашивать.
+  const needClose = (scope,g) => PERIOD_SCOPES.includes(scope) && (g.progress||0)<100;
+  const askClose = (g, onYes) => setConfirmDialog({message:`Закрыть цель «${g.title}» на 100%?`, onYes});
   const setGoalProgress = (scope,id,progress) => {
     const g = (goals[scope]||[]).find(x=>x.id===id); if(!g) return;
-    if(progress>=100 && g.progress<100 && !confirmClose(scope,g)) return;
-    const list = goals[scope].map(x=>{ if(x.id!==id) return x; const was=x.progress>=100, now=progress>=100;
-      if(!was&&now) addXp(20); if(was&&!now) addXp(-20); return {...x,progress}; });
-    persist.goals({...goals,[scope]:list});
+    const doApply = () => {
+      const list = goals[scope].map(x=>{ if(x.id!==id) return x; const was=x.progress>=100, now=progress>=100;
+        if(!was&&now) addXp(20); if(was&&!now) addXp(-20);
+        return {...x,progress, completedAt: now ? (x.completedAt||todayStr()) : undefined}; });
+      persist.goals({...goals,[scope]:list});
+    };
+    if(progress>=100 && needClose(scope,g)){ askClose(g, doApply); return; }
+    doApply();
   };
   // единый выбор режима цели: none | slider | subtasks | counter (взаимоисключимы)
   const setGoalMode = (scope,id,mode) => {
@@ -895,30 +941,43 @@ function App(){
     const g = (goals[scope]||[]).find(x=>x.id===id); if(!g||!g.counter) return;
     const target = Math.max(1, patch.target!=null?patch.target:g.counter.target);
     const current = Math.max(0, patch.current!=null?patch.current:g.counter.current||0);
-    if(current/target>=1 && (g.progress||0)<100 && !confirmClose(scope,g)) return;
-    const list = goals[scope].map(x=>{ if(x.id!==id||!x.counter) return x;
-      const counter={current, target}; const progress=Math.min(100,Math.round(current/target*100));
-      const was=(x.progress||0)>=100, now=progress>=100; if(!was&&now) addXp(20); if(was&&!now) addXp(-20);
-      return {...x, counter, progress}; });
-    persist.goals({...goals,[scope]:list});
+    const doApply = () => {
+      const list = goals[scope].map(x=>{ if(x.id!==id||!x.counter) return x;
+        const counter={current, target}; const progress=Math.min(100,Math.round(current/target*100));
+        const was=(x.progress||0)>=100, now=progress>=100; if(!was&&now) addXp(20); if(was&&!now) addXp(-20);
+        return {...x, counter, progress, completedAt: now ? (x.completedAt||todayStr()) : undefined}; });
+      persist.goals({...goals,[scope]:list});
+    };
+    if(current/target>=1 && needClose(scope,g)){ askClose(g, doApply); return; }
+    doApply();
   };
+  // subtaskXp: подзадачи меняют progress → начисляем/снимаем XP на переходе через 100% (фикс: раньше не начислялось)
   const addGoalSubtask = (scope,id,text) => {
     const list = goals[scope].map(g=>{ if(g.id!==id) return g; const sub=[...(g.subtasks||[]),{id:uid(),text,done:false}];
-      const progress = Math.round(sub.filter(s=>s.done).length/sub.length*100); return {...g, subtasks:sub, progress}; });
+      const progress = Math.round(sub.filter(s=>s.done).length/sub.length*100);
+      const was=(g.progress||0)>=100, now=progress>=100; if(!was&&now) addXp(20); if(was&&!now) addXp(-20);
+      return {...g, subtasks:sub, progress, completedAt: now ? (g.completedAt||todayStr()) : undefined}; });
     persist.goals({...goals,[scope]:list});
   };
   const toggleGoalSubtask = (scope,gid,sid) => {
     const g = (goals[scope]||[]).find(x=>x.id===gid); if(!g) return;
     const wouldSub = g.subtasks.map(s=>s.id===sid?{...s,done:!s.done}:s);
     const wouldProg = wouldSub.length? Math.round(wouldSub.filter(s=>s.done).length/wouldSub.length*100) : 0;
-    if(wouldProg>=100 && (g.progress||0)<100 && !confirmClose(scope,g)) return;
-    const list = goals[scope].map(x=>{ if(x.id!==gid) return x; const sub=x.subtasks.map(s=>s.id===sid?{...s,done:!s.done}:s);
-      const progress = sub.length? Math.round(sub.filter(s=>s.done).length/sub.length*100) : 0; return {...x,subtasks:sub,progress}; });
-    persist.goals({...goals,[scope]:list});
+    const doApply = () => {
+      const list = goals[scope].map(x=>{ if(x.id!==gid) return x; const sub=x.subtasks.map(s=>s.id===sid?{...s,done:!s.done}:s);
+        const progress = sub.length? Math.round(sub.filter(s=>s.done).length/sub.length*100) : 0;
+        const was=(x.progress||0)>=100, now=progress>=100; if(!was&&now) addXp(20); if(was&&!now) addXp(-20);
+        return {...x,subtasks:sub,progress, completedAt: now ? (x.completedAt||todayStr()) : undefined}; });
+      persist.goals({...goals,[scope]:list});
+    };
+    if(wouldProg>=100 && needClose(scope,g)){ askClose(g, doApply); return; }
+    doApply();
   };
   const deleteGoalSubtask = (scope,gid,sid) => {
     const list = goals[scope].map(g=>{ if(g.id!==gid) return g; const sub=g.subtasks.filter(s=>s.id!==sid);
-      const progress = sub.length? Math.round(sub.filter(s=>s.done).length/sub.length*100) : 0; return {...g,subtasks:sub,progress}; });
+      const progress = sub.length? Math.round(sub.filter(s=>s.done).length/sub.length*100) : 0;
+      const was=(g.progress||0)>=100, now=progress>=100; if(!was&&now) addXp(20); if(was&&!now) addXp(-20);
+      return {...g,subtasks:sub,progress, completedAt: now ? (g.completedAt||todayStr()) : undefined}; });
     persist.goals({...goals,[scope]:list});
   };
   const deleteGoal = (scope,id) => persist.goals({...goals,[scope]:goals[scope].filter(g=>g.id!==id)});
@@ -1141,6 +1200,7 @@ function App(){
   const achUnlockedCount = ACHIEVEMENTS.reduce((n,a)=> n + ((achievements.unlocked||{})[a.id]?1:0), 0);
 
   const exportExcel = async () => {
+    const XLSX = await import('xlsx');
     const wb = XLSX.utils.book_new();
     const dayRows = Object.entries(days).map(([date,e]) => ({
       date, sleepHours:e.sleepHours, rating:e.rating, note:e.note,
@@ -1197,6 +1257,18 @@ function App(){
   };
 
   _hidden = settings.hidden || {};
+  // приблизительная занятость localStorage (ключи lifeos:*). Квота WebView/браузера обычно ~5 МБ;
+  // предупреждаем на 80% (≈4 МБ), т.к. при переполнении setItem бросает и данные не сохранятся.
+  // UTF-16 → 2 байта/символ (порог не обсуждался — разумный дефолт, см. OPEN.md). session 022.
+  const LS_QUOTA = 5*1024*1024;
+  let lsBytes = 0; for(let i=0;i<localStorage.length;i++){ const k=localStorage.key(i); if(k&&k.startsWith('lifeos:')) lsBytes += (k.length + (localStorage.getItem(k)||'').length)*2; }
+  const lsPct = Math.round(lsBytes/LS_QUOTA*100);
+  // маски приватности финансов: master maskAllFinance перекрывает все типы. session 022.
+  const finMask = {
+    net:   !!(settings.maskAllFinance || settings.maskNetWorth),
+    debts: !!(settings.maskAllFinance || settings.maskDebts),
+    ops:   !!(settings.maskAllFinance || settings.maskOps),
+  };
   const NAV = [
     {id:'today', label:'Сегодня'}, {id:'habits', label:'Привычки'}, {id:'goals', label:'Цели'}, {id:'study', label:'Дела'},
     {id:'notes', label:'Заметки'}, {id:'finance', label:'Финансы'}, {id:'stats', label:'Статистика'},
@@ -1278,6 +1350,13 @@ function App(){
         </Modal>
       )}
 
+      {lsPct>=80 && !lsWarnDismissed && (
+        <div style={{background:'#3A2417',border:`1px solid ${C.amber}`,borderRadius:8,padding:'10px 12px',marginBottom:14,display:'flex',alignItems:'center',gap:10}}>
+          <span style={{fontSize:12.5,color:C.amber,flex:1,lineHeight:1.45}}>⚠️ Хранилище почти заполнено: {lsPct}% (~{Math.round(lsBytes/1024)} КБ из ~5 МБ). Сделай бэкап (Экспорт JSON) и почисти старые данные — иначе новые записи могут не сохраниться.</span>
+          <button className="icon-btn" title="скрыть" onClick={()=>setLsWarnDismissed(true)}>✕</button>
+        </div>
+      )}
+
       {!isMobile && (
         <div style={S.nav}>
           {NAV.filter(n => n.id==='today' || n.id==='settings' || vis('tab.'+n.id)).map(n => (
@@ -1292,6 +1371,7 @@ function App(){
       <div key={tab} className="anim-tab">
       {tab==='today' && <TodayTab entry={entry} selectedDate={selectedDate} setSelectedDate={setSelectedDate}
         addTask={addTask} toggleTask={toggleTask} deleteTask={deleteTask} updateEntry={updateEntry} goals={goals}
+        maskOps={finMask.ops}
         tags={tags} toggleTagOnDay={toggleTagOnDay} addTagGlobal={addTagGlobal} removeTagGlobal={removeTagGlobal}
         dailyTasks={dailyTasks} toggleDaily={toggleDaily} addDailyTask={addDailyTask} deleteDailyTask={deleteDailyTask}
         ongoing={ongoing} addOngoing={addOngoing} finishOngoing={finishOngoing} deleteOngoing={deleteOngoing}
@@ -1301,24 +1381,26 @@ function App(){
       {tab==='goals' && <GoalsTab goals={goals} addGoal={addGoal} setGoalProgress={setGoalProgress}
         addGoalSubtask={addGoalSubtask} toggleGoalSubtask={toggleGoalSubtask}
         deleteGoalSubtask={deleteGoalSubtask} deleteGoal={deleteGoal}
-        setGoalMode={setGoalMode} setGoalCounter={setGoalCounter}
+        setGoalMode={setGoalMode} setGoalCounter={setGoalCounter} archiveGoal={archiveGoal}
         archive={goalsArchive} openArchive={()=>setArchiveOpen(true)} />}
       {tab==='study' && <StudyTab study={study} addStudyTask={addStudyTask} updateStudyTask={updateStudyTask} deleteStudyTask={deleteStudyTask} archiveStudyTask={archiveStudyTask} archive={studyArchive} deleteArchivedStudy={deleteArchivedStudy} restoreStudy={restoreStudy} />}
       {tab==='notes' && <NotesTab notes={notes} addNote={addNote} updateNote={updateNote} deleteNote={deleteNote} />}
       {tab==='finance' && <FinanceTab finance={finance} categories={categories} budgets={budgets} incomePlans={incomePlans} bills={bills} defaults={settings.defaults||{}}
-        maskNetWorth={!!settings.maskNetWorth} setSettingFlag={setSettingFlag}
+        finMask={finMask} setSettingFlag={setSettingFlag}
         addTransaction={addTransaction} deleteTransaction={deleteTransaction}
         addCategory={addCategory} removeCategory={removeCategory} setBudget={setBudget} removeBudget={removeBudget}
         setIncomePlan={setIncomePlan} removeIncomePlan={removeIncomePlan} setBudgetsBatch={setBudgetsBatch} setIncomePlansBatch={setIncomePlansBatch}
         addBill={addBill} deleteBill={deleteBill}
         addAccount={addAccount} deleteAccount={deleteAccount} addSnapshot={addSnapshot} deleteSnapshot={deleteSnapshot}
         addDebtor={addDebtor} updateDebtor={updateDebtor} deleteDebtor={deleteDebtor} />}
-      {tab==='stats' && <StatsTab days={days} finance={finance} budgets={budgets} incomePlans={incomePlans} habits={habits} />}
+      {tab==='stats' && <StatsTab days={days} finance={finance} budgets={budgets} incomePlans={incomePlans} habits={habits} finMask={finMask} />}
       {tab==='achievements' && <AchievementsTab stats={achStats} unlocked={achievements.unlocked||{}} />}
       {tab==='settings' && <SettingsTab hidden={settings.hidden||{}} toggleModule={toggleModule}
         defaults={settings.defaults||{}} setDefault={setDefault} categories={categories} accounts={finance.accounts}
         mobileTabs={mobileTabIds} toggleMobileTab={toggleMobileTab}
-        soundOff={!!settings.soundOff} notifOff={!!settings.notifOff} maskNetWorth={!!settings.maskNetWorth} morningCfg={settings.morningSummary||null} setSettingFlag={setSettingFlag}
+        soundOff={!!settings.soundOff} notifOff={!!settings.notifOff}
+        maskNetWorth={!!settings.maskNetWorth} maskDebts={!!settings.maskDebts} maskOps={!!settings.maskOps} maskAllFinance={!!settings.maskAllFinance}
+        morningCfg={settings.morningSummary||null} setSettingFlag={setSettingFlag}
         requestNotifs={requestNotifs} testNotif={testNotif} showNotifDiag={showNotifDiag} notifMsg={notifMsg} deadlineCfg={settings.deadlineNotif||null} />}
       </div>
 
@@ -1370,19 +1452,16 @@ function App(){
       )}
 
       {rollover && (
-        <Modal onClose={()=>setRollover(null)} title="Новый период">
-          <div style={{fontSize:13.5,color:C.text,marginBottom:14,lineHeight:1.5}}>
-            Начался новый период ({rollover.scopes.map(s=>PERIOD_LABEL[s]).join(', ')}). Что сделать с целями прошлого периода?
+        <RolloverModal scopes={rollover.scopes} onApply={applyRollover} onClose={()=>setRollover(null)} />
+      )}
+
+      {confirmDialog && (
+        <Modal compact onClose={()=>setConfirmDialog(null)} title="Подтверждение">
+          <div style={{fontSize:13.5,color:C.text,marginBottom:16,lineHeight:1.5}}>{confirmDialog.message}</div>
+          <div style={{display:'flex',gap:8}}>
+            <button style={{...S.sheetBtn,borderColor:C.amber,color:C.amber}} onClick={()=>{ const f=confirmDialog.onYes; setConfirmDialog(null); f&&f(); }}>Да</button>
+            <button style={S.sheetBtn} onClick={()=>setConfirmDialog(null)}>Отмена</button>
           </div>
-          <div style={{display:'flex',flexDirection:'column',gap:10}}>
-            <button style={{...S.sheetRow, borderColor:C.amber}} onClick={()=>applyRollover('carry')}>
-              <b>Перенести незавершённые</b><div style={{fontSize:11,color:C.dim,marginTop:2}}>Незавершённые продолжатся в новом периоде, завершённые уйдут в архив</div>
-            </button>
-            <button style={S.sheetRow} onClick={()=>applyRollover('fresh')}>
-              <b>Начать заново</b><div style={{fontSize:11,color:C.dim,marginTop:2}}>Все цели прошлого периода — в архив, новый период с чистого листа</div>
-            </button>
-          </div>
-          <div style={{fontSize:11,color:C.dim,marginTop:12}}>Ничего не удаляется — всё уходит в архив (доступен во вкладке «Цели»).</div>
         </Modal>
       )}
 
@@ -1393,7 +1472,7 @@ function App(){
             <div key={g.id+'_'+g.archivedAt+'_'+i} style={{display:'flex',alignItems:'center',gap:8,padding:'8px 0',borderBottom:`1px solid ${C.border}`}}>
               <div style={{flex:1,minWidth:0,overflowWrap:'anywhere'}}>
                 <div style={{fontSize:13,color:(g.progress||0)>=100?C.green:C.text}}>{(g.progress||0)>=100?'✓ ':''}{g.title}</div>
-                <div style={{fontSize:10.5,color:C.dim}}>{PERIOD_LABEL[g.scope]||g.scope} · {g.period||'—'} · {g.progress||0}% · архив {g.archivedAt}</div>
+                <div style={{fontSize:10.5,color:C.dim}}>{PERIOD_LABEL[g.scope]||g.scope} · {g.period||'—'} · {g.progress||0}%{g.completedAt?` · ✅ выполнено ${g.completedAt}`:''} · архив {g.archivedAt}</div>
               </div>
               <button className="icon-btn" title="вернуть в активные" style={{color:C.cyan}} onClick={()=>restoreGoal(g.id, g.archivedAt)}>↩</button>
               <ConfirmIconBtn onConfirm={()=>persistArchive(goalsArchive.filter(x=>!(x.id===g.id && x.archivedAt===g.archivedAt)))} title="удалить из архива" />
@@ -1437,7 +1516,7 @@ function App(){
 // ============================================================ Today
 function TodayTab({entry, selectedDate, setSelectedDate, addTask, toggleTask, deleteTask, updateEntry, goals,
   tags, toggleTagOnDay, addTagGlobal, removeTagGlobal, dailyTasks, toggleDaily, addDailyTask, deleteDailyTask,
-  ongoing, addOngoing, finishOngoing, deleteOngoing, bills,
+  ongoing, addOngoing, finishOngoing, deleteOngoing, bills, maskOps=false,
   taskTemplates=[], saveTaskTemplate, applyTaskTemplate, deleteTaskTemplate, carryOverTasks, prevUndoneCount=0}){
   const [newTaskText,setNewTaskText] = useState('');
   const [tplOpen,setTplOpen] = useState(false);
@@ -1483,7 +1562,7 @@ function TodayTab({entry, selectedDate, setSelectedDate, addTask, toggleTask, de
             <button style={S.navArrow} onClick={()=>setSelectedDate(addDays(selectedDate,1))}>▶</button>
           </div>
           {selectedDate!==todayStr() && <div style={{...S.dimSpan, marginTop:6}}>не сегодня — редактируешь другую дату</div>}
-          {todaysBill && <div style={{...S.dimSpan, marginTop:6, color:C.amber}}>Сегодня платёж: {todaysBill.name} — {fmtMoney(todaysBill.amount)}</div>}
+          {todaysBill && <div style={{...S.dimSpan, marginTop:6, color:C.amber}}>Сегодня платёж: {todaysBill.name} — {maskMoney(maskOps, todaysBill.amount)}</div>}
         </div>
 
         <div style={S.panel}>
@@ -1540,7 +1619,7 @@ function TodayTab({entry, selectedDate, setSelectedDate, addTask, toggleTask, de
                 <div style={{flex:1, minWidth:0, overflowWrap:'anywhere', textDecoration:t.done?'line-through':'none', color:t.done?C.dim:C.text}}>{t.text}</div>
                 {goalLinksOf(t).map((l,i)=><span key={i} title={`Вклад в цель: +${l.amount}`} style={{fontSize:11,color:C.amber,flexShrink:0}}>🎯+{l.amount}</span>)}
                 <span style={{fontSize:10, color:C.dim}}>{t.difficulty||'medium'}</span>
-                <button className="icon-btn" onClick={()=>deleteTask(t.id)}>✕</button>
+                <ConfirmIconBtn onConfirm={()=>deleteTask(t.id)} confirmLabel="удалить?" title="удалить задачу" />
               </div>
             ))}
           </div>
@@ -1822,7 +1901,7 @@ function HabitsTab({habits, addHabit, toggleHabitDay, deleteHabit, updateHabit, 
 }
 
 // ============================================================ Goals
-function GoalsTab({goals, addGoal, setGoalProgress, addGoalSubtask, toggleGoalSubtask, deleteGoalSubtask, deleteGoal, setGoalMode, setGoalCounter, archive, openArchive}){
+function GoalsTab({goals, addGoal, setGoalProgress, addGoalSubtask, toggleGoalSubtask, deleteGoalSubtask, deleteGoal, setGoalMode, setGoalCounter, archiveGoal, archive, openArchive}){
   const [text,setText] = useState(''); const [scope,setScope] = useState('week');
   const [subtaskInputs,setSubtaskInputs] = useState({});
   const scopes = [{id:'year',label:'Год'},{id:'month',label:'Месяц'},{id:'week',label:'Неделя'},{id:'day',label:'День'}];
@@ -1853,7 +1932,8 @@ function GoalsTab({goals, addGoal, setGoalProgress, addGoalSubtask, toggleGoalSu
                 <div key={g.id} style={{marginBottom:14, paddingBottom:10, borderBottom:`1px solid ${C.border}`}}>
                   <div style={{display:'flex',alignItems:'flex-start',gap:8}}>
                     <div style={{flex:1,minWidth:0,fontSize:13.5,color:done?C.dim:C.text,textDecoration:done?'line-through':'none',overflowWrap:'anywhere',wordBreak:'break-word'}}>{g.title}</div>
-                    <button className="icon-btn" onClick={()=>deleteGoal(id,g.id)}>✕</button>
+                    <ConfirmIconBtn onConfirm={()=>archiveGoal(id,g.id)} icon="🏁" confirmLabel="в архив?" title="в архив (сохранить)" />
+                    <ConfirmIconBtn onConfirm={()=>deleteGoal(id,g.id)} confirmLabel="удалить?" title="удалить безвозвратно" />
                   </div>
 
                   {mode==='none' && (
@@ -2008,8 +2088,8 @@ function StudyTab({study, addStudyTask, updateStudyTask, deleteStudyTask, archiv
         const isC = collapsed[epicName]; const doneCount = tasks.filter(t=>t.status==='Выполнено').length;
         return (
           <div key={epicName} style={S.panel}>
-            <div style={{...S.panelTitle,cursor:'pointer'}} onClick={()=>setCollapsed({...collapsed,[epicName]:!isC})}>
-              {isC?'▶':'▼'} {epicName} <span style={S.dimSpan}>{doneCount}/{tasks.length}</span>
+            <div style={{...S.panelTitle,cursor:'pointer',display:'flex',alignItems:'center',marginBottom:isC?0:10}} onClick={()=>setCollapsed({...collapsed,[epicName]:!isC})}>
+              <span style={{marginRight:6}}>{isC?'▶':'▼'}</span>{epicName}<span style={S.dimSpan}>{doneCount}/{tasks.length}</span>
             </div>
             {!isC && tasks.map(t=>{
               const done = t.status==='Выполнено';
@@ -2203,10 +2283,10 @@ function NotesTab({notes, addNote, updateNote, deleteNote}){
 
 // ============================================================ Finance
 function FinanceTab(props){
-  const {finance, categories, budgets, bills, maskNetWorth, setSettingFlag} = props;
+  const {finance, categories, budgets, bills, finMask={}, setSettingFlag} = props;
+  const mo = n => maskMoney(finMask.ops, n);   // операции/доходы-расходы
   const [sub,setSub] = useState('ops');
   const netWorth = useMemo(()=> finance.accounts.reduce((sum,a)=> sum + accountBalanceNow(a, finance.transactions), 0) + unassignedNetOn(finance.transactions, todayStr()), [finance.accounts, finance.transactions]);
-  const totalOwed = finance.debtors.reduce((s,d)=>s+(parseFloat(d.amount)||0),0);
   const today = todayStr();
   const monthTx = useMemo(()=> finance.transactions.filter(t=>t.date.slice(0,7)===today.slice(0,7)), [finance.transactions]);
   const monthIncome = monthTx.filter(t=>t.type==='income'&&!t.exclude).reduce((s,t)=>s+t.amount,0);
@@ -2215,18 +2295,18 @@ function FinanceTab(props){
   return (
     <div>
       <div className="grid3" style={S.grid3}>
-        <div style={S.statCard}><div style={S.statVal}>{fmtMoney(monthIncome)}</div><div style={S.dimSpan}>доход · месяц</div></div>
-        <div style={S.statCard}><div style={S.statVal}>{fmtMoney(monthExpense)}</div><div style={S.dimSpan}>расход · месяц</div></div>
-        <div style={S.statCard}><div style={S.statVal}>{maskNetWorth ? '••••••' : fmtMoney(netWorth)}</div><div style={S.dimSpan}>чистые активы</div></div>
+        <div style={S.statCard}><div style={S.statVal}>{mo(monthIncome)}</div><div style={S.dimSpan}>доход · месяц</div></div>
+        <div style={S.statCard}><div style={S.statVal}>{mo(monthExpense)}</div><div style={S.dimSpan}>расход · месяц</div></div>
+        <div style={S.statCard}><div style={S.statVal}>{maskMoney(finMask.net, netWorth)}</div><div style={S.dimSpan}>чистые активы</div></div>
       </div>
       <div style={{display:'flex',gap:6,marginTop:20,marginBottom:14,flexWrap:'wrap'}}>
-        {[{id:'ops',label:'Операции'},{id:'assets',label:'Активы'},{id:'debtors',label:`Должники · ${fmtMoney(totalOwed)}`}].map(({id,label})=>(
+        {[{id:'ops',label:'Операции'},{id:'assets',label:'Активы'},{id:'debtors',label:'Должники'}].map(({id,label})=>(
           <div key={id} className="chip" onClick={()=>setSub(id)} style={{background:sub===id?C.amber:C.panelAlt,color:sub===id?'#1A1200':C.dim,borderColor:sub===id?C.amber:C.border}}>{label}</div>
         ))}
       </div>
       {sub==='ops' && <OpsSection {...props} monthTx={monthTx} />}
-      {sub==='assets' && <AssetsSection accounts={finance.accounts} transactions={finance.transactions} addAccount={props.addAccount} deleteAccount={props.deleteAccount} addSnapshot={props.addSnapshot} deleteSnapshot={props.deleteSnapshot} />}
-      {sub==='debtors' && <DebtorsSection debtors={finance.debtors} addDebtor={props.addDebtor} updateDebtor={props.updateDebtor} deleteDebtor={props.deleteDebtor} />}
+      {sub==='assets' && <AssetsSection accounts={finance.accounts} transactions={finance.transactions} finMask={finMask} addAccount={props.addAccount} deleteAccount={props.deleteAccount} addSnapshot={props.addSnapshot} deleteSnapshot={props.deleteSnapshot} />}
+      {sub==='debtors' && <DebtorsSection debtors={finance.debtors} mask={finMask.debts} addDebtor={props.addDebtor} updateDebtor={props.updateDebtor} deleteDebtor={props.deleteDebtor} />}
     </div>
   );
 }
@@ -2259,7 +2339,7 @@ function PlanPanel({title, open, setOpen, planSwitcher, kindToggle, categories, 
               <div style={{display:'grid',gridTemplateColumns:'1fr auto',gap:8,alignItems:'center'}}>
                 <span style={{fontSize:12.5,overflowWrap:'anywhere',minWidth:0}}>{c}</span>
                 <div style={{display:'flex',alignItems:'center',gap:6}}>
-                  <span style={{fontSize:11.5,color:C.dim,fontFamily:"'JetBrains Mono',monospace",minWidth:58,textAlign:'right'}}>{fmtMoney(spent)}</span>
+                  <span style={{fontSize:11.5,color:C.dim,fontFamily:"'JetBrains Mono',monospace",minWidth:58,textAlign:'right'}}>{mo(spent)}</span>
                   <span style={{color:C.dim}}>/</span>
                   <input style={{...S.input,fontSize:12.5,padding:'7px 9px',width:120,minWidth:0,flex:'none'}} type="number" placeholder="план ₽"
                     value={valOf(c)} onChange={e=>setDraft({...draft,[c]:e.target.value})} onKeyDown={e=>e.key==='Enter'&&save()} />
@@ -2275,7 +2355,7 @@ function PlanPanel({title, open, setOpen, planSwitcher, kindToggle, categories, 
           );
         })}
         <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,marginTop:14,flexWrap:'wrap',borderTop:`1px solid ${C.border}`,paddingTop:12}}>
-          <div style={{fontSize:12,color:C.dim}}>Итого план: <b style={{color:C.text}}>{fmtMoney(totalPlan)}</b> · {spentWord} {fmtMoney(totalSpent)}</div>
+          <div style={{fontSize:12,color:C.dim}}>Итого план: <b style={{color:C.text}}>{mo(totalPlan)}</b> · {spentWord} {mo(totalSpent)}</div>
           <button style={{...S.iconBtnAmber,width:'auto',padding:'0 18px',height:36,fontWeight:700,opacity:dirty?1:0.55}} onClick={save}>Сохранить планы</button>
         </div>
       </>)}
@@ -2283,7 +2363,8 @@ function PlanPanel({title, open, setOpen, planSwitcher, kindToggle, categories, 
   );
 }
 
-function OpsSection({finance, categories, budgets, incomePlans, bills, monthTx, defaults={}, addTransaction, deleteTransaction, addCategory, removeCategory, setBudget, removeBudget, setIncomePlan, removeIncomePlan, setBudgetsBatch, setIncomePlansBatch, addBill, deleteBill}){
+function OpsSection({finance, categories, budgets, incomePlans, bills, monthTx, defaults={}, finMask={}, addTransaction, deleteTransaction, addCategory, removeCategory, setBudget, removeBudget, setIncomePlan, removeIncomePlan, setBudgetsBatch, setIncomePlansBatch, addBill, deleteBill}){
+  const mo = n => maskMoney(finMask.ops, n);   // приватность: скрытие сумм операций
   const [planOpen,setPlanOpen] = useState(false);
   const [planKind,setPlanKind] = useState('expense'); // переключатель внутри плашки планов (session 020)
   // категория по умолчанию: из настроек, если валидна, иначе первая в списке
@@ -2412,13 +2493,13 @@ function OpsSection({finance, categories, budgets, incomePlans, bills, monthTx, 
             <div key={a.cat} style={{marginBottom:9}}>
               <div style={{display:'flex',justifyContent:'space-between',fontSize:12.5,marginBottom:3,gap:8}}>
                 <span style={{minWidth:0,overflowWrap:'anywhere'}}>{a.over?'🔴':'🟡'} {a.cat}</span>
-                <span style={{color:C.dim,fontFamily:"'JetBrains Mono',monospace",flexShrink:0}}>{fmtMoney(a.spent)} / {fmtMoney(a.plan)} · {Math.round(a.ratio*100)}%</span>
+                <span style={{color:C.dim,fontFamily:"'JetBrains Mono',monospace",flexShrink:0}}>{mo(a.spent)} / {mo(a.plan)} · {Math.round(a.ratio*100)}%</span>
               </div>
               <div style={{height:4,background:C.panelAlt,borderRadius:2,overflow:'hidden'}}><div style={{height:'100%',width:`${Math.min(100,a.ratio*100)}%`,background:a.over?C.red:C.amber}}/></div>
               <div style={{fontSize:10.5,color:(!a.sparse && a.projected>a.plan)?C.red:C.dim,marginTop:3}}>
                 {a.sparse
-                  ? `прогноз: ${fmtMoney(a.projected)} — разовые траты (${a.cnt} оп.), без экстраполяции`
-                  : `прогноз к концу месяца: ${fmtMoney(a.projected)}${a.projected>a.plan?` · превышение на ${fmtMoney(a.projected-a.plan)}`:''}`}
+                  ? `прогноз: ${mo(a.projected)} — разовые траты (${a.cnt} оп.), без экстраполяции`
+                  : `прогноз к концу месяца: ${mo(a.projected)}${a.projected>a.plan?` · превышение на ${mo(a.projected-a.plan)}`:''}`}
               </div>
             </div>
           ))}
@@ -2461,7 +2542,7 @@ function OpsSection({finance, categories, budgets, incomePlans, bills, monthTx, 
         {bills.map(b=>(
           <div key={b.id} className="row-hover" style={S.taskRow}>
             <div style={{flex:1,fontSize:13}}>{b.name} · {b.dayOfMonth} числа</div>
-            <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:12.5}}>{fmtMoney(b.amount)}</div>
+            <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:12.5}}>{mo(b.amount)}</div>
             <button className="icon-btn" onClick={()=>deleteBill(b.id)}>✕</button>
           </div>
         ))}
@@ -2499,7 +2580,7 @@ function OpsSection({finance, categories, budgets, incomePlans, bills, monthTx, 
             <div style={{width:8,height:8,borderRadius:4,background:t.type==='income'?C.green:C.red}} />
             <div style={{width:60,fontSize:12,color:C.dim,fontFamily:"'JetBrains Mono',monospace"}}>{t.date.slice(5)}</div>
             <div style={{flex:1,fontSize:13.5}}>{t.category}{t.accountId?` · ${accountName(t.accountId)||'?'}`:''}{t.note?` · ${t.note}`:''}{t.exclude?<span style={{...S.dimSpan,marginLeft:4}}>(не считается)</span>:null}</div>
-            <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:13,color:t.type==='income'?C.green:C.red}}>{t.type==='income'?'+':'−'}{fmtMoney(t.amount)}</div>
+            <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:13,color:t.type==='income'?C.green:C.red}}>{t.type==='income'?'+':'−'}{mo(t.amount)}</div>
             <button className="icon-btn" onClick={()=>deleteTransaction(t.id)}>✕</button>
           </div>
         ))}
@@ -2508,7 +2589,7 @@ function OpsSection({finance, categories, budgets, incomePlans, bills, monthTx, 
   );
 }
 
-function AssetsSection({accounts, transactions, addAccount, deleteAccount, addSnapshot, deleteSnapshot}){
+function AssetsSection({accounts, transactions, finMask={}, addAccount, deleteAccount, addSnapshot, deleteSnapshot}){
   const [newAccName,setNewAccName] = useState('');
   const [snapForms,setSnapForms] = useState({});
   const setField = (id,f,v) => setSnapForms(prev=>({...prev,[id]:{...prev[id],[f]:v}}));
@@ -2595,7 +2676,7 @@ function AssetsSection({accounts, transactions, addAccount, deleteAccount, addSn
             </div>
             <div style={{...S.inputRow,marginTop:10}}>
               <input style={{...S.input,maxWidth:100}} type="number" placeholder="сумма" value={f.amount} onChange={e=>setField(a.id,'amount',e.target.value)} />
-              <select style={S.select} value={f.currency} onChange={e=>setField(a.id,'currency',e.target.value)}><option value="RUB">₽</option><option value="USD">$</option></select>
+              <Select small style={{minWidth:70}} value={f.currency} onChange={v=>setField(a.id,'currency',v)} options={[{value:'RUB',label:'₽'},{value:'USD',label:'$'}]} />
               {f.currency==='USD' && <input style={{...S.input,maxWidth:80}} type="number" placeholder="курс" value={f.rate} onChange={e=>setField(a.id,'rate',e.target.value)} />}
               <input style={{...S.input,maxWidth:130}} type="date" value={f.date} onChange={e=>setField(a.id,'date',e.target.value)} onClick={openDatePicker} />
               <button style={S.iconBtnAmber} onClick={()=>{ const amount=parseFloat(f.amount); if(isNaN(amount)) return;
@@ -2604,7 +2685,7 @@ function AssetsSection({accounts, transactions, addAccount, deleteAccount, addSn
             {a.snapshots.slice(0,5).map(s=>(
               <div key={s.id} className="row-hover" style={S.taskRow}>
                 <div style={{width:70,fontSize:12,color:C.dim,fontFamily:"'JetBrains Mono',monospace"}}>{s.date.slice(5)}</div>
-                <div style={{flex:1,fontSize:13}}>{s.currency==='USD'?`$${s.amount} (курс ${s.rate})`:fmtMoney(s.amount)}</div>
+                <div style={{flex:1,fontSize:13}}>{finMask.net ? '••••••' : (s.currency==='USD'?`$${s.amount} (курс ${s.rate})`:fmtMoney(s.amount))}</div>
                 <button className="icon-btn" onClick={()=>deleteSnapshot(a.id,s.id)}>✕</button>
               </div>
             ))}
@@ -2615,7 +2696,7 @@ function AssetsSection({accounts, transactions, addAccount, deleteAccount, addSn
   );
 }
 
-function DebtorsSection({debtors, addDebtor, updateDebtor, deleteDebtor}){
+function DebtorsSection({debtors, mask=false, addDebtor, updateDebtor, deleteDebtor}){
   const [name,setName] = useState(''); const [amount,setAmount] = useState('');
   return (
     <div style={S.panel}>
@@ -2629,7 +2710,9 @@ function DebtorsSection({debtors, addDebtor, updateDebtor, deleteDebtor}){
       {debtors.map(d=>(
         <div key={d.id} className="row-hover" style={S.taskRow}>
           <div style={{flex:1,fontSize:13.5}}>{d.name}</div>
-          <input style={{...S.input,maxWidth:100,textAlign:'right'}} type="number" defaultValue={d.amount} onBlur={e=>updateDebtor(d.id,parseFloat(e.target.value)||0)} />
+          {mask
+            ? <div style={{maxWidth:100,textAlign:'right',flex:'0 0 100px',color:C.dim,fontFamily:"'JetBrains Mono',monospace"}}>••••••</div>
+            : <input style={{...S.input,maxWidth:100,textAlign:'right'}} type="number" defaultValue={d.amount} onBlur={e=>updateDebtor(d.id,parseFloat(e.target.value)||0)} />}
           <button className="icon-btn" onClick={()=>deleteDebtor(d.id)}>✕</button>
         </div>
       ))}
@@ -2638,7 +2721,8 @@ function DebtorsSection({debtors, addDebtor, updateDebtor, deleteDebtor}){
 }
 
 // ============================================================ Stats
-function StatsTab({days, finance, budgets, incomePlans, habits=[]}){
+function StatsTab({days, finance, budgets, incomePlans, habits=[], finMask={}}){
+  const mo = n => maskMoney(finMask.ops, n);   // приватность: скрытие сумм в статистике
   const [range,setRange] = useState('30');
   const rangeDays = range==='7'?7 : range==='30'?30 : range==='90'?90 : range==='year'?365 : 1000;
   const rangeLabel = range==='7'?'7 дней' : range==='30'?'30 дней' : range==='90'?'90 дней' : range==='year'?'год' : 'всё время';
@@ -2742,7 +2826,7 @@ function StatsTab({days, finance, budgets, incomePlans, habits=[]}){
       const barColor = kind==='expense' ? (p&&a>p?C.red:(p&&a/p>0.7?C.amber:C.green)) : (p?(a>=p?C.green:a/p>0.5?C.amber:C.dim):C.dim);
       return (
         <div key={c} style={{marginBottom:8}}>
-          <div style={{display:'flex',justifyContent:'space-between',fontSize:12,marginBottom:3}}><span>{c}</span><span style={{color:C.dim}}>{fmtMoney(a)}{p?` / ${fmtMoney(p)}`:''}</span></div>
+          <div style={{display:'flex',justifyContent:'space-between',fontSize:12,marginBottom:3}}><span>{c}</span><span style={{color:C.dim}}>{mo(a)}{p?` / ${mo(p)}`:''}</span></div>
           {p ? <div style={{height:5,background:C.panelAlt,borderRadius:3,overflow:'hidden'}}><div style={{height:'100%',width:`${ratio}%`,background:barColor}}/></div>
              : <div style={{fontSize:10.5,color:C.dim}}>план не задан</div>}
         </div>
@@ -2765,8 +2849,8 @@ function StatsTab({days, finance, budgets, incomePlans, habits=[]}){
           <div style={S.statCard}><div style={S.statVal}>{periodOverview.habitDone}</div><div style={S.dimSpan}>привычек отмечено</div></div>
           <div style={S.statCard}><div style={S.statVal}>{periodOverview.avgRating!=null?periodOverview.avgRating:'–'}</div><div style={S.dimSpan}>средняя оценка</div></div>
           <div style={S.statCard}><div style={S.statVal}>{periodOverview.avgSleep!=null?`${periodOverview.avgSleep} ч`:'–'}</div><div style={S.dimSpan}>средний сон</div></div>
-          <div style={S.statCard}><div style={{...S.statVal,color:C.red}}>{fmtMoney(periodOverview.exp)}</div><div style={S.dimSpan}>расход за период</div></div>
-          <div style={S.statCard}><div style={{...S.statVal,color:C.green}}>{fmtMoney(periodOverview.inc)}</div><div style={S.dimSpan}>доход за период</div></div>
+          <div style={S.statCard}><div style={{...S.statVal,color:C.red}}>{mo(periodOverview.exp)}</div><div style={S.dimSpan}>расход за период</div></div>
+          <div style={S.statCard}><div style={{...S.statVal,color:C.green}}>{mo(periodOverview.inc)}</div><div style={S.dimSpan}>доход за период</div></div>
         </div>
       </div>
       )}
@@ -2998,7 +3082,7 @@ function SettingsSection({title, icon, defaultOpen=false, children}){
 const SubHead = ({children}) => <div style={{fontSize:12.5,fontWeight:700,color:C.cyan,margin:'2px 0 8px',letterSpacing:'.02em'}}>{children}</div>;
 const SettingsDivider = () => <div style={{height:1,background:C.border,margin:'18px 0'}}/>;
 
-function SettingsTab({hidden, toggleModule, defaults, setDefault, categories, accounts, mobileTabs, toggleMobileTab, soundOff, notifOff, maskNetWorth, morningCfg, setSettingFlag, requestNotifs, testNotif, showNotifDiag, notifMsg, deadlineCfg}){
+function SettingsTab({hidden, toggleModule, defaults, setDefault, categories, accounts, mobileTabs, toggleMobileTab, soundOff, notifOff, maskNetWorth, maskDebts, maskOps, maskAllFinance, morningCfg, setSettingFlag, requestNotifs, testNotif, showNotifDiag, notifMsg, deadlineCfg}){
   const dlOn = !!(deadlineCfg && !deadlineCfg.off);
   const dlDays = (deadlineCfg && deadlineCfg.days && deadlineCfg.days.length) ? deadlineCfg.days : [3,1];
   const dlTime = (deadlineCfg && deadlineCfg.time) || '09:00';
@@ -3108,13 +3192,28 @@ function SettingsTab({hidden, toggleModule, defaults, setDefault, categories, ac
         </div>
 
         <SettingsDivider/>
-        <SubHead>Приватность</SubHead>
+        <SubHead>Приватность · скрытие сумм</SubHead>
+        <div style={{...S.dimSpan,marginLeft:0,marginBottom:8,display:'block',fontSize:11}}>Скрытые суммы заменяются на ••••••. Каждый тип — отдельно; синкуется между устройствами.</div>
         <label className="row-hover" style={{...S.taskRow, cursor:'pointer'}}>
-          <input type="checkbox" checked={!!maskNetWorth} onChange={()=>setSettingFlag('maskNetWorth', !maskNetWorth)} />
-          <div style={{flex:1}}>Скрывать «чистые активы» (маскировать плитку в Финансах)</div>
-          <span style={{fontSize:11,color:C.dim}}>{maskNetWorth?'скрыто':'показано'}</span>
+          <input type="checkbox" checked={!!maskAllFinance} onChange={()=>setSettingFlag('maskAllFinance', !maskAllFinance)} />
+          <div style={{flex:1,fontWeight:600}}>Скрыть ВСЕ финансовые числа</div>
+          <span style={{fontSize:11,color:C.dim}}>{maskAllFinance?'скрыто':'показано'}</span>
         </label>
-        <div style={{...S.dimSpan,marginLeft:0,marginTop:6,display:'block',fontSize:11}}>При включении сумма «чистые активы» в разделе Финансы заменяется на ••••••.</div>
+        <label className="row-hover" style={{...S.taskRow, cursor:'pointer', opacity:maskAllFinance?0.5:1}}>
+          <input type="checkbox" checked={!!maskNetWorth} disabled={maskAllFinance} onChange={()=>setSettingFlag('maskNetWorth', !maskNetWorth)} />
+          <div style={{flex:1}}>Чистые активы и балансы счетов</div>
+          <span style={{fontSize:11,color:C.dim}}>{(maskAllFinance||maskNetWorth)?'скрыто':'показано'}</span>
+        </label>
+        <label className="row-hover" style={{...S.taskRow, cursor:'pointer', opacity:maskAllFinance?0.5:1}}>
+          <input type="checkbox" checked={!!maskDebts} disabled={maskAllFinance} onChange={()=>setSettingFlag('maskDebts', !maskDebts)} />
+          <div style={{flex:1}}>Долги (суммы должников)</div>
+          <span style={{fontSize:11,color:C.dim}}>{(maskAllFinance||maskDebts)?'скрыто':'показано'}</span>
+        </label>
+        <label className="row-hover" style={{...S.taskRow, cursor:'pointer', opacity:maskAllFinance?0.5:1}}>
+          <input type="checkbox" checked={!!maskOps} disabled={maskAllFinance} onChange={()=>setSettingFlag('maskOps', !maskOps)} />
+          <div style={{flex:1}}>Операции: доходы, расходы, планы, платежи</div>
+          <span style={{fontSize:11,color:C.dim}}>{(maskAllFinance||maskOps)?'скрыто':'показано'}</span>
+        </label>
       </SettingsSection>
 
       <SettingsSection title="Что показывать (модули и графики)" icon="📊">

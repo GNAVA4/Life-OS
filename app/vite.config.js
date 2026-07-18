@@ -6,4 +6,16 @@ import react from '@vitejs/plugin-react';
 export default defineConfig({
   plugins: [react()],
   base: './',
+  build: {
+    // code-split (session 022): выносим тяжёлые вендоры в отдельные чанки, чтобы стартовый
+    // бандл не был монолитом ~1.6МБ. xlsx грузится лениво (динамический import в App.jsx).
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          firebase: ['firebase/app', 'firebase/auth', 'firebase/firestore'],
+          chart: ['chart.js'],
+        },
+      },
+    },
+  },
 });
