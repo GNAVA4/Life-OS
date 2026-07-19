@@ -10,7 +10,7 @@ Chart.register(...registerables);
 
 // Видимый штамп сборки — показывается в Настройках. Меняй при каждой пересборке APK,
 // чтобы точно знать, свежую версию установили или старую (session 013 не смогла это исключить).
-const BUILD_ID = '2026-07-18q-today-widget';
+const BUILD_ID = '2026-07-19b-gamification';
 
 // ---------- tokens & helpers ----------
 const C = {bg:'#0B0E13',panel:'#141A22',panelAlt:'#1B222C',border:'#2A323D',text:'#E7EAEE',dim:'#8992A3',amber:'#F2A93B',cyan:'#4FD1C5',red:'#E2584F',green:'#6FCF97',purple:'#9B7BD9'};
@@ -19,6 +19,8 @@ const PIE_COLORS = [C.amber,C.cyan,C.red,C.green,C.purple,'#6FA8DC','#D98E5C','#
 const EXPENSE_DEFAULT = ['Еда','Кафе','Алкоголь','Табак','Транспорт','Учёба','Спорт','Развлечения','Подписки','Непредвиденные','Постоянные','Щедрость','Долг','Прочее'];
 const INCOME_DEFAULT = ['Зарплата','Стипендия','Помощь','Доп. доход','Возврат долга','Прочее'];
 const TAGS_DEFAULT = ['Учёба','Спорт','Англ','Работа','Прогулка','Чтение','Встреча','Диплом'];
+// «Анти-теги» — отдельный список плохих привычек дня; отметка на дне отнимает XP и здоровье. session 024
+const ANTITAGS_DEFAULT = ['Прокрастинация','Фастфуд','Пересып','Скроллинг','Сигарета','Срыв'];
 const STUDY_PRIORITIES = ['Сегодня','В течение 3 дней','В течение недели','В течение месяца','Когда захочу'];
 const STUDY_STATUSES = ['Не начато','В процессе','Выполнено'];
 const STUDY_IMPORTANCE = ['Не важно','Средне','Важно','Очень важно'];
@@ -41,6 +43,51 @@ const PERIOD_SCOPES = ['year','month','week'];
 const periodOf = (scope, ds=todayStr()) => scope==='week'?isoWeek(ds) : scope==='month'?ds.slice(0,7) : scope==='year'?ds.slice(0,4) : null;
 const PERIOD_LABEL = {week:'неделя', month:'месяц', year:'год'};
 const DIFF_XP = {easy:5, medium:10, hard:20};
+
+// ---------- геймификация: анти-теги, здоровье, комбо, квесты (session 024) ----------
+// Настраиваемые значения (Настройки→Геймификация). settings.gamify перекрывает дефолты.
+const GAMIFY_DEFAULT = {
+  antiXp: 15,      // сколько XP снимает один анти-тег на дне (сразу, обратимо)
+  hpAnti: 5,       // здоровья за анти-тег/день (на replay)
+  hpHabit: 3,      // здоровья за пропущенную запланированную привычку (cap ниже)
+  hpDeadline: 4,   // здоровья за просроченный дедлайн дела (разово)
+  comboBonus: 5,   // XP-бонус за каждый день комбо (× streak, cap COMBO_CAP_DAYS)
+};
+const gamifyCfg = (settings) => ({...GAMIFY_DEFAULT, ...((settings&&settings.gamify)||{})});
+const HEALTH_MISSED_HABIT_CAP = 9;
+const COMBO_CAP_DAYS = 10;      // на скольких днях подряд комбо-бонус максимален
+const WEEKLY_XP = 50;           // награда за испытание недели
+
+// 🎯 Ежедневные квесты: детерминированно 3/день из пула; бонус XP разово при выполнении. session 024.
+// need(c) — квест доступен только если условие выполнимо (напр. есть привычки). done(c) — выполнен сегодня.
+const QUEST_POOL = [
+  {id:'q_tasks3',  icon:'✅', label:'Выполни 3 задачи',            xp:5, done:c=>c.tasksDone>=3},
+  {id:'q_perfect', icon:'🎯', label:'Закрой все задачи дня (3+)',  xp:8, done:c=>c.taskTotal>=3 && c.tasksDone===c.taskTotal},
+  {id:'q_daily',   icon:'🔁', label:'Закрой ежедневную',           xp:3, need:c=>c.hasDailies, done:c=>c.dailyDone>=1},
+  {id:'q_habit',   icon:'💪', label:'Отметь привычку',             xp:3, need:c=>c.hasHabits,  done:c=>c.habitDone>=1},
+  {id:'q_rating',  icon:'⭐', label:'Оцени день',                  xp:3, done:c=>c.rated},
+  {id:'q_note',    icon:'📓', label:'Опиши день',                  xp:3, done:c=>c.noted},
+  {id:'q_clean',   icon:'🧼', label:'День без анти-тегов',         xp:5, done:c=>c.tasksDone>0 && c.antiCount===0},
+  {id:'q_sleep',   icon:'😴', label:'Отметь сон 7ч+',              xp:3, done:c=>c.sleep>=7},
+];
+const _hashStr = (s) => { let h=2166136261>>>0; for(let i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=Math.imul(h,16777619)>>>0; } return h>>>0; };
+// детерминированный выбор n элементов по сид-строке (одинаков для одной даты)
+function pickSeeded(arr, n, seedStr){
+  const pool=[...arr]; const out=[]; let h=_hashStr(seedStr);
+  while(out.length<Math.min(n,arr.length) && pool.length){ h=(Math.imul(h,1103515245)+12345)>>>0; out.push(pool.splice(h%pool.length,1)[0]); }
+  return out;
+}
+const questsForDate = (dateStr, ctx) => pickSeeded(QUEST_POOL.filter(q=>!q.need || q.need(ctx)), 3, 'q'+dateStr);
+
+// 🏆 Испытание недели: одно на ISO-неделю (детерминированно). val(w) — прогресс за неделю.
+const WEEKLY_POOL = [
+  {id:'w_tasks20',  icon:'✅', label:'Выполни 20 задач за неделю', target:20, val:w=>w.tasksDone},
+  {id:'w_perfect3', icon:'🎯', label:'3 идеальных дня',           target:3,  val:w=>w.perfectDays},
+  {id:'w_active6',  icon:'🔥', label:'6 активных дней',           target:6,  val:w=>w.activeDays},
+  {id:'w_study3',   icon:'🎓', label:'Закрой 3 дела',             target:3,  val:w=>w.studyDone},
+  {id:'w_rating5',  icon:'⭐', label:'Оцени 5 дней',              target:5,  val:w=>w.ratedDays},
+];
+const weeklyForPeriod = (period) => pickSeeded(WEEKLY_POOL, 1, 'w'+period)[0];
 
 const toLocalISODate = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const todayStr = () => toLocalISODate(new Date());
@@ -187,7 +234,10 @@ const MODULE_GROUPS = [
     {id:'today.carryover', label:'Кнопка «Перенести незакрытые со вчера»'},
     {id:'today.daily', label:'Ежедневные'},
     {id:'today.ongoing', label:'На несколько дней'},
+    {id:'today.quests', label:'🎯 Задания дня (квесты)'},
+    {id:'today.weekly', label:'🏆 Испытание недели'},
     {id:'today.tags', label:'Теги дня'},
+    {id:'today.antitags', label:'Анти-теги дня (−XP, −здоровье)'},
     {id:'today.rating', label:'Оценка дня'},
     {id:'today.sleep', label:'Сон'},
     {id:'today.note', label:'Что было · почему'},
@@ -232,7 +282,46 @@ function saveKey(key, value){
   try{ localStorage.setItem(key, s); }catch(e){}
   try{ if(_pushHook) _pushHook(key, s); }catch(e){}
 }
-function levelForXp(xp){ return { level: Math.floor(xp/100)+1, into: xp%100, needed: 100 }; }
+// Уровни: плавно растущая стоимость с ПОТОЛКОМ (session 024). step(L) = XP чтобы уйти с уровня L на L+1:
+// растёт ~100 (ур.1→2) … ~600 (ур.49→50). Сумма до 50 ≈ 17k XP. Дальше потолок (max).
+const LEVEL_CAP = 50;
+const LEVEL_CUM = (()=>{ const cum=[0,0]; // cum[L] = суммарный XP, чтобы БЫТЬ на уровне L; cum[1]=0
+  for(let L=2; L<=LEVEL_CAP; L++){ cum[L] = cum[L-1] + Math.round(100 + 10.4*(L-2)); }
+  return cum; })();
+function levelForXp(xp){
+  xp = Math.max(0, Math.floor(xp||0));
+  let level = 1;
+  for(let L=LEVEL_CAP; L>=1; L--){ if(xp >= LEVEL_CUM[L]){ level = L; break; } }
+  if(level >= LEVEL_CAP) return { level: LEVEL_CAP, into: 0, needed: 0, max: true };
+  return { level, into: xp - LEVEL_CUM[level], needed: LEVEL_CUM[level+1] - LEVEL_CUM[level], max: false };
+}
+// Ранги/титулы поверх уровня (session 024) — крупные вехи с иконкой; показываются в профиле/шапке.
+const RANKS = [
+  {min:1,  name:'Новобранец', icon:'🌱', color:C.dim},
+  {min:5,  name:'Искатель',   icon:'🧭', color:C.cyan},
+  {min:10, name:'Ветеран',    icon:'🛡', color:C.cyan},
+  {min:18, name:'Мастер',     icon:'⚔️', color:C.green},
+  {min:27, name:'Эксперт',    icon:'🎖', color:C.amber},
+  {min:37, name:'Легенда',    icon:'🔥', color:C.amber},
+  {min:50, name:'Абсолют',    icon:'👑', color:C.purple},
+];
+const rankForLevel = (lvl) => { let r=RANKS[0]; for(const x of RANKS){ if(lvl>=x.min) r=x; } return r; };
+const nextRank = (lvl) => RANKS.find(x=>x.min>lvl) || null;
+
+// «фанфара» на новый уровень — восходящее арпеджио, ярче обычного «дзиня» наград. session 024
+function playLevelUpSound(){
+  try{
+    _audioCtx = _audioCtx || new (window.AudioContext||window.webkitAudioContext)();
+    const ctx=_audioCtx; if(ctx.state==='suspended') ctx.resume();
+    const now=ctx.currentTime;
+    [[523.25,0],[659.25,0.09],[783.99,0.18],[1046.5,0.27],[1318.5,0.40]].forEach(([f,dt])=>{
+      const o=ctx.createOscillator(), g=ctx.createGain(); o.type='triangle'; o.frequency.value=f;
+      o.connect(g); g.connect(ctx.destination); const t=now+dt;
+      g.gain.setValueAtTime(0.0001,t); g.gain.exponentialRampToValueAtTime(0.22,t+0.02); g.gain.exponentialRampToValueAtTime(0.0001,t+0.45);
+      o.start(t); o.stop(t+0.5);
+    });
+  }catch(e){}
+}
 
 // короткий приятный «дзинь» при получении награды — через WebAudio, без внешних файлов (офлайн/Android)
 let _audioCtx = null;
@@ -272,6 +361,7 @@ const longestRun = (sortedDates) => {
 function computeAchStats({days, goals, study, notes, finance, meta, ongoing, budgets, habits, goalsArchive}){
   const s = {};
   let tasksDone=0, perfectDays=0, noteDays=0, rating10count=0, ratingDays=0, sleepNights=0, daysLogged=0, maxTagsDay=0, maxTasksDay=0;
+  let questsDone=0, cleanDays=0; // геймификация (session 024): выполнено квестов, активных дней без анти-тегов
   const doneDates=[], ratingHighDates=[], sleepDates=[], activeDates=[], perfectDates=[];
   const tagSet=new Set(), monthSet=new Set();
   Object.entries(days).forEach(([ds,e])=>{
@@ -290,11 +380,14 @@ function computeAchStats({days, goals, study, notes, finance, meta, ongoing, bud
     const active = done>0 || dayTags.length>0 || (e.note&&e.note.trim()) || e.rating!=null || e.sleepHours!=null;
     if(active){ daysLogged++; activeDates.push(ds); monthSet.add(ds.slice(0,7)); }
     if(done>0) doneDates.push(ds);
+    questsDone += (e.questsClaimed||[]).length;
+    if(active && (e.antiTags||[]).length===0) cleanDays++;
   });
   doneDates.sort(); ratingHighDates.sort(); sleepDates.sort(); activeDates.sort(); perfectDates.sort();
   s.tasksDone=tasksDone; s.perfectDays=perfectDays; s.noteDays=noteDays; s.rating10count=rating10count;
   s.ratingDays=ratingDays; s.sleepNights=sleepNights; s.daysLogged=daysLogged;
   s.distinctTags=tagSet.size; s.maxTagsDay=maxTagsDay; s.maxTasksDay=maxTasksDay; s.monthSpan=monthSet.size;
+  s.questsDone=questsDone; s.cleanDays=cleanDays; s.weeklyDone=Object.keys((meta&&meta.weeklyClaimed)||{}).length;
   s.maxStreak=longestRun(doneDates); s.ratingHigh7=longestRun(ratingHighDates); s.sleep7=longestRun(sleepDates);
   s.maxPerfectRun=longestRun(perfectDates);
   // серия месяцев подряд с активностью
@@ -454,7 +547,10 @@ const ACH_LADDERS = [
   {id:'monthincome', g:'Финансы',   icon:'📈', title:'Доход за месяц',   desc:'Лучший месячный доход',                  val:s=>s.bestMonthIncome,fmt:'money',tiers:[1000,10000,50000,100000,300000,500000,1000000]},
   {id:'bigincome',   g:'Финансы',   icon:'🤑', title:'Крупный доход',    desc:'Крупнейшая разовая операция дохода',      val:s=>s.maxIncomeTx,fmt:'money', tiers:[1000,5000,10000,50000,100000,500000,1000000]},
   {id:'saverate',    g:'Финансы',   icon:'🐿', title:'Норма сбережений', desc:'Лучшая месячная норма сбережений',       val:s=>s.bestSavingsRatePct,fmt:'pct',tiers:[10,20,30,40,50,60,70,80,90]},
-  {id:'level',       g:'Уровни',    icon:'🏆', title:'Уровень',          desc:'Достигнут уровень',                      val:s=>s.level,            tiers:[2,3,5,7,10,15,20,25,30,40,50,65,80,100]},
+  {id:'level',       g:'Уровни',    icon:'🏆', title:'Уровень',          desc:'Достигнут уровень',                      val:s=>s.level,            tiers:[2,3,5,7,10,15,20,25,30,40,50]},
+  {id:'quests',      g:'Геймификация', icon:'🎯', title:'Заданий дня',    desc:'Выполнено ежедневных заданий',           val:s=>s.questsDone,       tiers:[1,10,25,50,100,250,500,1000]},
+  {id:'weekly',      g:'Геймификация', icon:'🏆', title:'Испытаний недели', desc:'Пройдено недельных испытаний',          val:s=>s.weeklyDone,       tiers:[1,3,5,10,20,52,104]},
+  {id:'cleandays',   g:'Геймификация', icon:'🧼', title:'Чистых дней',    desc:'Активных дней без анти-тегов',           val:s=>s.cleanDays,        tiers:[1,7,14,30,60,100,200,365]},
   {id:'habits',      g:'Привычки',  icon:'🔁', title:'Привычек заведено', desc:'Всего создано привычек',                 val:s=>s.habitsCount,        tiers:[1,3,5,8,12,20]},
   {id:'habitchecks', g:'Привычки',  icon:'☑️', title:'Отметок привычек',  desc:'Всего выполнений привычек',              val:s=>s.habitCompletions,   tiers:[1,10,50,100,250,500,1000,2500,5000]},
   {id:'habitstreak', g:'Привычки',  icon:'🔥', title:'Стрик привычки',    desc:'Лучший стрик одной привычки',            val:s=>s.habitBestStreak,    tiers:[3,7,14,21,30,50,66,100,150,200,365]},
@@ -660,6 +756,7 @@ function App(){
   const [dailyTasks,setDailyTasks] = useState([]);
   const [ongoing,setOngoing] = useState([]);
   const [tags,setTags] = useState(TAGS_DEFAULT);
+  const [antiTags,setAntiTags] = useState(ANTITAGS_DEFAULT);
   const [goals,setGoals] = useState({year:[],month:[],week:[],day:[]});
   const [study,setStudy] = useState([]);
   const [notes,setNotes] = useState([]);
@@ -673,6 +770,7 @@ function App(){
   const [meta,setMeta] = useState({xp:0, health:100, lastHealthCheck: todayStr()});
   const [achievements,setAchievements] = useState({unlocked:{}, seeded:false});
   const [toasts,setToasts] = useState([]);
+  const [levelUp,setLevelUp] = useState(null); // {level, rank} — грандиозный баннер при новом уровне
   const [selectedDate,setSelectedDate] = useState(todayStr());
   const [profileOpen,setProfileOpen] = useState(false);
   const [goalsArchive,setGoalsArchive] = useState([]);
@@ -693,6 +791,7 @@ function App(){
     setDailyTasks(loadKey('lifeos:dailyTasks', []));
     setOngoing(loadKey('lifeos:ongoingTasks', []));
     setTags(loadKey('lifeos:tags', TAGS_DEFAULT));
+    setAntiTags(loadKey('lifeos:antiTags', ANTITAGS_DEFAULT));
     const loadedGoals = loadKey('lifeos:goals', {
       year:[{id:'y1',title:'Английский до уровня B2+',progress:0},{id:'y2',title:'Определиться: аспирантура / армия',progress:0},{id:'y3',title:'Стабильные кардио-тренировки 3+ раза в неделю',progress:0}],
       month:[{id:'m1',title:'Закрыть текущую сессию в магистратуре',progress:0},{id:'m2',title:'12 тренировок на велотренажёре',progress:0}],
@@ -725,19 +824,37 @@ function App(){
     const f = loadKey('lifeos:finance', {transactions:[],accounts:[],debtors:[]});
     setFinance({transactions:f.transactions||[], accounts:f.accounts||[], debtors:f.debtors||[]});
 
-    // health recompute
+    // health recompute (session 024): день отдыха (не было задач/привычек) — НЕ штрафуем.
+    // −10 только если задачи были и ничего не сделано. Плюс штрафы: анти-теги, пропущенные
+    // запланированные привычки, просроченные дедлайны дел. +5 за активный день (cap 100).
     const loadedDays = loadKey('lifeos:days', {});
     const loadedHabits = loadKey('lifeos:habits', []);
+    const loadedStudy = loadKey('lifeos:study', []);
+    const gcfg = gamifyCfg(loadKey('lifeos:settings', {}));
     let m = loadKey('lifeos:meta', {xp:0, health:100, lastHealthCheck: todayStr()});
     let cursor = m.lastHealthCheck || todayStr();
     const t = todayStr();
     let steps = 0;
     let health = m.health ?? 100;
     while (cursor < t && steps < 60){
-      const hasActivity = (loadedDays[cursor]?.tasks||[]).some(x=>x.done) ||
-        Object.values(loadedDays[cursor]?.dailyCompletions||{}).some(Boolean) ||
+      const dayE = loadedDays[cursor] || {};
+      const hasActivity = (dayE.tasks||[]).some(x=>x.done) ||
+        Object.values(dayE.dailyCompletions||{}).some(Boolean) ||
         loadedHabits.some(h => h.log && h.log[cursor]);
-      health = hasActivity ? Math.min(100, health+5) : Math.max(0, health-10);
+      const hadTasks = (dayE.tasks||[]).length>0; // были одноразовые задачи на этот день
+      const missedHabits = loadedHabits.filter(h => isHabitScheduled(h,cursor) && !(h.log && h.log[cursor])).length;
+      let delta = 0;
+      if(hasActivity) delta += 5;
+      else if(hadTasks) delta -= 10;            // задачи были, а день пуст → штраф
+      // else: день отдыха (нет задач и активности) → 0
+      delta -= gcfg.hpAnti * (dayE.antiTags||[]).length;                       // анти-теги
+      delta -= Math.min(HEALTH_MISSED_HABIT_CAP, gcfg.hpHabit * missedHabits);  // провал привычки
+      // просроченный дедлайн дела: разово, на следующий день после дедлайна
+      loadedStudy.forEach(x=>{ if(!x.deadline) return;
+        const overdue = (x.status!=='Выполнено') || (x.completedAt && x.completedAt> x.deadline);
+        if(overdue && cursor === addDays(x.deadline,1)) delta -= gcfg.hpDeadline;
+      });
+      health = Math.max(0, Math.min(100, health + delta));
       cursor = addDays(cursor, 1);
       steps++;
     }
@@ -759,6 +876,7 @@ function App(){
         case 'lifeos:dailyTasks': setDailyTasks(v); break;
         case 'lifeos:ongoingTasks': setOngoing(v); break;
         case 'lifeos:tags': setTags(v); break;
+        case 'lifeos:antiTags': setAntiTags(v); break;
         case 'lifeos:goals': setGoals(v); break;
         case 'lifeos:study': setStudy(v); break;
         case 'lifeos:notes': {
@@ -816,6 +934,7 @@ function App(){
     dailyTasks: (n)=>{setDailyTasks(n); saveKey('lifeos:dailyTasks',n);},
     ongoing: (n)=>{setOngoing(n); saveKey('lifeos:ongoingTasks',n);},
     tags: (n)=>{setTags(n); saveKey('lifeos:tags',n);},
+    antiTags: (n)=>{setAntiTags(n); saveKey('lifeos:antiTags',n);},
     goals: (n)=>{setGoals(n); saveKey('lifeos:goals',n);},
     study: (n)=>{setStudy(n); saveKey('lifeos:study',n);},
     notes: (n)=>{setNotes(n); saveKey('lifeos:notes',n);},
@@ -829,6 +948,16 @@ function App(){
     finance: (n)=>{setFinance(n); saveKey('lifeos:finance',n);},
   };
   const addXp = (amount) => setMeta(prev => { const n={...prev, xp:Math.max(0,(prev.xp||0)+amount)}; saveKey('lifeos:meta', n); return n; });
+  const gamify = gamifyCfg(settings); // настраиваемые значения геймификации (session 024)
+  // Состояние сворачивания секций (цели/дела/алерты) — хранится в settings.collapse, переживает перезаход. session 024
+  const collapseState = settings.collapse || {};
+  const toggleCollapse = (kind, key) => {
+    const c = {...(settings.collapse||{})}; const sub = {...(c[kind]||{})};
+    sub[key] = !sub[key]; c[kind] = sub;
+    persist.settings({...settings, collapse:c});
+  };
+  // Скрыть конкретный бюджет-алерт (по месяцу+категории — на следующий месяц вернётся). session 024
+  const dismissAlert = (key) => { const d={...(settings.dismissedAlerts||{})}; d[key]=true; persist.settings({...settings, dismissedAlerts:d}); };
 
   const entry = days[selectedDate] || {tasks:[],sleepHours:null,note:'',rating:null,tags:[],dailyCompletions:{}};
   const updateEntry = (patch) => { const e = days[selectedDate] || {tasks:[],sleepHours:null,note:'',rating:null,tags:[],dailyCompletions:{}}; persist.days({...days,[selectedDate]:{...e,...patch}}); };
@@ -858,6 +987,12 @@ function App(){
   };
   const deleteTask = (id) => { const rem = entry.tasks.find(t=>t.id===id); updateEntry({tasks: entry.tasks.filter(t=>t.id!==id)}); if(rem && rem.done){ addXp(-(DIFF_XP[rem.difficulty]||10)); contributeToGoals(goalLinksOf(rem),-1); } };
   const toggleTagOnDay = (name) => { const cur = entry.tags||[]; updateEntry({tags: cur.includes(name)? cur.filter(x=>x!==name) : [...cur,name]}); };
+  // Анти-тег на дне: отметка снимает XP, снятие возвращает (обратимо, как задача). Здоровье — на replay. session 024
+  const toggleAntiTagOnDay = (name) => {
+    const cur = entry.antiTags||[]; const on = cur.includes(name);
+    updateEntry({antiTags: on ? cur.filter(x=>x!==name) : [...cur,name]});
+    addXp(on ? gamify.antiXp : -gamify.antiXp);
+  };
   // 🔁 перенос невыполненных задач с предыдущего дня в текущий (selectedDate). session 019.
   const prevUndoneTasks = ((days[addDays(selectedDate,-1)]?.tasks)||[]).filter(t=>!t.done);
   const carryOverTasks = () => {
@@ -881,6 +1016,8 @@ function App(){
 
   const addTagGlobal = (name) => { if(!tags.includes(name)) persist.tags([...tags,name]); };
   const removeTagGlobal = (name) => persist.tags(tags.filter(t=>t!==name));
+  const addAntiTagGlobal = (name) => { if(!antiTags.includes(name)) persist.antiTags([...antiTags,name]); };
+  const removeAntiTagGlobal = (name) => persist.antiTags(antiTags.filter(t=>t!==name));
 
   // новая цель — БЕЗ трекера (mode:'none'); привязана к текущему периоду (нед/мес/год)
   const addGoal = (scope,text) => persist.goals({...goals,[scope]:[...(goals[scope]||[]),{id:uid(),title:text,progress:0,mode:'none',period:periodOf(scope)}]});
@@ -1117,7 +1254,25 @@ function App(){
     return count;
   }, [days]);
 
-  const {level,into,needed} = levelForXp(meta.xp||0);
+  const {level,into,needed,max:levelMax} = levelForXp(meta.xp||0);
+  const rank = rankForLevel(level);
+  const mountAtRef = useRef(Date.now()); // общее mount-окно для гейта тостов/баннеров
+
+  // 🎉 Level-up: грандиозный баннер + салют + звук при РОСТЕ уровня. session 024.
+  // Гейтим mount-окном (как достижения): скачок уровня в первые секунды (загрузка meta/синк) — молча,
+  // только настоящий рост в сессии (закрыл задачу → уровень вырос) даёт баннер.
+  const prevLevelRef = useRef(null);
+  useEffect(() => {
+    const prev = prevLevelRef.current;
+    prevLevelRef.current = level;
+    if(prev === null) return;
+    const silent = (Date.now() - mountAtRef.current) < 4000;
+    if(!silent && level > prev){
+      setLevelUp({ level, rank: rankForLevel(level) });
+      if(!settings.soundOff) playLevelUpSound();
+    }
+  }, [level]); // eslint-disable-line
+  useEffect(() => { if(!levelUp) return; const t=setTimeout(()=>setLevelUp(null), 5200); return ()=>clearTimeout(t); }, [levelUp]);
 
   // ⚡ Импульс: активность за последние 7 дней (задачи + ежедневные + привычки), 0–100.
   // ~3 действия/день = 100%. Растёт когда делаешь много, падает когда сбавляешь — в отличие от XP,
@@ -1131,6 +1286,87 @@ function App(){
     }
     return Math.min(100, Math.round(c/21*100));
   }, [days, habits]);
+
+  // 🔗 Комбо: сколько дней ПОДРЯД была активность (задача/ежедневная/привычка), считая от сегодня
+  // (или со вчера, если сегодня ещё пусто). Множитель для показа: ×1.0…×2.0 (cap на COMBO_CAP_DAYS).
+  // Бонус за комбо начисляется раз в день при первой активности (см. эффект ниже). session 024.
+  const combo = useMemo(() => {
+    const activeOn = (ds) => (days[ds]?.tasks||[]).some(t=>t.done)
+      || Object.values(days[ds]?.dailyCompletions||{}).some(Boolean)
+      || habits.some(h => h.log && h.log[ds]);
+    let streak = 0, cur = todayStr();
+    if(!activeOn(cur)) cur = addDays(cur,-1); // сегодня ещё не начато — не рвём вчерашнее комбо
+    while(activeOn(cur)){ streak++; cur = addDays(cur,-1); }
+    const mult = 1 + 0.1 * Math.min(streak, COMBO_CAP_DAYS);
+    return { streak, mult };
+  }, [days, habits]);
+
+  // 🎯 Задания дня (для СЕГОДНЯ): детерминированный набор из 3, со статусом выполнения/начисления. session 024
+  const todayQuests = useMemo(() => {
+    const t = todayStr(); const e = days[t] || {};
+    const ctx = {
+      tasksDone:(e.tasks||[]).filter(x=>x.done).length,
+      taskTotal:(e.tasks||[]).length,
+      dailyDone:Object.values(e.dailyCompletions||{}).filter(Boolean).length,
+      hasDailies:(dailyTasks||[]).length>0,
+      habitDone:habits.filter(h=>h.log&&h.log[t]).length,
+      hasHabits:habits.length>0,
+      rated:e.rating!=null, noted:!!(e.note&&e.note.trim()),
+      antiCount:(e.antiTags||[]).length, sleep:e.sleepHours??0,
+    };
+    const claimed = e.questsClaimed||[];
+    return questsForDate(t, ctx).map(q=>({ id:q.id, icon:q.icon, label:q.label, xp:q.xp, done:q.done(ctx), claimed:claimed.includes(q.id) }));
+  }, [days, habits, dailyTasks]);
+
+  // 🏆 Испытание недели (текущая ISO-неделя): прогресс + статус начисления. session 024
+  const weekly = useMemo(() => {
+    const period = periodOf('week'); const chal = weeklyForPeriod(period);
+    let tasksDone=0, perfectDays=0, activeDays=0, ratedDays=0;
+    Object.entries(days).forEach(([ds,e])=>{ if(periodOf('week',ds)!==period) return;
+      const dn=(e.tasks||[]).filter(x=>x.done).length + Object.values(e.dailyCompletions||{}).filter(Boolean).length;
+      tasksDone+=dn;
+      const tot=(e.tasks||[]).length; if(tot>=3 && (e.tasks||[]).every(x=>x.done)) perfectDays++;
+      if(dn>0 || (e.tags||[]).length>0 || e.rating!=null || (e.note&&e.note.trim()) || e.sleepHours!=null) activeDays++;
+      if(e.rating!=null) ratedDays++;
+    });
+    const studyDone = study.filter(x=>x.status==='Выполнено' && x.completedAt && periodOf('week',x.completedAt)===period).length;
+    const cur = chal.val({tasksDone,perfectDays,activeDays,ratedDays,studyDone});
+    return { period, chal, cur, target:chal.target, done:cur>=chal.target, claimed:!!((meta.weeklyClaimed||{})[period]) };
+  }, [days, study, meta]);
+
+  // Начисление: комбо-бонус (раз в день при первой активности) + бонусы за выполненные задания дня.
+  // Один общий patch дня, чтобы эффекты не затирали друг друга. Гейт mount-окном — на загрузке молча. session 024
+  useEffect(() => {
+    const t = todayStr(); const e = days[t]; if(!e) return;
+    let patch = null;
+    const activeToday = (e.tasks||[]).some(x=>x.done) || Object.values(e.dailyCompletions||{}).some(Boolean) || habits.some(h=>h.log&&h.log[t]);
+    let comboBonus = 0;
+    if(activeToday && !e.comboClaimed){ comboBonus = gamify.comboBonus*Math.min(combo.streak, COMBO_CAP_DAYS); patch = {...(patch||e), comboClaimed:true}; }
+    const claimed = (patch||e).questsClaimed || [];
+    const newly = todayQuests.filter(q=>q.done && !claimed.includes(q.id));
+    let questBonus = 0;
+    if(newly.length){ questBonus = newly.reduce((s,q)=>s+q.xp,0); patch = {...(patch||e), questsClaimed:[...claimed, ...newly.map(q=>q.id)]}; }
+    if(!patch) return;
+    persist.days({...days, [t]:patch});
+    const total = comboBonus + questBonus; if(total>0) addXp(total);
+    const silent = (Date.now()-mountAtRef.current) < 4000;
+    if(!silent){
+      const add=[];
+      if(comboBonus>0) add.push({tid:uid(), combo:comboBonus, streak:combo.streak});
+      newly.forEach(q=>add.push({tid:uid(), quest:q.label, xp:q.xp}));
+      if(add.length) setToasts(prev=>[...prev, ...add]);
+    }
+  }, [days, habits, combo.streak, todayQuests]); // eslint-disable-line
+
+  // Начисление награды за испытание недели (разово за неделю).
+  useEffect(() => {
+    if(!weekly.done || weekly.claimed) return;
+    const wc = {...(meta.weeklyClaimed||{}), [weekly.period]:true};
+    const nm = {...meta, weeklyClaimed:wc}; setMeta(nm); saveKey('lifeos:meta', nm);
+    addXp(WEEKLY_XP);
+    const silent = (Date.now()-mountAtRef.current) < 4000;
+    if(!silent) setToasts(prev=>[...prev, {tid:uid(), weekly:weekly.chal.label}]);
+  }, [weekly.done, weekly.claimed]); // eslint-disable-line
 
   // 🔍 глобальный поиск по задачам/делам/заметкам/целям/привычкам. session 015.
   const searchResults = useMemo(() => {
@@ -1151,7 +1387,6 @@ function App(){
   // ---------- achievements: unlocked-множество ОТРАЖАЕТ ТЕКУЩЕЕ состояние (session 011) ----------
   // Раньше было «липко» (раз получил — навсегда). Теперь отменяемо: откатил действие → награда
   // уходит. Стрик/суммарные награды не пропадают, т.к. их метрики — исторические максимумы/тоталы.
-  const mountAtRef = useRef(Date.now());
   const achStats = useMemo(()=>computeAchStats({days,goals,study,notes,finance,meta,ongoing,budgets,habits,goalsArchive}),
     [days,goals,study,notes,finance,meta,ongoing,budgets,habits,goalsArchive]);
   // primitive dep so the unlock effect only fires when the earned SET actually changes
@@ -1334,11 +1569,19 @@ function App(){
 
       {profileOpen && (
         <Modal onClose={()=>setProfileOpen(false)} title={formatDateRu(todayStr())}>
+          <div style={{display:'flex',alignItems:'center',gap:12,background:C.panelAlt,border:`1px solid ${rank.color}`,borderRadius:12,padding:'14px 16px',marginBottom:12}}>
+            <span style={{fontSize:34,lineHeight:1}}>{rank.icon}</span>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:17,fontWeight:800,color:rank.color}}>{rank.name}</div>
+              <div style={{fontSize:11.5,color:C.dim}}>Ур. {level}{levelMax?' · МАКС':''}{nextRank(level)?` · до «${nextRank(level).name}» ${nextRank(level).min-level} ур.`:''}</div>
+            </div>
+          </div>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
             <div style={S.profTile}><span style={{fontSize:20}}>🔥</span><div><div style={S.gaugeVal}>{streak}</div><div style={S.gaugeLabel}>дней подряд</div></div></div>
             <div style={S.profTile}><span style={{fontSize:20}}>❤</span><div style={{flex:1}}><div style={S.gaugeVal}>{meta.health ?? 100}</div><div style={S.gaugeBarWrap}><div style={{...S.gaugeBarFill, background:C.red, width:`${meta.health ?? 100}%`}}/></div></div></div>
             <div style={S.profTile}><span style={{fontSize:20}}>⚡</span><div style={{flex:1}}><div style={S.gaugeVal}>{impulse}</div><div style={S.gaugeBarWrap}><div style={{...S.gaugeBarFill, background:C.purple, width:`${impulse}%`}}/></div><div style={S.gaugeLabel}>импульс · 7 дней</div></div></div>
-            <div style={S.profTile}><span style={{fontSize:20}}>🏆</span><div style={{flex:1}}><div style={S.gaugeVal}>Ур. {level}</div><div style={S.gaugeBarWrap}><div style={{...S.gaugeBarFill, width:`${(into/needed)*100}%`}}/></div><div style={S.gaugeLabel}>{into}/{needed} XP</div></div></div>
+            <div style={S.profTile}><span style={{fontSize:20}}>🔗</span><div style={{flex:1}}><div style={S.gaugeVal}>×{combo.mult.toFixed(1)}</div><div style={S.gaugeBarWrap}><div style={{...S.gaugeBarFill, background:C.cyan, width:`${Math.min(100,combo.streak/COMBO_CAP_DAYS*100)}%`}}/></div><div style={S.gaugeLabel}>комбо · {combo.streak} дн.</div></div></div>
+            <div style={{...S.profTile, gridColumn:'1 / -1'}}><span style={{fontSize:20}}>🏆</span><div style={{flex:1}}><div style={S.gaugeVal}>Ур. {level}{levelMax?' · МАКС':''}</div><div style={S.gaugeBarWrap}><div style={{...S.gaugeBarFill, width:`${levelMax?100:(into/needed)*100}%`}}/></div><div style={S.gaugeLabel}>{levelMax?'максимальный уровень':`${into}/${needed} XP`}</div></div></div>
           </div>
           {vis('tab.achievements') && <button style={{...S.sheetRow,marginTop:12}} onClick={()=>{ setTab('achievements'); setProfileOpen(false); }}>🏅 Награды · {achUnlockedCount}</button>}
           <div style={S.sheetSection}>Аккаунт · синхронизация</div>
@@ -1377,20 +1620,26 @@ function App(){
         addTask={addTask} toggleTask={toggleTask} deleteTask={deleteTask} updateEntry={updateEntry} goals={goals}
         maskOps={finMask.ops}
         tags={tags} toggleTagOnDay={toggleTagOnDay} addTagGlobal={addTagGlobal} removeTagGlobal={removeTagGlobal}
+        antiTags={antiTags} toggleAntiTagOnDay={toggleAntiTagOnDay} addAntiTagGlobal={addAntiTagGlobal} removeAntiTagGlobal={removeAntiTagGlobal} antiXp={gamify.antiXp} hpAnti={gamify.hpAnti}
         dailyTasks={dailyTasks} toggleDaily={toggleDaily} addDailyTask={addDailyTask} deleteDailyTask={deleteDailyTask}
         ongoing={ongoing} addOngoing={addOngoing} finishOngoing={finishOngoing} deleteOngoing={deleteOngoing}
         bills={bills} taskTemplates={taskTemplates} saveTaskTemplate={saveTaskTemplate} applyTaskTemplate={applyTaskTemplate} deleteTaskTemplate={deleteTaskTemplate}
-        carryOverTasks={carryOverTasks} prevUndoneCount={prevUndoneTasks.length} />}
+        carryOverTasks={carryOverTasks} prevUndoneCount={prevUndoneTasks.length}
+        isToday={selectedDate===todayStr()} quests={todayQuests} weekly={weekly} combo={combo}
+        collapsedUI={collapseState.ui||{}} onToggleUI={(key)=>toggleCollapse('ui',key)} />}
       {tab==='habits' && <HabitsTab habits={habits} addHabit={addHabit} toggleHabitDay={toggleHabitDay} deleteHabit={deleteHabit} updateHabit={updateHabit} archiveHabit={archiveHabit} archive={habitsArchive} deleteArchivedHabit={deleteArchivedHabit} restoreHabit={restoreHabit} goals={goals} notifsOn={!settings.notifOff} />}
       {tab==='goals' && <GoalsTab goals={goals} addGoal={addGoal} setGoalProgress={setGoalProgress}
         addGoalSubtask={addGoalSubtask} toggleGoalSubtask={toggleGoalSubtask}
         deleteGoalSubtask={deleteGoalSubtask} deleteGoal={deleteGoal}
         setGoalMode={setGoalMode} setGoalCounter={setGoalCounter} archiveGoal={archiveGoal}
+        collapsed={collapseState.goals||{}} onToggleCollapse={(sc)=>toggleCollapse('goals',sc)}
         archive={goalsArchive} openArchive={()=>setArchiveOpen(true)} />}
-      {tab==='study' && <StudyTab study={study} addStudyTask={addStudyTask} updateStudyTask={updateStudyTask} deleteStudyTask={deleteStudyTask} archiveStudyTask={archiveStudyTask} archive={studyArchive} deleteArchivedStudy={deleteArchivedStudy} restoreStudy={restoreStudy} />}
+      {tab==='study' && <StudyTab study={study} addStudyTask={addStudyTask} updateStudyTask={updateStudyTask} deleteStudyTask={deleteStudyTask} archiveStudyTask={archiveStudyTask} archive={studyArchive} deleteArchivedStudy={deleteArchivedStudy} restoreStudy={restoreStudy}
+        collapsed={collapseState.study||{}} onToggleCollapse={(epic)=>toggleCollapse('study',epic)} />}
       {tab==='notes' && <NotesTab notes={notes} addNote={addNote} updateNote={updateNote} deleteNote={deleteNote} />}
       {tab==='finance' && <FinanceTab finance={finance} categories={categories} budgets={budgets} incomePlans={incomePlans} bills={bills} defaults={settings.defaults||{}}
         finMask={finMask} setSettingFlag={setSettingFlag}
+        collapse={collapseState} toggleCollapse={toggleCollapse} dismissedAlerts={settings.dismissedAlerts||{}} dismissAlert={dismissAlert}
         addTransaction={addTransaction} deleteTransaction={deleteTransaction}
         addCategory={addCategory} removeCategory={removeCategory} setBudget={setBudget} removeBudget={removeBudget}
         setIncomePlan={setIncomePlan} removeIncomePlan={removeIncomePlan} setBudgetsBatch={setBudgetsBatch} setIncomePlansBatch={setIncomePlansBatch}
@@ -1405,6 +1654,7 @@ function App(){
         soundOff={!!settings.soundOff} notifOff={!!settings.notifOff}
         maskNetWorth={!!settings.maskNetWorth} maskDebts={!!settings.maskDebts} maskOps={!!settings.maskOps} maskAllFinance={!!settings.maskAllFinance}
         morningCfg={settings.morningSummary||null} setSettingFlag={setSettingFlag}
+        gamify={gamify} setGamify={(patch)=>persist.settings({...settings, gamify:{...gamify, ...patch}})}
         requestNotifs={requestNotifs} testNotif={testNotif} showNotifDiag={showNotifDiag} notifMsg={notifMsg} deadlineCfg={settings.deadlineNotif||null} />}
       </div>
 
@@ -1500,6 +1750,40 @@ function App(){
                 </div>
               );
             }
+            if(t.combo){
+              return (
+                <div key={t.tid} className="anim-toast" style={{...S.toast, borderColor:C.cyan}}>
+                  <span style={{fontSize:26}}>🔗</span>
+                  <div>
+                    <div style={{fontSize:10.5, color:C.cyan, letterSpacing:'.08em'}}>КОМБО · {t.streak} ДН.</div>
+                    <div style={{fontSize:14, fontWeight:700}}>+{t.combo} XP</div>
+                    <div style={{fontSize:11, color:C.dim}}>серия активных дней</div>
+                  </div>
+                </div>
+              );
+            }
+            if(t.quest){
+              return (
+                <div key={t.tid} className="anim-toast" style={{...S.toast, borderColor:C.green}}>
+                  <span style={{fontSize:26}}>🎯</span>
+                  <div>
+                    <div style={{fontSize:10.5, color:C.green, letterSpacing:'.08em'}}>ЗАДАНИЕ ДНЯ · +{t.xp} XP</div>
+                    <div style={{fontSize:14, fontWeight:700}}>{t.quest}</div>
+                  </div>
+                </div>
+              );
+            }
+            if(t.weekly){
+              return (
+                <div key={t.tid} className="anim-toast" style={{...S.toast, borderColor:C.amber}}>
+                  <span style={{fontSize:26}}>🏆</span>
+                  <div>
+                    <div style={{fontSize:10.5, color:C.amber, letterSpacing:'.08em'}}>ИСПЫТАНИЕ НЕДЕЛИ · +{WEEKLY_XP} XP</div>
+                    <div style={{fontSize:14, fontWeight:700}}>{t.weekly}</div>
+                  </div>
+                </div>
+              );
+            }
             const a=ACHIEVEMENTS.find(x=>x.id===t.id); if(!a) return null; const tier=ACH_TIERS[a.tier];
             return (
               <div key={t.tid} className="anim-toast" style={{...S.toast, borderColor:tier.c}}>
@@ -1513,15 +1797,39 @@ function App(){
             ); })}
         </div>
       )}
+
+      {levelUp && (
+        <div style={S.levelUpOverlay} onClick={()=>setLevelUp(null)}>
+          <div className="lo-confetti">
+            {Array.from({length:36}).map((_,i)=>{
+              const cols=[C.amber,C.cyan,C.green,C.purple,C.red,'#6FA8DC','#E0C36B'];
+              return <span key={i} className="lo-confetti-piece" style={{ left:`${(i*2.8+3)%100}%`, background:cols[i%cols.length],
+                animationDelay:`${(i%12)*0.12}s`, animationDuration:`${2.2+(i%5)*0.35}s`,
+                transform:`rotate(${i*40}deg)`, width:i%3===0?9:6, height:i%3===0?14:9 }} />;
+            })}
+          </div>
+          <div className="anim-levelup" style={S.levelUpCard}>
+            <div style={{fontSize:12,letterSpacing:'.18em',color:C.amber,fontWeight:700}}>НОВЫЙ УРОВЕНЬ</div>
+            <div style={{fontSize:72,fontWeight:900,lineHeight:1,margin:'6px 0',color:C.text,textShadow:`0 0 26px ${C.amber}`}}>{levelUp.level}</div>
+            <div style={{fontSize:26}}>{levelUp.rank.icon}</div>
+            <div style={{fontSize:16,fontWeight:800,color:levelUp.rank.color,marginTop:2}}>{levelUp.rank.name}</div>
+            {levelMax && <div style={{fontSize:12,color:C.dim,marginTop:6}}>Максимальный уровень достигнут 👑</div>}
+            <div style={{fontSize:11,color:C.dim,marginTop:10}}>нажми, чтобы закрыть</div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
 // ============================================================ Today
 function TodayTab({entry, selectedDate, setSelectedDate, addTask, toggleTask, deleteTask, updateEntry, goals,
-  tags, toggleTagOnDay, addTagGlobal, removeTagGlobal, dailyTasks, toggleDaily, addDailyTask, deleteDailyTask,
+  tags, toggleTagOnDay, addTagGlobal, removeTagGlobal,
+  antiTags=[], toggleAntiTagOnDay, addAntiTagGlobal, removeAntiTagGlobal, antiXp=15, hpAnti=5,
+  dailyTasks, toggleDaily, addDailyTask, deleteDailyTask,
   ongoing, addOngoing, finishOngoing, deleteOngoing, bills, maskOps=false,
-  taskTemplates=[], saveTaskTemplate, applyTaskTemplate, deleteTaskTemplate, carryOverTasks, prevUndoneCount=0}){
+  taskTemplates=[], saveTaskTemplate, applyTaskTemplate, deleteTaskTemplate, carryOverTasks, prevUndoneCount=0,
+  isToday=true, quests=[], weekly=null, combo={streak:0,mult:1}, collapsedUI={}, onToggleUI}){
   const [newTaskText,setNewTaskText] = useState('');
   const [tplOpen,setTplOpen] = useState(false);
   const [tplName,setTplName] = useState('');
@@ -1542,6 +1850,8 @@ function TodayTab({entry, selectedDate, setSelectedDate, addTask, toggleTask, de
   const [noteInput,setNoteInput] = useState(entry.note || '');
   const [newTagInput,setNewTagInput] = useState('');
   const [showTagInput,setShowTagInput] = useState(false);
+  const [newAntiInput,setNewAntiInput] = useState('');
+  const [showAntiInput,setShowAntiInput] = useState(false);
   const [newDailyText,setNewDailyText] = useState('');
   const [ongoingText,setOngoingText] = useState('');
   const [ongoingEnd,setOngoingEnd] = useState('');
@@ -1568,6 +1878,38 @@ function TodayTab({entry, selectedDate, setSelectedDate, addTask, toggleTask, de
           {selectedDate!==todayStr() && <div style={{...S.dimSpan, marginTop:6}}>не сегодня — редактируешь другую дату</div>}
           {todaysBill && <div style={{...S.dimSpan, marginTop:6, color:C.amber}}>Сегодня платёж: {todaysBill.name} — {maskMoney(maskOps, todaysBill.amount)}</div>}
         </div>
+
+        {isToday && vis('today.quests') && quests.length>0 && (() => { const isC=!!collapsedUI.quests; return (
+        <div style={S.panel}>
+          <div style={{...S.panelTitle,cursor:'pointer',display:'flex',alignItems:'center',marginBottom:isC?0:10}} onClick={()=>onToggleUI && onToggleUI('quests')}>
+            <span style={{marginRight:6}}>{isC?'▶':'▼'}</span>🎯 Задания дня <span style={S.dimSpan}>{quests.filter(q=>q.done).length}/{quests.length}</span>
+          </div>
+          {!isC && quests.map(q=>(
+            <div key={q.id} style={{display:'flex',alignItems:'center',gap:8,padding:'4px 0'}}>
+              <span style={{fontSize:15,opacity:q.done?1:.5}}>{q.done?'✅':q.icon}</span>
+              <span style={{flex:1,minWidth:0,fontSize:12.5,color:q.done?C.green:C.text,textDecoration:q.done?'line-through':'none',overflowWrap:'anywhere'}}>{q.label}</span>
+              <span style={{fontSize:11,color:q.claimed?C.green:C.dim,fontFamily:"'JetBrains Mono',monospace",flexShrink:0}}>+{q.xp}{q.claimed?' ✓':''}</span>
+            </div>
+          ))}
+        </div>
+        ); })()}
+
+        {isToday && vis('today.weekly') && weekly && (() => { const isC=!!collapsedUI.weekly; return (
+        <div style={S.panel}>
+          <div style={{...S.panelTitle,cursor:'pointer',display:'flex',alignItems:'center',marginBottom:isC?0:10}} onClick={()=>onToggleUI && onToggleUI('weekly')}>
+            <span style={{marginRight:6}}>{isC?'▶':'▼'}</span>🏆 Испытание недели{isC && weekly.claimed ? <span style={S.dimSpan}>✓</span> : isC ? <span style={S.dimSpan}>{Math.min(weekly.cur,weekly.target)}/{weekly.target}</span> : null}
+          </div>
+          {!isC && <>
+          <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:6}}>
+            <span style={{fontSize:15}}>{weekly.chal.icon}</span>
+            <span style={{flex:1,minWidth:0,fontSize:12.5,overflowWrap:'anywhere'}}>{weekly.chal.label}</span>
+            <span style={{fontSize:11,color:weekly.done?C.green:C.dim,fontFamily:"'JetBrains Mono',monospace",flexShrink:0}}>{Math.min(weekly.cur,weekly.target)}/{weekly.target}</span>
+          </div>
+          <div style={{height:5,background:C.panelAlt,borderRadius:3,overflow:'hidden'}}><div style={{height:'100%',background:weekly.done?C.green:C.amber,width:`${Math.min(100,weekly.cur/weekly.target*100)}%`}}/></div>
+          <div style={{fontSize:10.5,color:weekly.claimed?C.green:C.dim,marginTop:5}}>{weekly.claimed?`✓ пройдено · +${WEEKLY_XP} XP`:weekly.done?`выполнено! +${WEEKLY_XP} XP начислено`:`награда +${WEEKLY_XP} XP`}</div>
+          </>}
+        </div>
+        ); })()}
 
         <div style={S.panel}>
           <div style={S.panelTitle}>Задачи <span style={S.dimSpan}>{doneCount}/{entry.tasks.length}</span></div>
@@ -1694,6 +2036,29 @@ function TodayTab({entry, selectedDate, setSelectedDate, addTask, toggleTask, de
               </div>
             ) : <div className="chip" style={{background:C.panelAlt,color:C.dim,borderColor:C.border}} onClick={()=>setShowTagInput(true)}>+ добавить</div>}
           </div>
+        </div>
+        )}
+
+        {vis('today.antitags') && (
+        <div style={S.panel}>
+          <div style={{...S.panelTitle, color:C.red}}>🚫 Анти-теги дня <span style={S.dimSpan}>−{antiXp} XP</span></div>
+          <div style={{display:'flex',flexWrap:'wrap',gap:6,alignItems:'center'}}>
+            {antiTags.map(tg=>{ const active=(entry.antiTags||[]).includes(tg);
+              return <div key={tg} className="chip" style={{background:active?C.red:C.panelAlt, color:active?'#1A0B0B':C.dim, borderColor:active?C.red:C.border, display:'inline-flex', alignItems:'center', gap:4, paddingTop:2, paddingBottom:2}}>
+                <span style={{cursor:'pointer'}} onClick={()=>toggleAntiTagOnDay(tg)}>{tg}</span>
+                <ConfirmIconBtn onConfirm={()=>removeAntiTagGlobal(tg)} title="удалить анти-тег" />
+              </div>; })}
+            {showAntiInput ? (
+              <div style={{display:'flex',gap:6,alignItems:'center'}}>
+                <input autoFocus style={{...S.input, maxWidth:120, minWidth:80}} value={newAntiInput} onChange={e=>setNewAntiInput(e.target.value)}
+                  onKeyDown={e=>{ if(e.key==='Enter' && newAntiInput.trim()){ addAntiTagGlobal(newAntiInput.trim()); setNewAntiInput(''); setShowAntiInput(false); } if(e.key==='Escape'){ setShowAntiInput(false); setNewAntiInput(''); } }} />
+                <button title="добавить анти-тег" style={{...S.iconBtnAmber,width:30,height:30,fontSize:14}}
+                  onClick={()=>{ if(newAntiInput.trim()){ addAntiTagGlobal(newAntiInput.trim()); setNewAntiInput(''); } setShowAntiInput(false); }}>✓</button>
+                <button className="icon-btn" onClick={()=>{ setShowAntiInput(false); setNewAntiInput(''); }}>✕</button>
+              </div>
+            ) : <div className="chip" style={{background:C.panelAlt,color:C.dim,borderColor:C.border}} onClick={()=>setShowAntiInput(true)}>+ добавить</div>}
+          </div>
+          {(entry.antiTags||[]).length>0 && <div style={{fontSize:10.5,color:C.red,marginTop:8}}>сегодня отмечено {(entry.antiTags||[]).length} · здоровье снизится на {hpAnti*(entry.antiTags||[]).length} на следующий день</div>}
         </div>
         )}
       </div>
@@ -1905,7 +2270,7 @@ function HabitsTab({habits, addHabit, toggleHabitDay, deleteHabit, updateHabit, 
 }
 
 // ============================================================ Goals
-function GoalsTab({goals, addGoal, setGoalProgress, addGoalSubtask, toggleGoalSubtask, deleteGoalSubtask, deleteGoal, setGoalMode, setGoalCounter, archiveGoal, archive, openArchive}){
+function GoalsTab({goals, addGoal, setGoalProgress, addGoalSubtask, toggleGoalSubtask, deleteGoalSubtask, deleteGoal, setGoalMode, setGoalCounter, archiveGoal, archive, openArchive, collapsed={}, onToggleCollapse}){
   const [text,setText] = useState(''); const [scope,setScope] = useState('week');
   const [subtaskInputs,setSubtaskInputs] = useState({});
   const scopes = [{id:'year',label:'Год'},{id:'month',label:'Месяц'},{id:'week',label:'Неделя'},{id:'day',label:'День'}];
@@ -1927,11 +2292,14 @@ function GoalsTab({goals, addGoal, setGoalProgress, addGoalSubtask, toggleGoalSu
         {scopes.map(({id,label})=>{
           const list = goals[id]||[];
           const avg = list.length? Math.round(list.reduce((s,g)=>s+g.progress,0)/list.length) : 0;
+          const isC = !!collapsed[id]; const doneCount = list.filter(g=>(g.progress||0)>=100).length;
           return (
             <div key={id} style={S.panel}>
-              <div style={S.panelTitle}>{label} <span style={S.dimSpan}>{avg}%</span></div>
-              {list.length===0 && <div style={S.emptyState}>Целей пока нет</div>}
-              {list.map(g=>{ const mode=modeOf(g); const done=(g.progress||0)>=100;
+              <div style={{...S.panelTitle,cursor:'pointer',display:'flex',alignItems:'center',marginBottom:isC?0:10}} onClick={()=>onToggleCollapse && onToggleCollapse(id)}>
+                <span style={{marginRight:6}}>{isC?'▶':'▼'}</span>{label} <span style={S.dimSpan}>{avg}%{list.length?` · ${doneCount}/${list.length}`:''}</span>
+              </div>
+              {!isC && list.length===0 && <div style={S.emptyState}>Целей пока нет</div>}
+              {!isC && list.map(g=>{ const mode=modeOf(g); const done=(g.progress||0)>=100;
                 return (
                 <div key={g.id} style={{marginBottom:14, paddingBottom:10, borderBottom:`1px solid ${C.border}`}}>
                   <div style={{display:'flex',alignItems:'flex-start',gap:8}}>
@@ -2029,13 +2397,12 @@ function StatusSeg({value, onChange}){
     </div>
   );
 }
-function StudyTab({study, addStudyTask, updateStudyTask, deleteStudyTask, archiveStudyTask, archive=[], deleteArchivedStudy, restoreStudy}){
+function StudyTab({study, addStudyTask, updateStudyTask, deleteStudyTask, archiveStudyTask, archive=[], deleteArchivedStudy, restoreStudy, collapsed={}, onToggleCollapse}){
   const [epic,setEpic] = useState(''); const [taskText,setTaskText] = useState('');
   const [archiveShow,setArchiveShow] = useState(false);
   const [importance,setImportance] = useState(STUDY_IMPORTANCE[1]); const [urgency,setUrgency] = useState(STUDY_URGENCY[1]);
   const [deadline,setDeadline] = useState('');
   const [filterStatus,setFilterStatus] = useState('Все'); const [sortBy,setSortBy] = useState('createdAt');
-  const [collapsed,setCollapsed] = useState({});
 
   const submit = () => { if(!taskText.trim()) return;
     addStudyTask({epic:epic.trim()||'Входящие', task:taskText.trim(), status:'Не начато', importance, urgency, deadline:deadline||undefined, note:''});
@@ -2092,7 +2459,7 @@ function StudyTab({study, addStudyTask, updateStudyTask, deleteStudyTask, archiv
         const isC = collapsed[epicName]; const doneCount = tasks.filter(t=>t.status==='Выполнено').length;
         return (
           <div key={epicName} style={S.panel}>
-            <div style={{...S.panelTitle,cursor:'pointer',display:'flex',alignItems:'center',marginBottom:isC?0:10}} onClick={()=>setCollapsed({...collapsed,[epicName]:!isC})}>
+            <div style={{...S.panelTitle,cursor:'pointer',display:'flex',alignItems:'center',marginBottom:isC?0:10}} onClick={()=>onToggleCollapse && onToggleCollapse(epicName)}>
               <span style={{marginRight:6}}>{isC?'▶':'▼'}</span>{epicName}<span style={S.dimSpan}>{doneCount}/{tasks.length}</span>
             </div>
             {!isC && tasks.map(t=>{
@@ -2368,7 +2735,7 @@ function PlanPanel({title, open, setOpen, planSwitcher, kindToggle, categories, 
   );
 }
 
-function OpsSection({finance, categories, budgets, incomePlans, bills, monthTx, defaults={}, finMask={}, addTransaction, deleteTransaction, addCategory, removeCategory, setBudget, removeBudget, setIncomePlan, removeIncomePlan, setBudgetsBatch, setIncomePlansBatch, addBill, deleteBill}){
+function OpsSection({finance, categories, budgets, incomePlans, bills, monthTx, defaults={}, finMask={}, addTransaction, deleteTransaction, addCategory, removeCategory, setBudget, removeBudget, setIncomePlan, removeIncomePlan, setBudgetsBatch, setIncomePlansBatch, addBill, deleteBill, collapse={}, toggleCollapse, dismissedAlerts={}, dismissAlert}){
   const mo = n => maskMoney(finMask.ops, n);   // приватность: скрытие сумм операций
   const [planOpen,setPlanOpen] = useState(false);
   const [planKind,setPlanKind] = useState('expense'); // переключатель внутри плашки планов (session 020)
@@ -2491,14 +2858,23 @@ function OpsSection({finance, categories, budgets, incomePlans, bills, monthTx, 
         )}
       </div>
 
-      {vis('ops.budgetAlerts') && budgetAlerts.length>0 && (
+      {(() => {
+        if(!vis('ops.budgetAlerts')) return null;
+        const ym = todayStr().slice(0,7);
+        const visibleAlerts = budgetAlerts.filter(a=>!dismissedAlerts[ym+'_'+a.cat]);
+        if(!visibleAlerts.length) return null;
+        const isC = !!(collapse.ui && collapse.ui.alerts);
+        return (
         <div style={{...S.panel, borderColor:C.amber}}>
-          <div style={{...S.panelTitle, color:C.amber}}>⚠ Бюджет-алерты · {todayStr().slice(0,7)}</div>
-          {budgetAlerts.map(a=>(
+          <div style={{...S.panelTitle, color:C.amber, cursor:'pointer', display:'flex', alignItems:'center', marginBottom:isC?0:10}} onClick={()=>toggleCollapse && toggleCollapse('ui','alerts')}>
+            <span style={{marginRight:6}}>{isC?'▶':'▼'}</span>⚠ Бюджет-алерты · {ym} <span style={S.dimSpan}>{visibleAlerts.length}</span>
+          </div>
+          {!isC && visibleAlerts.map(a=>(
             <div key={a.cat} style={{marginBottom:9}}>
-              <div style={{display:'flex',justifyContent:'space-between',fontSize:12.5,marginBottom:3,gap:8}}>
-                <span style={{minWidth:0,overflowWrap:'anywhere'}}>{a.over?'🔴':'🟡'} {a.cat}</span>
+              <div style={{display:'flex',justifyContent:'space-between',fontSize:12.5,marginBottom:3,gap:8,alignItems:'center'}}>
+                <span style={{minWidth:0,overflowWrap:'anywhere',flex:1}}>{a.over?'🔴':'🟡'} {a.cat}</span>
                 <span style={{color:C.dim,fontFamily:"'JetBrains Mono',monospace",flexShrink:0}}>{mo(a.spent)} / {mo(a.plan)} · {Math.round(a.ratio*100)}%</span>
+                <button className="icon-btn" title="скрыть этот алерт" style={{flexShrink:0}} onClick={()=>dismissAlert && dismissAlert(ym+'_'+a.cat)}>✕</button>
               </div>
               <div style={{height:4,background:C.panelAlt,borderRadius:2,overflow:'hidden'}}><div style={{height:'100%',width:`${Math.min(100,a.ratio*100)}%`,background:a.over?C.red:C.amber}}/></div>
               <div style={{fontSize:10.5,color:(!a.sparse && a.projected>a.plan)?C.red:C.dim,marginTop:3}}>
@@ -2509,7 +2885,8 @@ function OpsSection({finance, categories, budgets, incomePlans, bills, monthTx, 
             </div>
           ))}
         </div>
-      )}
+        );
+      })()}
 
       {(() => {
         // Единая плашка планов с переключателем Расходы/Доходы прямо в заголовке (session 020).
@@ -3087,7 +3464,7 @@ function SettingsSection({title, icon, defaultOpen=false, children}){
 const SubHead = ({children}) => <div style={{fontSize:12.5,fontWeight:700,color:C.cyan,margin:'2px 0 8px',letterSpacing:'.02em'}}>{children}</div>;
 const SettingsDivider = () => <div style={{height:1,background:C.border,margin:'18px 0'}}/>;
 
-function SettingsTab({hidden, toggleModule, defaults, setDefault, categories, accounts, mobileTabs, toggleMobileTab, soundOff, notifOff, maskNetWorth, maskDebts, maskOps, maskAllFinance, morningCfg, setSettingFlag, requestNotifs, testNotif, showNotifDiag, notifMsg, deadlineCfg}){
+function SettingsTab({hidden, toggleModule, defaults, setDefault, categories, accounts, mobileTabs, toggleMobileTab, soundOff, notifOff, maskNetWorth, maskDebts, maskOps, maskAllFinance, morningCfg, setSettingFlag, gamify=GAMIFY_DEFAULT, setGamify, requestNotifs, testNotif, showNotifDiag, notifMsg, deadlineCfg}){
   const dlOn = !!(deadlineCfg && !deadlineCfg.off);
   const dlDays = (deadlineCfg && deadlineCfg.days && deadlineCfg.days.length) ? deadlineCfg.days : [3,1];
   const dlTime = (deadlineCfg && deadlineCfg.time) || '09:00';
@@ -3162,6 +3539,31 @@ function SettingsTab({hidden, toggleModule, defaults, setDefault, categories, ac
             <input style={{...S.input,maxWidth:120}} type="time" value={msTime} onChange={e=>setSettingFlag('morningSummary', {off:false, time:e.target.value})} />
           </div>
         )}
+      </SettingsSection>
+
+      <SettingsSection title="Геймификация" icon="🎮">
+        <div style={{...S.dimSpan,marginLeft:0,marginBottom:10,display:'block'}}>
+          Насколько сильно наказывают «провалы» и сколько даёт комбо. Показ квестов, испытания недели и анти-тегов включается в разделе «Что показывать» ниже.
+        </div>
+        {[
+          {k:'antiXp',     label:'Анти-тег: снять XP',                 min:0, max:100},
+          {k:'hpAnti',     label:'Анти-тег: снять здоровья (в день)',  min:0, max:50},
+          {k:'hpHabit',    label:'Пропуск привычки: снять здоровья',   min:0, max:50},
+          {k:'hpDeadline', label:'Просроченный дедлайн: снять здоровья',min:0, max:50},
+          {k:'comboBonus', label:'Комбо: XP за день серии (× дни)',    min:0, max:50},
+        ].map(row=>(
+          <div key={row.k} className="row-hover" style={{...S.taskRow,alignItems:'center'}}>
+            <div style={{flex:1,fontSize:13}}>{row.label}</div>
+            <input style={{...S.input,width:74,minWidth:0,textAlign:'center',flex:'none'}} type="number" min={row.min} max={row.max}
+              value={gamify[row.k]} onChange={e=>{ let v=parseInt(e.target.value,10); if(isNaN(v)) v=0; v=Math.max(row.min,Math.min(row.max,v)); setGamify && setGamify({[row.k]:v}); }} />
+          </div>
+        ))}
+        <div style={{...S.dimSpan,marginLeft:0,marginTop:8,display:'block'}}>
+          Здоровье пересчитывается при заходе: активный день +5, пустой день с невыполненными задачами −10, день отдыха (без задач) — без штрафа. Штрафы за анти-теги/привычки/дедлайны применяются на следующий день. Комбо-бонус — раз в день при первой активности.
+        </div>
+        <div style={{marginTop:10}}>
+          <button style={S.exportBtn} onClick={()=>setGamify && setGamify({...GAMIFY_DEFAULT})}>Сбросить к значениям по умолчанию</button>
+        </div>
       </SettingsSection>
 
       <SettingsSection title="Экран и персонализация" icon="🎨">
@@ -3251,7 +3653,7 @@ function SettingsTab({hidden, toggleModule, defaults, setDefault, categories, ac
           <div>📝 <b>Заметки</b> — заметки и напоминания (с повтором), закрепление, чек-листы.</div>
           <div>💰 <b>Финансы</b> — операции, счета, должники, планы по месяцам, бюджет-алерты с прогнозом, графики.</div>
           <div>📊 <b>Статистика</b> — дисциплин-грид, обзор за период, тренды, план/факт, анализ факторов оценки дня.</div>
-          <div>🏅 <b>Геймификация</b> — XP и уровень, стрик, здоровье, ⚡импульс, ~286 достижений.</div>
+          <div>🏅 <b>Геймификация</b> — XP и уровень (потолок {LEVEL_CAP}) с рангами, стрик, здоровье, ⚡импульс, 🔗комбо, 🎯задания дня, 🏆испытание недели, анти-теги, ~300 достижений.</div>
           <div>🔔 <b>Уведомления</b> — привычки, напоминания, дедлайны, утренняя сводка (на телефоне).</div>
           <div>☁ <b>Синхронизация и бэкап</b> — Firebase (вход Google), экспорт/импорт JSON и Excel, «Поделиться» на телефоне.</div>
         </div>
@@ -3259,7 +3661,7 @@ function SettingsTab({hidden, toggleModule, defaults, setDefault, categories, ac
         <SettingsDivider/>
         <SubHead>Как считается уровень</SubHead>
         <div style={{fontSize:12.5,lineHeight:1.7,color:C.text}}>
-          Уровень растёт от <b>XP</b> (100 XP = уровень). XP даётся за: выполнение задач (по сложности), ежедневные (±10), многодневные дела (+15), дела со статусом «Выполнено» (+15), привычки (±10), закрытие целей (+20) и <b>за новые достижения</b> (обычная +5 … легендарная +50). XP снимается при откате действия.
+          Уровень растёт от <b>XP</b> по плавной кривой с <b>потолком ур. {LEVEL_CAP}</b>: каждый следующий уровень чуть дороже предыдущего (~100 XP в начале … ~600 в конце). Крупные вехи дают <b>ранги</b> (Новобранец → … → Абсолют). XP даётся за: задачи (по сложности), ежедневные (±10), многодневные (+15), дела «Выполнено» (+15), привычки (±10), закрытие целей (+20), достижения (+5…+50), <b>задания дня</b>, <b>испытание недели</b> (+{WEEKLY_XP}) и <b>комбо</b> за серию активных дней. <b>Анти-теги</b> и откат действий XP снимают.
         </div>
 
         <SettingsDivider/>
@@ -3307,6 +3709,8 @@ const S = {
   statVal:{fontFamily:"'JetBrains Mono',monospace",fontSize:17,fontWeight:700},
   toastWrap:{position:'fixed',right:16,bottom:16,display:'flex',flexDirection:'column',gap:8,zIndex:60,maxWidth:'calc(100vw - 32px)'},
   toast:{display:'flex',alignItems:'center',gap:12,background:C.panelAlt,border:`1px solid ${C.amber}`,borderRadius:10,padding:'10px 14px',boxShadow:'0 8px 28px rgba(0,0,0,.45)',minWidth:230},
+  levelUpOverlay:{position:'fixed',inset:0,zIndex:200,display:'flex',alignItems:'center',justifyContent:'center',background:'rgba(6,9,13,.72)',backdropFilter:'blur(3px)',overflow:'hidden',cursor:'pointer'},
+  levelUpCard:{position:'relative',zIndex:2,textAlign:'center',background:C.panel,border:`1px solid ${C.amber}`,borderRadius:18,padding:'30px 42px',boxShadow:'0 20px 70px rgba(0,0,0,.6)'},
   // --- мобильная навигация ---
   bottomNav:{position:'fixed',left:0,right:0,bottom:0,display:'flex',background:C.panel,borderTop:`1px solid ${C.border}`,zIndex:40,padding:'6px 4px',paddingBottom:'max(6px, env(safe-area-inset-bottom))'},
   bottomItem:{flex:1,background:'none',border:'none',cursor:'pointer',display:'flex',flexDirection:'column',alignItems:'center',gap:3,padding:'4px 2px'},

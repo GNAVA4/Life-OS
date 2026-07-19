@@ -30,6 +30,12 @@ input[type=range]{accent-color:var(--amber);}
 @keyframes lo-slideup{from{transform:translateY(100%)}to{transform:translateY(0)}}
 @keyframes lo-toast{from{opacity:0;transform:translateX(26px)}to{opacity:1;transform:none}}
 @keyframes lo-collapse{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
+/* level-up баннер + салют (session 024) */
+@keyframes lo-levelup{0%{opacity:0;transform:scale(.6)}55%{opacity:1;transform:scale(1.06)}100%{opacity:1;transform:scale(1)}}
+@keyframes lo-confetti-fall{0%{opacity:0;transform:translateY(-12vh) rotate(0)}8%{opacity:1}100%{opacity:0;transform:translateY(108vh) rotate(720deg)}}
+.anim-levelup{animation:lo-levelup .5s cubic-bezier(.2,.9,.25,1) both}
+.lo-confetti{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+.lo-confetti-piece{position:absolute;top:-6vh;border-radius:2px;animation-name:lo-confetti-fall;animation-timing-function:linear;animation-iteration-count:1;animation-fill-mode:both}
 .anim-fade{animation:lo-fade .18s ease both}
 .anim-pop{animation:lo-pop .22s cubic-bezier(.2,.8,.2,1) both}
 .anim-sheet{animation:lo-slideup .26s cubic-bezier(.2,.8,.2,1) both}

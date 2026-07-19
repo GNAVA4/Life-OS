@@ -31,6 +31,7 @@ export const LIFEOS_KEYS = [
   'lifeos:study', 'lifeos:notes', 'lifeos:categories', 'lifeos:budgets', 'lifeos:recurringBills',
   'lifeos:finance', 'lifeos:meta', 'lifeos:incomePlans', 'lifeos:settings', 'lifeos:achievements', 'lifeos:habits',
   'lifeos:goalsArchive', 'lifeos:habitsArchive', 'lifeos:taskTemplates', 'lifeos:studyArchive',
+  'lifeos:antiTags',
 ];
 const keyToName = (k) => k.replace(/^lifeos:/, '');
 const nameToKey = (n) => 'lifeos:' + n;
