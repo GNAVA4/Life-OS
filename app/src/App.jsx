@@ -9,7 +9,7 @@ Chart.register(...registerables);
 
 // Видимый штамп сборки — показывается в Настройках. Меняй при каждой пересборке APK,
 // чтобы точно знать, свежую версию установили или старую (session 013 не смогла это исключить).
-const BUILD_ID = '2026-07-18o-privacy-fonts-codesplit-goalarchive-compactconfirm';
+const BUILD_ID = '2026-07-18p-fix-planpanel-blackscreen';
 
 // ---------- tokens & helpers ----------
 const C = {bg:'#0B0E13',panel:'#141A22',panelAlt:'#1B222C',border:'#2A323D',text:'#E7EAEE',dim:'#8992A3',amber:'#F2A93B',cyan:'#4FD1C5',red:'#E2584F',green:'#6FCF97',purple:'#9B7BD9'};
@@ -2313,7 +2313,8 @@ function FinanceTab(props){
 
 // Панель планов (расходы/доходы): все категории редактируются сразу, одна кнопка «Сохранить планы»,
 // прогресс-бары по установленным планам + итоговая сумма. Черновик сбрасывается при смене месяца (resetKey).
-function PlanPanel({title, open, setOpen, planSwitcher, kindToggle, categories, actualByCat, plans, onSaveBatch, onRemove, barColor, spentWord, resetKey}){
+function PlanPanel({title, open, setOpen, planSwitcher, kindToggle, categories, actualByCat, plans, onSaveBatch, onRemove, barColor, spentWord, resetKey, mask=false}){
+  const mo = n => maskMoney(mask, n);   // приватность: планы — часть «операций» (finMask.ops)
   const [draft,setDraft] = useState({});
   useEffect(()=>{ setDraft({}); }, [resetKey]);
   const valOf = (c) => draft[c]!==undefined ? draft[c] : (plans[c]!=null ? String(plans[c]) : '');
@@ -2520,7 +2521,7 @@ function OpsSection({finance, categories, budgets, incomePlans, bills, monthTx, 
           </div>
         );
         return (
-          <PlanPanel title="Планируемые" kindToggle={kindToggle} open={planOpen} setOpen={setPlanOpen} planSwitcher={planSwitcher} resetKey={planMonth+'_'+effKind}
+          <PlanPanel title="Планируемые" kindToggle={kindToggle} open={planOpen} setOpen={setPlanOpen} planSwitcher={planSwitcher} resetKey={planMonth+'_'+effKind} mask={finMask.ops}
             categories={isExp?categories.expense:categories.income}
             actualByCat={isExp?planExpenseByCat:planIncomeByCat}
             plans={isExp?monthBudgets:monthIncomePlans}
