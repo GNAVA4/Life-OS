@@ -3,13 +3,14 @@ import { Chart, registerables } from 'chart.js';
 // xlsx грузится лениво (динамический import в exportExcel) — иначе ~400КБ в стартовом бандле. session 022.
 import { onAuth, login, logout, getCloudState, pushKey, subscribe, LIFEOS_KEYS } from './sync.js';
 import { saveOrShare } from './backup.js';
+import { updateTodayWidget } from './widget.js';
 import { syncNotifications, requestNotif, testNotification, notifDiagnostics } from './notifications.js';
 
 Chart.register(...registerables);
 
 // Видимый штамп сборки — показывается в Настройках. Меняй при каждой пересборке APK,
 // чтобы точно знать, свежую версию установили или старую (session 013 не смогла это исключить).
-const BUILD_ID = '2026-07-18p-fix-planpanel-blackscreen';
+const BUILD_ID = '2026-07-18q-today-widget';
 
 // ---------- tokens & helpers ----------
 const C = {bg:'#0B0E13',panel:'#141A22',panelAlt:'#1B222C',border:'#2A323D',text:'#E7EAEE',dim:'#8992A3',amber:'#F2A93B',cyan:'#4FD1C5',red:'#E2584F',green:'#6FCF97',purple:'#9B7BD9'};
@@ -1196,6 +1197,9 @@ function App(){
     return parts.length ? `Сегодня: ${parts.join(' · ')}` : 'На сегодня ничего не запланировано — начни что-то новое!';
   };
   useEffect(() => { syncNotifications({ habits: habitsForNotif(), notes, study, deadlineCfg: settings.deadlineNotif, morningCfg: settings.morningSummary, morningBody: computeMorningBody(), enabled: !settings.notifOff }); }, [habits, notes, study, settings.notifOff, settings.deadlineNotif, settings.morningSummary]);
+  // Android-виджет «Задачи на сегодня»: пишем прогресс по одноразовым задачам СЕГОДНЯ (session 023).
+  useEffect(() => { const t = todayStr(); const e = days[t] || {}; const tasks = e.tasks || [];
+    updateTodayWidget(tasks.filter(x=>x.done).length, tasks.length, t); }, [days]);
   // считаем только награды текущего каталога (старые ID из прежней схемы игнорируем)
   const achUnlockedCount = ACHIEVEMENTS.reduce((n,a)=> n + ((achievements.unlocked||{})[a.id]?1:0), 0);
 
