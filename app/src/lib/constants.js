@@ -33,3 +33,12 @@ export const PERIOD_LABEL = {week:'неделя', month:'месяц', year:'го
 export const DIFF_XP = {easy:5, medium:10, hard:20};
 // привязка «выполнил → вклад в цель»: подпись скоупа
 export const GL_SCOPE = {year:'Год',month:'Месяц',week:'Неделя',day:'День'};
+
+// метаданные вкладок для мобильной навигации (иконка+подпись)
+export const TAB_META = {
+  today:{label:'Сегодня',icon:'🗓'}, habits:{label:'Привычки',icon:'🔁'}, goals:{label:'Цели',icon:'🎯'},
+  study:{label:'Дела',icon:'🗂'}, notes:{label:'Заметки',icon:'🗒'}, finance:{label:'Финансы',icon:'💰'},
+  stats:{label:'Статистика',icon:'📊'}, achievements:{label:'Награды',icon:'🏅'},
+};
+export const ALL_MOBILE_TAB_IDS = ['today','habits','goals','study','notes','finance','stats','achievements'];
+export const DEFAULT_MOBILE_TABS = ['today','habits','goals','finance']; // нижняя навбар по умолчанию; настраивается в Настройках

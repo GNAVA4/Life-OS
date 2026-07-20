@@ -20,170 +20,16 @@ import { isLegacyNote, migrateNotes, mergeStudyById, noteTitleOf, notePreviewOf,
 import { goalLinkOptions, goalByKey, goalLinksOf } from './lib/goals.js';
 import { ACH_TIERS, ACHIEVEMENTS, ACH_GROUPS, computeAchStats, achValDisplay, longestRun } from './lib/achievements.js';
 import { axisColor, gridColor, baseChartOpts } from './lib/charts.js';
+import { Select, Modal, ConfirmIconBtn, SettingsSection, SubHead, SettingsDivider, StatusSeg } from './ui/primitives.jsx';
+import { GoalLinkPicker } from './ui/GoalLinkPicker.jsx';
+import { RolloverModal } from './ui/RolloverModal.jsx';
+import { ChartCanvas } from './ui/ChartCanvas.jsx';
+import { useIsMobile } from './ui/useIsMobile.js';
+import { TAB_META, ALL_MOBILE_TAB_IDS, DEFAULT_MOBILE_TABS } from './lib/constants.js';
 
 Chart.register(...registerables);
 
 
-// ---------- reusable styled dropdown ----------
-// Замена нативному <select>: единый вид на десктопе и телефоне (нативный особенно уродлив в WebView).
-// options: массив строк ИЛИ {value,label}. onChange(value). Поддерживает точечную подсветку (dotColor).
-function Select({value, onChange, options, placeholder='—', style, disabled, small}){
-  const [open,setOpen] = useState(false);
-  const ref = useRef(null);
-  const opts = options.map(o=> typeof o==='object' ? o : {value:o, label:o});
-  const cur = opts.find(o=>o.value===value);
-  useEffect(()=>{ if(!open) return;
-    const on = (e)=>{ if(ref.current && !ref.current.contains(e.target)) setOpen(false); };
-    document.addEventListener('mousedown',on); return ()=>document.removeEventListener('mousedown',on);
-  }, [open]);
-  const pad = small ? '5px 8px' : '9px 10px';
-  const fs = small ? 12 : 13.5;
-  return (
-    <div ref={ref} style={{position:'relative', minWidth:0, ...(style||{})}}>
-      <button type="button" disabled={disabled} onClick={()=>!disabled&&setOpen(o=>!o)}
-        style={{width:'100%',display:'flex',alignItems:'center',gap:8,justifyContent:'space-between',background:C.panelAlt,
-          border:`1px solid ${open?C.amber:C.border}`,borderRadius:6,padding:pad,color:cur?C.text:C.dim,fontSize:fs,
-          cursor:disabled?'default':'pointer',opacity:disabled?.5:1,textAlign:'left',minWidth:0}}>
-        <span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',display:'flex',alignItems:'center',gap:7,minWidth:0}}>
-          {cur&&cur.dotColor&&<span style={{width:8,height:8,borderRadius:4,background:cur.dotColor,flexShrink:0}}/>}
-          <span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{cur?cur.label:placeholder}</span>
-        </span>
-        <span style={{color:C.dim,fontSize:10,transform:open?'rotate(180deg)':'none',transition:'transform .12s'}}>▾</span>
-      </button>
-      {open && (
-        <div className="sel-pop" style={{position:'absolute',top:'calc(100% + 4px)',left:0,right:0,zIndex:80,background:C.panel,
-          border:`1px solid ${C.border}`,borderRadius:8,boxShadow:'0 10px 30px rgba(0,0,0,.5)',maxHeight:260,overflowY:'auto',padding:4}}>
-          {opts.map(o=>(
-            <div key={String(o.value)} onClick={()=>{ onChange(o.value); setOpen(false); }}
-              style={{display:'flex',alignItems:'center',gap:8,padding:'9px 10px',borderRadius:6,cursor:'pointer',fontSize:fs,
-                background:o.value===value?C.panelAlt:'transparent',color:o.value===value?C.amber:C.text}}
-              onMouseEnter={e=>{ if(o.value!==value) e.currentTarget.style.background=C.panelAlt; }}
-              onMouseLeave={e=>{ if(o.value!==value) e.currentTarget.style.background='transparent'; }}>
-              {o.dotColor&&<span style={{width:8,height:8,borderRadius:4,background:o.dotColor,flexShrink:0}}/>}
-              <span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{o.label}</span>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ---------- reusable modal (полноэкранный на телефоне, карточка на десктопе) ----------
-function Modal({onClose, children, title, compact}){
-  useEffect(()=>{ const on=(e)=>{ if(e.key==='Escape') onClose(); }; document.addEventListener('keydown',on);
-    return ()=>document.removeEventListener('keydown',on); }, [onClose]);
-  // compact — небольшая карточка по центру (для подтверждений); обычная модалка на телефоне фуллскрин.
-  return (
-    <div className="anim-fade" style={S.modalOverlay} onClick={onClose}>
-      <div className={(compact?'':'modal-card-mobile ')+'anim-pop'} style={compact?{...S.modalCard, maxWidth:360}:S.modalCard} onClick={e=>e.stopPropagation()}>
-        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14}}>
-          <div style={{fontFamily:"'Space Grotesk',sans-serif",fontSize:16,fontWeight:700}}>{title}</div>
-          <button className="icon-btn" style={{fontSize:20}} onClick={onClose}>✕</button>
-        </div>
-        {children}
-      </div>
-    </div>
-  );
-}
-
-// ---------- привязка «выполнил → вклад в цель» (для разовых/ежедневных задач и привычек) ----------
-// МУЛЬТИ-привязка: задача/привычка может вкладываться сразу в несколько целей. session 015.
-function GoalLinkPicker({goals, links=[], onLinks}){
-  const [key,setKey] = useState('');
-  const [amount,setAmount] = useState('');
-  const g = goalByKey(goals, key);
-  const add = () => {
-    if(!key) return; const [scope,goalId]=key.split('|');
-    const amt=parseFloat(amount); const a=(isNaN(amt)||amt<=0)?1:amt;
-    const rest = links.filter(l=>!(l.scope===scope && l.goalId===goalId)); // одна цель — одна запись, сумму обновляем
-    onLinks([...rest, {scope,goalId,amount:a}]); setKey(''); setAmount('');
-  };
-  const remove = (l) => onLinks(links.filter(x=>!(x.scope===l.scope && x.goalId===l.goalId)));
-  return (
-    <div style={{marginTop:8,width:'100%'}}>
-      {links.length>0 && (
-        <div style={{display:'flex',flexWrap:'wrap',gap:6,marginBottom:8}}>
-          {links.map((l,i)=>{ const gg=(goals[l.scope]||[]).find(x=>x.id===l.goalId);
-            return <div key={l.scope+'|'+l.goalId+'_'+i} className="chip" style={{background:C.panelAlt,color:C.amber,borderColor:C.border,display:'flex',gap:6,alignItems:'center',maxWidth:'100%'}}>
-              <span style={{minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>🎯 {GL_SCOPE[l.scope]}: {gg?gg.title:'—'} +{l.amount}</span>
-              <span style={{cursor:'pointer',flexShrink:0}} onClick={()=>remove(l)}>✕</span>
-            </div>; })}
-        </div>
-      )}
-      <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center',width:'100%'}}>
-        <Select style={{flex:'1 1 150px',minWidth:0,maxWidth:'100%'}} value={key} onChange={setKey} options={goalLinkOptions(goals)} />
-        <input style={{...S.input,flex:'0 0 auto',width:90,minWidth:0}} type="number" placeholder={g&&g.counter?'+ штук':'+ %'} value={amount} onChange={e=>setAmount(e.target.value)} />
-        <button style={{...S.iconBtnAmber,width:32,height:32,fontSize:14}} title="добавить цель" onClick={add}>+</button>
-      </div>
-      {g && <span style={{fontSize:11,color:C.dim,display:'block',marginTop:4}}>{g.counter?'к счётчику при выполнении':'% к цели при выполнении'} · по умолчанию 1</span>}
-    </div>
-  );
-}
-
-// ---------- двухшаговое подтверждение (window.confirm НЕ рисуется в Android WebView, session 014) ----------
-// Первый клик «вооружает» кнопку (показывает «точно?»), второй — выполняет. Авто-сброс через 3с.
-function ConfirmIconBtn({onConfirm, title='удалить', icon='✕', confirmLabel='точно?'}){
-  const [armed,setArmed] = useState(false);
-  useEffect(()=>{ if(!armed) return; const t=setTimeout(()=>setArmed(false),3000); return ()=>clearTimeout(t); },[armed]);
-  if(armed) return <button className="icon-btn" style={{color:C.red,fontSize:11,fontWeight:700,whiteSpace:'nowrap'}} onClick={(e)=>{ e.stopPropagation(); setArmed(false); onConfirm(); }}>{confirmLabel}</button>;
-  return <button className="icon-btn" title={title} onClick={(e)=>{ e.stopPropagation(); setArmed(true); }}>{icon}</button>;
-}
-
-// ---------- rollover целей: по каждому скоупу (неделя/месяц/год) свой выбор carry/fresh ----------
-function RolloverModal({scopes, onApply, onClose}){
-  const [choices,setChoices] = useState(()=>Object.fromEntries(scopes.map(s=>[s,'carry'])));
-  return (
-    <Modal onClose={onClose} title="Новый период">
-      <div style={{fontSize:13.5,color:C.text,marginBottom:14,lineHeight:1.5}}>
-        Начался новый период. Что сделать с целями прошлого периода — по каждому типу отдельно:
-      </div>
-      <div style={{display:'flex',flexDirection:'column',gap:12}}>
-        {scopes.map(sc=>(
-          <div key={sc} style={{...S.panel,padding:12,marginBottom:0}}>
-            <div style={{fontSize:13,fontWeight:700,marginBottom:8}}>{PERIOD_LABEL[sc]||sc}</div>
-            <div style={{display:'flex',gap:6}}>
-              {[{id:'carry',label:'Перенести незавершённые'},{id:'fresh',label:'Начать заново'}].map(({id,label})=>(
-                <div key={id} className="chip" onClick={()=>setChoices(c=>({...c,[sc]:id}))}
-                  style={{flex:1,textAlign:'center',background:choices[sc]===id?C.amber:C.panelAlt,color:choices[sc]===id?'#1A1200':C.dim,borderColor:choices[sc]===id?C.amber:C.border}}>{label}</div>
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
-      <button style={{...S.sheetBtn,marginTop:14,width:'100%',flex:'none',borderColor:C.amber,color:C.amber}} onClick={()=>onApply(choices)}>Применить</button>
-      <div style={{fontSize:11,color:C.dim,marginTop:12}}>Ничего не удаляется — при «Начать заново» цели уходят в архив (вкладка «Цели»).</div>
-    </Modal>
-  );
-}
-
-// ---------- reusable chart canvas ----------
-function ChartCanvas({type, data, options, height=210}){
-  const ref = useRef(null); const chartRef = useRef(null);
-  useEffect(() => {
-    if(!ref.current) return;
-    if(chartRef.current) chartRef.current.destroy();
-    chartRef.current = new Chart(ref.current.getContext('2d'), { type, data, options });
-    return () => { if(chartRef.current) chartRef.current.destroy(); };
-  }, [JSON.stringify(data), JSON.stringify(options), type]);
-  return <div style={{width:'100%',height}}><canvas ref={ref}></canvas></div>;
-}
-
-// узнаём мобильный экран (реактивно на ресайз/поворот)
-function useIsMobile(bp=720){
-  const [m,setM] = useState(typeof window!=='undefined' && window.innerWidth<=bp);
-  useEffect(()=>{ const mq=window.matchMedia(`(max-width:${bp}px)`); const on=()=>setM(mq.matches); on();
-    mq.addEventListener('change',on); return ()=>mq.removeEventListener('change',on); }, [bp]);
-  return m;
-}
-// метаданные вкладок для мобильной навигации (иконка+подпись)
-const TAB_META = {
-  today:{label:'Сегодня',icon:'🗓'}, habits:{label:'Привычки',icon:'🔁'}, goals:{label:'Цели',icon:'🎯'},
-  study:{label:'Дела',icon:'🗂'}, notes:{label:'Заметки',icon:'🗒'}, finance:{label:'Финансы',icon:'💰'},
-  stats:{label:'Статистика',icon:'📊'}, achievements:{label:'Награды',icon:'🏅'},
-};
-const ALL_MOBILE_TAB_IDS = ['today','habits','goals','study','notes','finance','stats','achievements'];
-const DEFAULT_MOBILE_TABS = ['today','habits','goals','finance']; // нижняя навбар по умолчанию; настраивается в Настройках
 
 // ============================================================
 function App(){
@@ -1939,16 +1785,6 @@ function GoalsTab({goals, addGoal, setGoalProgress, addGoalSubtask, toggleGoalSu
 }
 
 // ============================================================ Дела (бывш. Учёба)
-// Статус-переключатель с цветами: Не начато (серый) / В процессе (янтарь) / Выполнено (зелёный)
-function StatusSeg({value, onChange}){
-  return (
-    <div style={S.seg}>
-      {STUDY_STATUSES.map(s=>{ const active=value===s; const col=STATUS_COLOR[s];
-        return <button key={s} onClick={()=>onChange(s)}
-          style={{...S.segBtn, background:active?col:'transparent', color:active?(s==='В процессе'?'#1A1200':'#0B0E13'):C.dim}}>{s}</button>; })}
-    </div>
-  );
-}
 function StudyTab({study, addStudyTask, updateStudyTask, deleteStudyTask, archiveStudyTask, archive=[], deleteArchivedStudy, restoreStudy, collapsed={}, onToggleCollapse}){
   const [epic,setEpic] = useState(''); const [taskText,setTaskText] = useState('');
   const [archiveShow,setArchiveShow] = useState(false);
@@ -3124,22 +2960,6 @@ function AchievementsTab({stats, unlocked}){
 }
 
 // ============================================================ Settings
-// Сворачиваемый раздел настроек
-function SettingsSection({title, icon, defaultOpen=false, children}){
-  const [open,setOpen] = useState(defaultOpen);
-  return (
-    <div style={S.panel}>
-      <div onClick={()=>setOpen(o=>!o)} style={{display:'flex',alignItems:'center',justifyContent:'space-between',cursor:'pointer',userSelect:'none'}}>
-        <div style={{...S.panelTitle,marginBottom:0}}>{icon} {title}</div>
-        <span style={{color:C.dim,fontSize:12,transition:'transform .2s ease',transform:open?'rotate(180deg)':'none'}}>▾</span>
-      </div>
-      {open && <div className="anim-collapse" style={{marginTop:14}}>{children}</div>}
-    </div>
-  );
-}
-// заголовок под-блока внутри раздела
-const SubHead = ({children}) => <div style={{fontSize:12.5,fontWeight:700,color:C.cyan,margin:'2px 0 8px',letterSpacing:'.02em'}}>{children}</div>;
-const SettingsDivider = () => <div style={{height:1,background:C.border,margin:'18px 0'}}/>;
 
 function SettingsTab({hidden, toggleModule, defaults, setDefault, categories, accounts, mobileTabs, toggleMobileTab, soundOff, notifOff, maskNetWorth, maskDebts, maskOps, maskAllFinance, morningCfg, setSettingFlag, gamify=GAMIFY_DEFAULT, setGamify, requestNotifs, testNotif, showNotifDiag, notifMsg, deadlineCfg, showGoalDeadline=false, billsNotif=null}){
   const dlOn = !!(deadlineCfg && !deadlineCfg.off);
@@ -3381,7 +3201,5 @@ function SettingsTab({hidden, toggleModule, defaults, setDefault, categories, ac
     </div>
   );
 }
-
-// ---------- styles ----------
 
 export default App;
