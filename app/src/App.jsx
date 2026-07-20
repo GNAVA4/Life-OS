@@ -788,7 +788,6 @@ function App(){
   const [goalsArchive,setGoalsArchive] = useState([]);
   const [habitsArchive,setHabitsArchive] = useState([]);
   const [studyArchive,setStudyArchive] = useState([]);
-  const [archiveOpen,setArchiveOpen] = useState(false);
   const [searchOpen,setSearchOpen] = useState(false);
   const [searchQ,setSearchQ] = useState('');
   const [taskTemplates,setTaskTemplates] = useState([]);
@@ -1040,6 +1039,7 @@ function App(){
     persist.goals({...goals, [sc]:[...(goals[sc]||[]), {...rest, period:periodOf(sc)}]});
     persistArchive(goalsArchive.filter(x=>!(x.id===id && x.archivedAt===archivedAt)));
   };
+  const deleteArchivedGoal = (id, archivedAt) => persistArchive(goalsArchive.filter(x=>!(x.id===id && x.archivedAt===archivedAt)));
   // ручная архивация цели (в т.ч. завершённой) — снимок в goalsArchive, удаление из активных. session 022.
   const archiveGoal = (scope, id) => {
     const g = (goals[scope]||[]).find(x=>x.id===id); if(!g) return;
@@ -1078,13 +1078,16 @@ function App(){
     doApply();
   };
   // единый выбор режима цели: none | slider | subtasks | counter (взаимоисключимы)
+  // Смена типа трекера НЕ стирает данные: counter и subtasks сохраняются (можно случайно переключить
+  // и вернуться без потери прогресса). Меняем только mode + пересчитываем показываемый progress из
+  // активного источника. session: goal-mode-preserve.
   const setGoalMode = (scope,id,mode) => {
     const list = goals[scope].map(g=>{ if(g.id!==id) return g;
-      if(mode==='none')     return {...g, mode:'none', counter:undefined, subtasks:undefined, progress:0};
-      if(mode==='slider')   return {...g, mode:'slider', counter:undefined, subtasks:undefined};
-      if(mode==='subtasks') return {...g, mode:'subtasks', counter:undefined, subtasks:g.subtasks||[], progress:g.subtasks?g.progress:0};
-      if(mode==='counter')  return {...g, mode:'counter', subtasks:undefined, counter:g.counter||{current:0,target:10}, progress:0};
-      return g; });
+      if(mode==='subtasks'){ const sub=g.subtasks||[]; return {...g, mode:'subtasks', subtasks:sub, progress: sub.length?Math.round(sub.filter(s=>s.done).length/sub.length*100):(g.progress||0)}; }
+      if(mode==='counter'){ const counter=g.counter||{current:0,target:10}; return {...g, mode:'counter', counter, progress:Math.min(100,Math.round((counter.current||0)/counter.target*100))}; }
+      // 'none' и 'slider' — сохраняем текущий progress и уже накопленные counter/subtasks
+      return {...g, mode};
+    });
     persist.goals({...goals,[scope]:list});
   };
   const setGoalDeadline = (scope,id,deadline) => {
@@ -1688,8 +1691,9 @@ function App(){
         addGoalSubtask={addGoalSubtask} toggleGoalSubtask={toggleGoalSubtask}
         deleteGoalSubtask={deleteGoalSubtask} deleteGoal={deleteGoal}
         setGoalMode={setGoalMode} setGoalCounter={setGoalCounter} setGoalDeadline={setGoalDeadline} archiveGoal={archiveGoal}
+        showGoalDeadline={!!settings.showGoalDeadline}
         collapsed={collapseState.goals||{}} onToggleCollapse={(sc)=>toggleCollapse('goals',sc)}
-        archive={goalsArchive} openArchive={()=>setArchiveOpen(true)} />}
+        archive={goalsArchive} restoreGoal={restoreGoal} deleteArchivedGoal={deleteArchivedGoal} />}
       {tab==='study' && <StudyTab study={study} addStudyTask={addStudyTask} updateStudyTask={updateStudyTask} deleteStudyTask={deleteStudyTask} archiveStudyTask={archiveStudyTask} archive={studyArchive} deleteArchivedStudy={deleteArchivedStudy} restoreStudy={restoreStudy}
         collapsed={collapseState.study||{}} onToggleCollapse={(epic)=>toggleCollapse('study',epic)} />}
       {tab==='notes' && <NotesTab notes={notes} addNote={addNote} updateNote={updateNote} deleteNote={deleteNote} />}
@@ -1711,7 +1715,8 @@ function App(){
         maskNetWorth={!!settings.maskNetWorth} maskDebts={!!settings.maskDebts} maskOps={!!settings.maskOps} maskAllFinance={!!settings.maskAllFinance}
         morningCfg={settings.morningSummary||null} setSettingFlag={setSettingFlag}
         gamify={gamify} setGamify={(patch)=>persist.settings({...settings, gamify:{...gamify, ...patch}})}
-        requestNotifs={requestNotifs} testNotif={testNotif} showNotifDiag={showNotifDiag} notifMsg={notifMsg} deadlineCfg={settings.deadlineNotif||null} />}
+        requestNotifs={requestNotifs} testNotif={testNotif} showNotifDiag={showNotifDiag} notifMsg={notifMsg} deadlineCfg={settings.deadlineNotif||null}
+        showGoalDeadline={!!settings.showGoalDeadline} billsNotif={settings.billsNotif||null} />}
       </div>
 
       {isMobile && (
@@ -1772,22 +1777,6 @@ function App(){
             <button style={{...S.sheetBtn,borderColor:C.amber,color:C.amber}} onClick={()=>{ const f=confirmDialog.onYes; setConfirmDialog(null); f&&f(); }}>Да</button>
             <button style={S.sheetBtn} onClick={()=>setConfirmDialog(null)}>Отмена</button>
           </div>
-        </Modal>
-      )}
-
-      {archiveOpen && (
-        <Modal onClose={()=>setArchiveOpen(false)} title={`Архив целей · ${goalsArchive.length}`}>
-          {goalsArchive.length===0 && <div style={S.emptyState}>Архив пуст</div>}
-          {[...goalsArchive].reverse().map((g,i)=>(
-            <div key={g.id+'_'+g.archivedAt+'_'+i} style={{display:'flex',alignItems:'center',gap:8,padding:'8px 0',borderBottom:`1px solid ${C.border}`}}>
-              <div style={{flex:1,minWidth:0,overflowWrap:'anywhere'}}>
-                <div style={{fontSize:13,color:(g.progress||0)>=100?C.green:C.text}}>{(g.progress||0)>=100?'✓ ':''}{g.title}</div>
-                <div style={{fontSize:10.5,color:C.dim}}>{PERIOD_LABEL[g.scope]||g.scope} · {g.period||'—'} · {g.progress||0}%{g.completedAt?` · ✅ выполнено ${g.completedAt}`:''} · архив {g.archivedAt}</div>
-              </div>
-              <button className="icon-btn" title="вернуть в активные" style={{color:C.cyan}} onClick={()=>restoreGoal(g.id, g.archivedAt)}>↩</button>
-              <ConfirmIconBtn onConfirm={()=>persistArchive(goalsArchive.filter(x=>!(x.id===g.id && x.archivedAt===g.archivedAt)))} title="удалить из архива" />
-            </div>
-          ))}
         </Modal>
       )}
 
@@ -2341,23 +2330,35 @@ function HabitsTab({habits, addHabit, toggleHabitDay, deleteHabit, updateHabit, 
 }
 
 // ============================================================ Goals
-function GoalsTab({goals, addGoal, setGoalProgress, addGoalSubtask, toggleGoalSubtask, deleteGoalSubtask, deleteGoal, setGoalMode, setGoalCounter, setGoalDeadline, archiveGoal, archive, openArchive, collapsed={}, onToggleCollapse}){
+function GoalsTab({goals, addGoal, setGoalProgress, addGoalSubtask, toggleGoalSubtask, deleteGoalSubtask, deleteGoal, setGoalMode, setGoalCounter, setGoalDeadline, archiveGoal, archive=[], restoreGoal, deleteArchivedGoal, showGoalDeadline=false, collapsed={}, onToggleCollapse}){
   const [text,setText] = useState(''); const [scope,setScope] = useState('week');
   const [subtaskInputs,setSubtaskInputs] = useState({});
+  const [archiveShow,setArchiveShow] = useState(false);
   const scopes = [{id:'year',label:'Год'},{id:'month',label:'Месяц'},{id:'week',label:'Неделя'},{id:'day',label:'День'}];
   const addFromForm = () => { if(text.trim()){ addGoal(scope,text.trim()); setText(''); } };
   const modeOf = (g) => g.mode ? g.mode : (g.counter?'counter':g.subtasks?'subtasks':'slider'); // legacy: undefined→ползунок
-  // 🎯 темп к дедлайну (session 025): сколько нужно в день, чтобы успеть; или ✓/просрочено
-  const paceInfo = (g) => {
-    if(!g.deadline) return null;
+  // последний день текущего периода скоупа — неявный дедлайн, если явный не задан (session: goal-deadline-hide)
+  const endOfScope = (scope) => {
+    const t = todayStr(); const d = new Date(t+'T00:00:00');
+    if(scope==='day') return t;
+    if(scope==='week'){ const wd=(d.getDay()+6)%7; const end=new Date(d); end.setDate(d.getDate()+(6-wd)); return toLocalISODate(end); } // Пн=0 → до Вс
+    if(scope==='month') return toLocalISODate(new Date(d.getFullYear(), d.getMonth()+1, 0));
+    if(scope==='year')  return `${d.getFullYear()}-12-31`;
+    return null;
+  };
+  // 🎯 темп к дедлайну (session 025): сколько нужно в день, чтобы успеть; или ✓/просрочено.
+  // Дедлайн — явный (g.deadline) ИЛИ неявный = последний день недели/месяца/года скоупа. session: goal-deadline-hide.
+  const paceInfo = (g, scope) => {
+    const deadline = g.deadline || endOfScope(scope);
+    if(!deadline) return null;
     const today = todayStr(); const done=(g.progress||0)>=100;
-    if(done) return {done:true};
-    if(g.deadline < today) return {overdue:true};
-    const daysLeft = daysBetween(today, g.deadline) + 1;
+    if(done) return {done:true, explicit:!!g.deadline};
+    if(deadline < today) return {overdue:true, explicit:!!g.deadline};
+    const daysLeft = daysBetween(today, deadline) + 1;
     let rem, unit;
     if(modeOf(g)==='counter' && g.counter){ rem=Math.max(0,g.counter.target-(g.counter.current||0)); unit=' шт'; }
     else { rem=Math.max(0,100-(g.progress||0)); unit='%'; }
-    return {daysLeft, need: Math.round(rem/Math.max(1,daysLeft)*10)/10, unit};
+    return {daysLeft, need: Math.round(rem/Math.max(1,daysLeft)*10)/10, unit, explicit:!!g.deadline};
   };
 
   return (
@@ -2451,14 +2452,20 @@ function GoalsTab({goals, addGoal, setGoalProgress, addGoalSubtask, toggleGoalSu
                     </div>
                   )}
 
-                  {/* дедлайн + темп (session 025) */}
-                  {(() => { const p=paceInfo(g); return (
+                  {/* дедлайн + темп (session 025; скрытие дедлайна — goal-deadline-hide).
+                      Дата-инпут показывается только при settings.showGoalDeadline; темп считается всегда
+                      по неявному дедлайну (конец недели/месяца/года), кроме простых целей-галочек без явного дедлайна. */}
+                  {(() => { const p=paceInfo(g, id); const showPace = p && (mode!=='none' || g.deadline);
+                    if(!showGoalDeadline && !showPace) return null;
+                    return (
                     <div style={{marginTop:8,display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
-                      <span style={{fontSize:10.5,color:C.dim}}>⏰ дедлайн</span>
-                      <input type="date" value={g.deadline||''} onChange={e=>setGoalDeadline(id,g.id,e.target.value)}
-                        style={{...S.input,fontSize:11,padding:'4px 6px',minWidth:0,flex:'none',width:140}} />
-                      {g.deadline && <span className="icon-btn" style={{fontSize:11,color:C.dim,cursor:'pointer'}} onClick={()=>setGoalDeadline(id,g.id,'')}>✕</span>}
-                      {p && (p.done
+                      {showGoalDeadline && <>
+                        <span style={{fontSize:10.5,color:C.dim}}>⏰ дедлайн</span>
+                        <input type="date" value={g.deadline||''} onChange={e=>setGoalDeadline(id,g.id,e.target.value)}
+                          style={{...S.input,fontSize:11,padding:'4px 6px',minWidth:0,flex:'none',width:140}} />
+                        {g.deadline && <span className="icon-btn" style={{fontSize:11,color:C.dim,cursor:'pointer'}} onClick={()=>setGoalDeadline(id,g.id,'')}>✕</span>}
+                      </>}
+                      {showPace && (p.done
                         ? <span style={{fontSize:10.5,color:C.green}}>✓ выполнено</span>
                         : p.overdue
                           ? <span style={{fontSize:10.5,color:C.red}}>просрочено</span>
@@ -2477,9 +2484,29 @@ function GoalsTab({goals, addGoal, setGoalProgress, addGoalSubtask, toggleGoalSu
           );
         })}
       </div>
-      <div style={{display:'flex',justifyContent:'center',marginTop:16}}>
-        <span style={{fontSize:12,color:C.dim,cursor:'pointer'}} onClick={openArchive}>🗄 Архив целей{archive&&archive.length?` · ${archive.length}`:''}</span>
-      </div>
+      {/* Архив целей — внизу, свёрнут по умолчанию (инлайн, как у привычек/дел) */}
+      {archive.length>0 && (
+        <div style={{marginTop:18}}>
+          <div onClick={()=>setArchiveShow(s=>!s)} style={{display:'flex',alignItems:'center',justifyContent:'space-between',cursor:'pointer',userSelect:'none',padding:'6px 2px'}}>
+            <span style={{fontSize:12.5,color:C.dim}}>🗄 Архив целей · {archive.length}</span>
+            <span style={{color:C.dim,fontSize:12,transition:'transform .2s ease',transform:archiveShow?'rotate(180deg)':'none'}}>▾</span>
+          </div>
+          {archiveShow && (
+            <div className="anim-collapse" style={{marginTop:8}}>
+              {[...archive].reverse().map((g,i)=>(
+                <div key={g.id+'_'+g.archivedAt+'_'+i} className="row-hover" style={{display:'flex',alignItems:'center',gap:8,padding:'8px 0',borderBottom:`1px solid ${C.border}`}}>
+                  <div style={{flex:1,minWidth:0,overflowWrap:'anywhere'}}>
+                    <div style={{fontSize:13,color:(g.progress||0)>=100?C.green:C.text}}>{(g.progress||0)>=100?'✓ ':''}{g.title}</div>
+                    <div style={{fontSize:10.5,color:C.dim}}>{PERIOD_LABEL[g.scope]||g.scope} · {g.period||'—'} · {g.progress||0}%{g.completedAt?` · ✅ выполнено ${g.completedAt}`:''} · архив {g.archivedAt}</div>
+                  </div>
+                  <button className="icon-btn" title="вернуть в активные" style={{color:C.cyan}} onClick={()=>restoreGoal(g.id, g.archivedAt)}>↩</button>
+                  <ConfirmIconBtn onConfirm={()=>deleteArchivedGoal(g.id, g.archivedAt)} title="удалить из архива" />
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -3844,6 +3871,15 @@ function SettingsTab({hidden, toggleModule, defaults, setDefault, categories, ac
               {m.icon} {m.label}</div>;
           })}
         </div>
+
+        <SettingsDivider/>
+        <SubHead>Цели</SubHead>
+        <label className="row-hover" style={{...S.taskRow, cursor:'pointer'}}>
+          <input type="checkbox" checked={!!showGoalDeadline} onChange={()=>setSettingFlag('showGoalDeadline', !showGoalDeadline)} />
+          <div style={{flex:1}}>Показывать поле дедлайна в целях</div>
+          <span style={{fontSize:11,color:C.dim}}>{showGoalDeadline?'показано':'скрыто'}</span>
+        </label>
+        <div style={{...S.dimSpan,marginLeft:0,marginTop:6,display:'block'}}>Цели уже разбиты на неделю/месяц/год, поэтому поле выключено по умолчанию. Темп («нужно +N/день») всё равно считается по концу периода. Включи, если хочешь задавать конкретную дату.</div>
 
         <SettingsDivider/>
         <SubHead>Финансы · по умолчанию</SubHead>
