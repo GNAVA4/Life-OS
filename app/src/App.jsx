@@ -10,7 +10,7 @@ Chart.register(...registerables);
 
 // Видимый штамп сборки — показывается в Настройках. Меняй при каждой пересборке APK,
 // чтобы точно знать, свежую версию установили или старую (session 013 не смогла это исключить).
-const BUILD_ID = '2026-07-19b-gamification';
+const BUILD_ID = '2026-07-20a-stats-recap-coach';
 
 // ---------- tokens & helpers ----------
 const C = {bg:'#0B0E13',panel:'#141A22',panelAlt:'#1B222C',border:'#2A323D',text:'#E7EAEE',dim:'#8992A3',amber:'#F2A93B',cyan:'#4FD1C5',red:'#E2584F',green:'#6FCF97',purple:'#9B7BD9'};
@@ -234,6 +234,7 @@ const MODULE_GROUPS = [
     {id:'today.carryover', label:'Кнопка «Перенести незакрытые со вчера»'},
     {id:'today.daily', label:'Ежедневные'},
     {id:'today.ongoing', label:'На несколько дней'},
+    {id:'today.coach', label:'🧠 Тренер (подсказки/инсайты)'},
     {id:'today.quests', label:'🎯 Задания дня (квесты)'},
     {id:'today.weekly', label:'🏆 Испытание недели'},
     {id:'today.tags', label:'Теги дня'},
@@ -249,6 +250,7 @@ const MODULE_GROUPS = [
     {id:'ops.expensePie', label:'Расходы по категориям (пирог)'},
     {id:'ops.incomePie', label:'Доходы по категориям (пирог)'},
     {id:'ops.expenseDaily', label:'Расходы по дням (гистограмма)'},
+    {id:'ops.safeToSpend', label:'💸 Свободно на сегодня'},
     {id:'ops.budgetAlerts', label:'Бюджет-алерты + прогноз'},
   ]},
   {group:'Финансы — активы', items:[
@@ -257,6 +259,7 @@ const MODULE_GROUPS = [
     {id:'assets.accountTrends', label:'Баланс по счетам во времени'},
   ]},
   {group:'Статистика', items:[
+    {id:'stats.recap', label:'📊 Итоги (неделя/месяц/год)'},
     {id:'stats.weekly', label:'Обзор за период'},
     {id:'stats.analysis', label:'Анализ факторов оценки дня'},
     {id:'stats.heatmap', label:'Дисциплин-грид'},
@@ -270,6 +273,7 @@ const MODULE_GROUPS = [
     {id:'stats.incomeCat', label:'Доходы по категориям (период)'},
     {id:'stats.expenseCat', label:'Расходы по категориям (период)'},
     {id:'stats.tagFreq', label:'Частота тегов'},
+    {id:'stats.antiTagFreq', label:'Частота анти-тегов'},
     {id:'stats.planfact', label:'План / факт по месяцу'},
   ]},
 ];
@@ -1075,6 +1079,9 @@ function App(){
       return g; });
     persist.goals({...goals,[scope]:list});
   };
+  const setGoalDeadline = (scope,id,deadline) => {
+    persist.goals({...goals,[scope]:(goals[scope]||[]).map(g=> g.id===id ? {...g, deadline: deadline||undefined} : g)});
+  };
   const setGoalCounter = (scope,id,patch) => {
     const g = (goals[scope]||[]).find(x=>x.id===id); if(!g||!g.counter) return;
     const target = Math.max(1, patch.target!=null?patch.target:g.counter.target);
@@ -1208,13 +1215,14 @@ function App(){
   const deleteHabit = (id) => persist.habits(habits.filter(h=>h.id!==id));
   const persistHabitsArchive = (n) => { setHabitsArchive(n); saveKey('lifeos:habitsArchive', n); };
   // в архив: убираем из активных, сохраняем привычку целиком + снимок статистики (стрик/выполнено) на момент архивации
-  const archiveHabit = (id) => {
+  const archiveHabit = (id, outcome='completed') => {
     const h = habits.find(x=>x.id===id); if(!h) return;
     const t = todayStr();
-    const snap = {...h, archivedAt:t, bestStreak:habitBestStreak(h,t), completedCount:habitCompletedCount(h), challengeDone:habitChallengeDone(h)};
+    const snap = {...h, archivedAt:t, outcome, bestStreak:habitBestStreak(h,t), completedCount:habitCompletedCount(h), challengeDone:habitChallengeDone(h)};
     persistHabitsArchive([...habitsArchive, snap]);
     persist.habits(habits.filter(x=>x.id!==id));
   };
+  const abandonHabit = (id) => archiveHabit(id, 'failed'); // «сдаться»: провал → в архив с пометкой
   const deleteArchivedHabit = (id, archivedAt) => persistHabitsArchive(habitsArchive.filter(h=>!(h.id===id && h.archivedAt===archivedAt)));
   const restoreHabit = (id, archivedAt) => {
     const h = habitsArchive.find(x=>x.id===id && x.archivedAt===archivedAt); if(!h) return;
@@ -1367,6 +1375,33 @@ function App(){
     const silent = (Date.now()-mountAtRef.current) < 4000;
     if(!silent) setToasts(prev=>[...prev, {tid:uid(), weekly:weekly.chal.label}]);
   }, [weekly.done, weekly.claimed]); // eslint-disable-line
+
+  // 🧠 «Тренер»: проактивные инсайты на «Сегодня» (session 025). Правила-подсказки + риски из данных.
+  const coachInsights = useMemo(() => {
+    const out=[]; const t=todayStr(); const mm=(n)=>maskMoney(finMask.ops, n);
+    // прогресс уровня/ранга
+    if(!levelMax){ const nr=nextRank(level);
+      out.push({icon:'🏆', text: nr ? `До ранга «${nr.name}» — ${nr.min-level} ур. · до след. уровня ${needed-into} XP` : `До следующего уровня — ${needed-into} XP`}); }
+    // привычки под угрозой (запланирована сегодня, ещё не отмечена, стрик до вчера ≥3)
+    habits.forEach(h=>{ if(isHabitScheduled(h,t) && !(h.log&&h.log[t])){ const st=habitCurrentStreak(h, addDays(t,-1));
+      if(st>=3) out.push({icon:'⚠️', tone:'warn', text:`Стрик привычки «${h.name}» под угрозой (${st} дн.) — сегодня ещё не отмечено`}); } });
+    // серия/комбо
+    if(combo.streak>=3) out.push({icon:'🔥', text:`${combo.streak} дней активности подряд — комбо ×${combo.mult.toFixed(1)}. Не прерывай!`});
+    // задания дня
+    const qLeft=todayQuests.filter(q=>!q.done).length;
+    if(qLeft>0 && qLeft<todayQuests.length) out.push({icon:'🎯', text:`Осталось заданий дня: ${qLeft}`});
+    // сон ↔ оценка (последние 30 дней)
+    { const hi=[],lo=[]; for(let i=0;i<30;i++){ const e=days[daysAgoStr(i)]; if(e&&e.rating!=null&&e.sleepHours!=null) (e.sleepHours>=7?hi:lo).push(e.rating); }
+      if(hi.length>=4 && lo.length>=4){ const avg=a=>a.reduce((s,x)=>s+x,0)/a.length; const d=avg(hi)-avg(lo);
+        if(Math.abs(d)>=0.8) out.push({icon:'😴', text:`В дни со сном 7ч+ оценка ${d>0?'выше':'ниже'} на ${Math.abs(Math.round(d*10)/10)} балла — ${d>0?'высыпайся':'обрати внимание'}`}); } }
+    // расходы месяца против плана
+    { const ym=t.slice(0,7); const plan=Object.values(budgets[ym]||{}).reduce((s,v)=>s+(v||0),0);
+      if(plan>0){ const spent=finance.transactions.filter(x=>!x.exclude&&x.type==='expense'&&x.date.slice(0,7)===ym).reduce((s,x)=>s+x.amount,0);
+        if(spent>plan) out.push({icon:'💸', tone:'warn', text:`Расходы месяца превысили план на ${mm(spent-plan)}`});
+        else if(spent>plan*0.85) out.push({icon:'💸', text:`Потрачено ${Math.round(spent/plan*100)}% месячного плана`}); } }
+    // приоритет: сначала предупреждения
+    return out.sort((a,b)=>(b.tone==='warn'?1:0)-(a.tone==='warn'?1:0)).slice(0,4);
+  }, [days, habits, finance.transactions, budgets, combo, todayQuests, level, into, needed, levelMax, finMask.ops]);
 
   // 🔍 глобальный поиск по задачам/делам/заметкам/целям/привычкам. session 015.
   const searchResults = useMemo(() => {
@@ -1625,13 +1660,13 @@ function App(){
         ongoing={ongoing} addOngoing={addOngoing} finishOngoing={finishOngoing} deleteOngoing={deleteOngoing}
         bills={bills} taskTemplates={taskTemplates} saveTaskTemplate={saveTaskTemplate} applyTaskTemplate={applyTaskTemplate} deleteTaskTemplate={deleteTaskTemplate}
         carryOverTasks={carryOverTasks} prevUndoneCount={prevUndoneTasks.length}
-        isToday={selectedDate===todayStr()} quests={todayQuests} weekly={weekly} combo={combo}
+        isToday={selectedDate===todayStr()} quests={todayQuests} weekly={weekly} combo={combo} coachInsights={coachInsights}
         collapsedUI={collapseState.ui||{}} onToggleUI={(key)=>toggleCollapse('ui',key)} />}
-      {tab==='habits' && <HabitsTab habits={habits} addHabit={addHabit} toggleHabitDay={toggleHabitDay} deleteHabit={deleteHabit} updateHabit={updateHabit} archiveHabit={archiveHabit} archive={habitsArchive} deleteArchivedHabit={deleteArchivedHabit} restoreHabit={restoreHabit} goals={goals} notifsOn={!settings.notifOff} />}
+      {tab==='habits' && <HabitsTab habits={habits} addHabit={addHabit} toggleHabitDay={toggleHabitDay} deleteHabit={deleteHabit} updateHabit={updateHabit} archiveHabit={archiveHabit} abandonHabit={abandonHabit} archive={habitsArchive} deleteArchivedHabit={deleteArchivedHabit} restoreHabit={restoreHabit} goals={goals} notifsOn={!settings.notifOff} />}
       {tab==='goals' && <GoalsTab goals={goals} addGoal={addGoal} setGoalProgress={setGoalProgress}
         addGoalSubtask={addGoalSubtask} toggleGoalSubtask={toggleGoalSubtask}
         deleteGoalSubtask={deleteGoalSubtask} deleteGoal={deleteGoal}
-        setGoalMode={setGoalMode} setGoalCounter={setGoalCounter} archiveGoal={archiveGoal}
+        setGoalMode={setGoalMode} setGoalCounter={setGoalCounter} setGoalDeadline={setGoalDeadline} archiveGoal={archiveGoal}
         collapsed={collapseState.goals||{}} onToggleCollapse={(sc)=>toggleCollapse('goals',sc)}
         archive={goalsArchive} openArchive={()=>setArchiveOpen(true)} />}
       {tab==='study' && <StudyTab study={study} addStudyTask={addStudyTask} updateStudyTask={updateStudyTask} deleteStudyTask={deleteStudyTask} archiveStudyTask={archiveStudyTask} archive={studyArchive} deleteArchivedStudy={deleteArchivedStudy} restoreStudy={restoreStudy}
@@ -1646,7 +1681,7 @@ function App(){
         addBill={addBill} deleteBill={deleteBill}
         addAccount={addAccount} deleteAccount={deleteAccount} addSnapshot={addSnapshot} deleteSnapshot={deleteSnapshot}
         addDebtor={addDebtor} updateDebtor={updateDebtor} deleteDebtor={deleteDebtor} />}
-      {tab==='stats' && <StatsTab days={days} finance={finance} budgets={budgets} incomePlans={incomePlans} habits={habits} finMask={finMask} />}
+      {tab==='stats' && <StatsTab days={days} finance={finance} budgets={budgets} incomePlans={incomePlans} habits={habits} finMask={finMask} study={study} unlocked={achievements.unlocked||{}} />}
       {tab==='achievements' && <AchievementsTab stats={achStats} unlocked={achievements.unlocked||{}} />}
       {tab==='settings' && <SettingsTab hidden={settings.hidden||{}} toggleModule={toggleModule}
         defaults={settings.defaults||{}} setDefault={setDefault} categories={categories} accounts={finance.accounts}
@@ -1829,7 +1864,7 @@ function TodayTab({entry, selectedDate, setSelectedDate, addTask, toggleTask, de
   dailyTasks, toggleDaily, addDailyTask, deleteDailyTask,
   ongoing, addOngoing, finishOngoing, deleteOngoing, bills, maskOps=false,
   taskTemplates=[], saveTaskTemplate, applyTaskTemplate, deleteTaskTemplate, carryOverTasks, prevUndoneCount=0,
-  isToday=true, quests=[], weekly=null, combo={streak:0,mult:1}, collapsedUI={}, onToggleUI}){
+  isToday=true, quests=[], weekly=null, combo={streak:0,mult:1}, coachInsights=[], collapsedUI={}, onToggleUI}){
   const [newTaskText,setNewTaskText] = useState('');
   const [tplOpen,setTplOpen] = useState(false);
   const [tplName,setTplName] = useState('');
@@ -1878,6 +1913,20 @@ function TodayTab({entry, selectedDate, setSelectedDate, addTask, toggleTask, de
           {selectedDate!==todayStr() && <div style={{...S.dimSpan, marginTop:6}}>не сегодня — редактируешь другую дату</div>}
           {todaysBill && <div style={{...S.dimSpan, marginTop:6, color:C.amber}}>Сегодня платёж: {todaysBill.name} — {maskMoney(maskOps, todaysBill.amount)}</div>}
         </div>
+
+        {isToday && vis('today.coach') && coachInsights.length>0 && (() => { const isC=!!collapsedUI.coach; return (
+        <div style={S.panel}>
+          <div style={{...S.panelTitle,cursor:'pointer',display:'flex',alignItems:'center',marginBottom:isC?0:10}} onClick={()=>onToggleUI && onToggleUI('coach')}>
+            <span style={{marginRight:6}}>{isC?'▶':'▼'}</span>🧠 Тренер <span style={S.dimSpan}>{coachInsights.length}</span>
+          </div>
+          {!isC && coachInsights.map((ins,i)=>(
+            <div key={i} style={{display:'flex',alignItems:'flex-start',gap:8,padding:'5px 0',borderBottom:i<coachInsights.length-1?`1px solid ${C.border}`:'none'}}>
+              <span style={{fontSize:15,flexShrink:0}}>{ins.icon}</span>
+              <span style={{flex:1,minWidth:0,fontSize:12.5,color:ins.tone==='warn'?C.amber:C.text,overflowWrap:'anywhere',lineHeight:1.45}}>{ins.text}</span>
+            </div>
+          ))}
+        </div>
+        ); })()}
 
         {isToday && vis('today.quests') && quests.length>0 && (() => { const isC=!!collapsedUI.quests; return (
         <div style={S.panel}>
@@ -2109,7 +2158,7 @@ function TodayTab({entry, selectedDate, setSelectedDate, addTask, toggleTask, de
 }
 
 // ============================================================ Habits
-function HabitsTab({habits, addHabit, toggleHabitDay, deleteHabit, updateHabit, archiveHabit, archive=[], deleteArchivedHabit, restoreHabit, goals={}, notifsOn}){
+function HabitsTab({habits, addHabit, toggleHabitDay, deleteHabit, updateHabit, archiveHabit, abandonHabit, archive=[], deleteArchivedHabit, restoreHabit, goals={}, notifsOn}){
   const [name,setName] = useState('');
   const [archiveShow,setArchiveShow] = useState(false);
   const [schedType,setSchedType] = useState('daily');
@@ -2204,7 +2253,8 @@ function HabitsTab({habits, addHabit, toggleHabitDay, deleteHabit, updateHabit, 
                 <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:16,fontWeight:700,color:streak>0?C.amber:C.dim}}>🔥 {streak}</div>
                 <div style={{fontSize:10,color:C.dim}}>рекорд {best}</div>
               </div>
-              <ConfirmIconBtn onConfirm={()=>archiveHabit(h.id)} icon="🏁" confirmLabel="в архив?" title="в архив (сохранить историю)" />
+              <ConfirmIconBtn onConfirm={()=>archiveHabit(h.id)} icon="🏁" confirmLabel="завершить?" title="завершить успешно → в архив" />
+              <ConfirmIconBtn onConfirm={()=>abandonHabit(h.id)} icon="🏳️" confirmLabel="сдаться?" title="сдаться (провал) → в архив" />
               <ConfirmIconBtn onConfirm={()=>deleteHabit(h.id)} confirmLabel="удалить?" title="удалить безвозвратно" />
             </div>
 
@@ -2254,7 +2304,7 @@ function HabitsTab({habits, addHabit, toggleHabitDay, deleteHabit, updateHabit, 
               {[...archive].reverse().map((h,i)=>(
                 <div key={h.id+'_'+h.archivedAt+'_'+i} className="row-hover" style={{display:'flex',alignItems:'center',gap:8,padding:'8px 0',borderBottom:`1px solid ${C.border}`}}>
                   <div style={{flex:1,minWidth:0,overflowWrap:'anywhere'}}>
-                    <div style={{fontSize:13,color:C.text}}>{h.challengeDone?'🎉 ':''}{h.name}</div>
+                    <div style={{fontSize:13,color:h.outcome==='failed'?C.red:C.text}}>{h.outcome==='failed'?'🏳️ ':h.challengeDone?'🎉 ':''}{h.name}{h.outcome==='failed'?' · сдался':''}</div>
                     <div style={{fontSize:10.5,color:C.dim}}>рекорд 🔥 {h.bestStreak||0} · выполнено {h.completedCount||0}{h.targetDays>0?` / ${h.targetDays}`:''} дн. · архив {h.archivedAt}</div>
                   </div>
                   <button className="icon-btn" title="вернуть в активные" style={{color:C.cyan}} onClick={()=>restoreHabit(h.id, h.archivedAt)}>↩</button>
@@ -2270,12 +2320,24 @@ function HabitsTab({habits, addHabit, toggleHabitDay, deleteHabit, updateHabit, 
 }
 
 // ============================================================ Goals
-function GoalsTab({goals, addGoal, setGoalProgress, addGoalSubtask, toggleGoalSubtask, deleteGoalSubtask, deleteGoal, setGoalMode, setGoalCounter, archiveGoal, archive, openArchive, collapsed={}, onToggleCollapse}){
+function GoalsTab({goals, addGoal, setGoalProgress, addGoalSubtask, toggleGoalSubtask, deleteGoalSubtask, deleteGoal, setGoalMode, setGoalCounter, setGoalDeadline, archiveGoal, archive, openArchive, collapsed={}, onToggleCollapse}){
   const [text,setText] = useState(''); const [scope,setScope] = useState('week');
   const [subtaskInputs,setSubtaskInputs] = useState({});
   const scopes = [{id:'year',label:'Год'},{id:'month',label:'Месяц'},{id:'week',label:'Неделя'},{id:'day',label:'День'}];
   const addFromForm = () => { if(text.trim()){ addGoal(scope,text.trim()); setText(''); } };
   const modeOf = (g) => g.mode ? g.mode : (g.counter?'counter':g.subtasks?'subtasks':'slider'); // legacy: undefined→ползунок
+  // 🎯 темп к дедлайну (session 025): сколько нужно в день, чтобы успеть; или ✓/просрочено
+  const paceInfo = (g) => {
+    if(!g.deadline) return null;
+    const today = todayStr(); const done=(g.progress||0)>=100;
+    if(done) return {done:true};
+    if(g.deadline < today) return {overdue:true};
+    const daysLeft = daysBetween(today, g.deadline) + 1;
+    let rem, unit;
+    if(modeOf(g)==='counter' && g.counter){ rem=Math.max(0,g.counter.target-(g.counter.current||0)); unit=' шт'; }
+    else { rem=Math.max(0,100-(g.progress||0)); unit='%'; }
+    return {daysLeft, need: Math.round(rem/Math.max(1,daysLeft)*10)/10, unit};
+  };
 
   return (
     <div>
@@ -2367,6 +2429,21 @@ function GoalsTab({goals, addGoal, setGoalProgress, addGoalSubtask, toggleGoalSu
                       <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11.5,color:C.dim,minWidth:34,textAlign:'right'}}>{g.progress||0}%</div>
                     </div>
                   )}
+
+                  {/* дедлайн + темп (session 025) */}
+                  {(() => { const p=paceInfo(g); return (
+                    <div style={{marginTop:8,display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
+                      <span style={{fontSize:10.5,color:C.dim}}>⏰ дедлайн</span>
+                      <input type="date" value={g.deadline||''} onChange={e=>setGoalDeadline(id,g.id,e.target.value)}
+                        style={{...S.input,fontSize:11,padding:'4px 6px',minWidth:0,flex:'none',width:140}} />
+                      {g.deadline && <span className="icon-btn" style={{fontSize:11,color:C.dim,cursor:'pointer'}} onClick={()=>setGoalDeadline(id,g.id,'')}>✕</span>}
+                      {p && (p.done
+                        ? <span style={{fontSize:10.5,color:C.green}}>✓ выполнено</span>
+                        : p.overdue
+                          ? <span style={{fontSize:10.5,color:C.red}}>просрочено</span>
+                          : <span style={{fontSize:10.5,color:p.need<=0?C.green:C.amber}}>нужно +{p.need}{p.unit}/день · {p.daysLeft} дн.</span>)}
+                    </div>
+                  ); })()}
 
                   {mode!=='none' && (
                     <div style={{display:'flex',gap:10,marginTop:6,flexWrap:'wrap'}}>
@@ -2771,6 +2848,21 @@ function OpsSection({finance, categories, budgets, incomePlans, bills, monthTx, 
   const planIncomeByCat  = useMemo(()=>{ const m={}; planTx.filter(t=>t.type==='income').forEach(t=>{ m[t.category]=(m[t.category]||0)+t.amount; }); return m; }, [planTx]);
   const monthBudgets = budgets[planMonth]||{};
   const monthIncomePlans = incomePlans[planMonth]||{};
+  // 💸 «Свободно на сегодня»: (план месяца − потрачено) / оставшиеся дни. session 025.
+  const safeToSpend = useMemo(()=>{
+    const ym = todayStr().slice(0,7);
+    const plan = Object.values(budgets[ym]||{}).reduce((s,v)=>s+(v||0),0);
+    if(plan<=0) return null;
+    const spent = monthTx.filter(t=>t.type==='expense'&&!t.exclude).reduce((s,t)=>s+t.amount,0);
+    const [y,mm] = ym.split('-').map(Number);
+    const daysInMonth = new Date(y,mm,0).getDate();
+    const dayNum = new Date().getDate();
+    const remainingDays = Math.max(1, daysInMonth - dayNum + 1);
+    const remaining = plan - spent;
+    const perDay = remaining/remainingDays;
+    const spentToday = monthTx.filter(t=>t.type==='expense'&&!t.exclude&&t.date===todayStr()).reduce((s,t)=>s+t.amount,0);
+    return {plan, spent, remaining, perDay:Math.round(perDay), remainingDays, spentToday, leftToday:Math.round(perDay-spentToday)};
+  }, [budgets, monthTx]);
   const planSwitcher = (
     <div style={{display:'flex',alignItems:'center',gap:8}}>
       <button style={S.navArrow} onClick={()=>setPlanMonth(shiftMonth(planMonth,-1))}>◀</button>
@@ -2857,6 +2949,23 @@ function OpsSection({finance, categories, budgets, incomePlans, bills, monthTx, 
           </div>
         )}
       </div>
+
+      {vis('ops.safeToSpend') && safeToSpend && (() => {
+        const st = safeToSpend; const over = st.leftToday<0; const col = over?C.red:(st.leftToday< st.perDay*0.3?C.amber:C.green);
+        return (
+        <div style={{...S.panel, borderColor:col}}>
+          <div style={{...S.panelTitle, color:col}}>💸 Свободно на сегодня</div>
+          <div style={{display:'flex',alignItems:'baseline',gap:8,flexWrap:'wrap'}}>
+            <span style={{fontSize:26,fontWeight:800,color:col,fontFamily:"'JetBrains Mono',monospace"}}>{over?'−':''}{mo(Math.abs(st.leftToday))}</span>
+            <span style={{fontSize:12,color:C.dim}}>{over?'превышен дневной лимит':'ещё можно потратить сегодня'}</span>
+          </div>
+          <div style={{fontSize:11,color:C.dim,marginTop:6,lineHeight:1.5}}>
+            дневной лимит ~{mo(st.perDay)} · потрачено сегодня {mo(st.spentToday)}<br/>
+            в месяце осталось {mo(st.remaining)} на {st.remainingDays} дн. (план {mo(st.plan)}, потрачено {mo(st.spent)})
+          </div>
+        </div>
+        );
+      })()}
 
       {(() => {
         if(!vis('ops.budgetAlerts')) return null;
@@ -3103,9 +3212,40 @@ function DebtorsSection({debtors, mask=false, addDebtor, updateDebtor, deleteDeb
 }
 
 // ============================================================ Stats
-function StatsTab({days, finance, budgets, incomePlans, habits=[], finMask={}}){
+function StatsTab({days, finance, budgets, incomePlans, habits=[], finMask={}, study=[], unlocked={}}){
   const mo = n => maskMoney(finMask.ops, n);   // приватность: скрытие сумм в статистике
   const [range,setRange] = useState('30');
+  const [analysisTarget,setAnalysisTarget] = useState('rating'); // что анализируем: оценка/задачи/сон
+  const [openDetail,setOpenDetail] = useState({}); // раскрытые детальные разделы (tags/habits/anti)
+  const [recapPeriod,setRecapPeriod] = useState('week'); // Итоги: неделя/месяц/год
+
+  // 📊 Итоги за период (session 025): авто-сводка достижений периода из датированных данных.
+  const recap = useMemo(()=>{
+    const scope=recapPeriod, cur=periodOf(scope);
+    const inP = ds => periodOf(scope, ds)===cur;
+    let tasksDone=0, perfect=0, activeDays=0, habitChecks=0, antiCount=0; const ratings=[], sleeps=[]; const wd=[0,0,0,0,0,0,0]; let bestDay={date:null,n:0};
+    Object.entries(days).forEach(([ds,e])=>{ if(!inP(ds)) return;
+      const done=(e.tasks||[]).filter(t=>t.done).length + Object.values(e.dailyCompletions||{}).filter(Boolean).length;
+      tasksDone+=done;
+      const tot=(e.tasks||[]).length; if(tot>=3 && (e.tasks||[]).every(t=>t.done)) perfect++;
+      if(done>0 || (e.tags||[]).length>0 || e.rating!=null || (e.note&&e.note.trim()) || e.sleepHours!=null) activeDays++;
+      if(e.rating!=null) ratings.push(e.rating);
+      if(e.sleepHours!=null) sleeps.push(e.sleepHours);
+      antiCount += (e.antiTags||[]).length;
+      wd[new Date(ds+'T00:00:00').getDay()] += done;
+      if(done>bestDay.n) bestDay={date:ds,n:done};
+    });
+    habits.forEach(h=>{ Object.keys(h.log||{}).forEach(ds=>{ if(inP(ds)) habitChecks++; }); });
+    let exp=0, inc=0; const catExp={};
+    finance.transactions.forEach(t=>{ if(t.exclude || !inP(t.date)) return; if(t.type==='expense'){ exp+=t.amount; catExp[t.category]=(catExp[t.category]||0)+t.amount; } else inc+=t.amount; });
+    const topCat=Object.entries(catExp).sort((a,b)=>b[1]-a[1])[0]||null;
+    const studyDone=study.filter(s=>s.status==='Выполнено' && s.completedAt && inP(s.completedAt)).length;
+    const achCount=Object.values(unlocked).filter(d=>inP(d)).length;
+    const avg=a=>a.length?Math.round(a.reduce((s,x)=>s+x,0)/a.length*10)/10:null;
+    const WD=['Вс','Пн','Вт','Ср','Чт','Пт','Сб'];
+    return { tasksDone, perfect, activeDays, habitChecks, antiCount, avgRating:avg(ratings), avgSleep:avg(sleeps),
+      exp, inc, topCat, studyDone, achCount, bestDay, bestWd: wd.some(x=>x>0)?WD[wd.indexOf(Math.max(...wd))]:null };
+  }, [days, finance, habits, study, unlocked, recapPeriod]);
   const rangeDays = range==='7'?7 : range==='30'?30 : range==='90'?90 : range==='year'?365 : 1000;
   const rangeLabel = range==='7'?'7 дней' : range==='30'?'30 дней' : range==='90'?'90 дней' : range==='year'?'год' : 'всё время';
 
@@ -3124,28 +3264,56 @@ function StatsTab({days, finance, budgets, incomePlans, habits=[], finMask={}}){
     return { tasksDone, habitDone, avgRating:avg(ratings), avgSleep:avg(sleeps), exp, inc };
   }, [days, habits, finance.transactions, rangeDays]);
 
-  // 🔬 Детальный анализ: что коррелирует с оценкой дня (сон, задачи, привычки, теги) за период. session 020.
-  const factorCorrelations = useMemo(()=>{
+  // 🔬 Детальный анализ корреляций (session 020; расширен session 025): выбираем ЦЕЛЬ (оценка дня /
+  // выполнено задач / сон) и смотрим, что с ней связано — агрегатные факторы + детальный разбор
+  // по КОНКРЕТНЫМ тегам, привычкам и анти-тегам (бинарная точечно-бисериальная корреляция).
+  const TARGETS = [
+    {key:'rating',    label:'Оценка дня',      get:(e)=>e.rating!=null?e.rating:null},
+    {key:'tasksDone', label:'Выполнено задач', get:(e)=>(e.tasks||[]).filter(t=>t.done).length},
+    {key:'sleep',     label:'Часы сна',        get:(e)=>e.sleepHours!=null?e.sleepHours:null},
+  ];
+  const analysisData = useMemo(()=>{
     const rows=[];
-    for(let i=0;i<rangeDays;i++){ const ds=daysAgoStr(i); const e=days[ds]; if(!e || e.rating==null) continue;
-      rows.push({ rating:e.rating, sleep:e.sleepHours,
-        tasksDone:(e.tasks||[]).filter(t=>t.done).length, tasksPlanned:(e.tasks||[]).length,
-        habitsDone: habits.reduce((n,h)=> n + (h.log && h.log[ds]?1:0), 0), tags:(e.tags||[]).length });
+    for(let i=0;i<rangeDays;i++){ const ds=daysAgoStr(i); const e=days[ds]; if(!e) continue;
+      const tgt = (TARGETS.find(t=>t.key===analysisTarget)||TARGETS[0]).get(e);
+      if(tgt==null) continue;
+      rows.push({ target:tgt, sleep:e.sleepHours, tasksDone:(e.tasks||[]).filter(t=>t.done).length,
+        tasksPlanned:(e.tasks||[]).length, habitsDone: habits.reduce((n,h)=> n + (h.log && h.log[ds]?1:0), 0),
+        antiCount:(e.antiTags||[]).length, tagSet:new Set(e.tags||[]), antiSet:new Set(e.antiTags||[]),
+        habitSet:new Set(habits.filter(h=>h.log && h.log[ds]).map(h=>h.id)) });
     }
-    const pearson = (key) => {
-      const xs=[], ys=[]; rows.forEach(r=>{ if(r[key]!=null){ xs.push(r[key]); ys.push(r.rating); } });
+    const pearson = (getX) => {
+      const xs=[], ys=[]; rows.forEach(r=>{ const x=getX(r); if(x!=null){ xs.push(x); ys.push(r.target); } });
       const n=xs.length; if(n<4) return {n, r:null};
       const mean=a=>a.reduce((s,x)=>s+x,0)/a.length; const mx=mean(xs), my=mean(ys);
       let num=0,dx=0,dy=0; for(let i=0;i<n;i++){ const a=xs[i]-mx,b=ys[i]-my; num+=a*b; dx+=a*a; dy+=b*b; }
       return {n, r:(dx&&dy)?Math.round(num/Math.sqrt(dx*dy)*100)/100:0};
     };
-    const factors = [
-      {key:'sleep', label:'😴 Сон'}, {key:'tasksDone', label:'✅ Задач выполнено'},
-      {key:'tasksPlanned', label:'📋 Задач запланировано'}, {key:'habitsDone', label:'🔁 Привычек отмечено'},
-      {key:'tags', label:'🏷 Тегов за день'},
-    ];
-    return factors.map(f=>({...f, ...pearson(f.key)})).sort((a,b)=> Math.abs(b.r||0)-Math.abs(a.r||0));
-  }, [days, habits, rangeDays]);
+    const aggDefs=[
+      {key:'sleep', label:'😴 Сон', get:r=>r.sleep, skip:analysisTarget==='sleep'},
+      {key:'tasksDone', label:'✅ Задач выполнено', get:r=>r.tasksDone, skip:analysisTarget==='tasksDone'},
+      {key:'tasksPlanned', label:'📋 Задач запланировано', get:r=>r.tasksPlanned},
+      {key:'habitsDone', label:'🔁 Привычек отмечено', get:r=>r.habitsDone},
+      {key:'tags', label:'🏷 Тегов за день', get:r=>r.tagSet.size},
+      {key:'anti', label:'🚫 Анти-тегов за день', get:r=>r.antiCount},
+    ].filter(d=>!d.skip);
+    const aggregate = aggDefs.map(d=>({key:d.key,label:d.label,...pearson(d.get)})).filter(f=>f.r!=null).sort((a,b)=>Math.abs(b.r||0)-Math.abs(a.r||0));
+    // детально по элементам: только с достаточной вариацией (встречался ≥3 раз, но не каждый день)
+    const detail = (names, presentFn) => names.map(name=>{
+      const present = rows.filter(r=>presentFn(r,name)).length;
+      if(present<3 || present===rows.length) return null;
+      return {name, present, ...pearson(r=>presentFn(r,name)?1:0)};
+    }).filter(x=>x&&x.r!=null).sort((a,b)=>Math.abs(b.r||0)-Math.abs(a.r||0));
+    const allTags=[...new Set(rows.flatMap(r=>[...r.tagSet]))];
+    const allAnti=[...new Set(rows.flatMap(r=>[...r.antiSet]))];
+    const habitById = {}; habits.forEach(h=>habitById[h.id]=h.name);
+    return {
+      count: rows.length, aggregate,
+      tagsDetail: detail(allTags, (r,t)=>r.tagSet.has(t)),
+      antiDetail: detail(allAnti, (r,t)=>r.antiSet.has(t)),
+      habitsDetail: detail(habits.map(h=>h.id), (r,id)=>r.habitSet.has(id)).map(x=>({...x, name:habitById[x.name]||x.name})),
+    };
+  }, [days, habits, rangeDays, analysisTarget]);
   const corrStrength = (r) => { const a=Math.abs(r); return a<0.2?'почти нет':a<0.4?'слабая':a<0.6?'заметная':a<0.8?'сильная':'очень сильная'; };
 
   const [pfMonth,setPfMonth] = useState(todayStr().slice(0,7));
@@ -3196,6 +3364,8 @@ function StatsTab({days, finance, budgets, incomePlans, habits=[], finMask={}}){
   }, [finance.transactions, rangeStart]);
   const tagFreq = useMemo(()=>{ const map={}; Object.entries(days).forEach(([ds,e])=>{ if(ds<rangeStart) return; (e.tags||[]).forEach(tg=>{ map[tg]=(map[tg]||0)+1; }); });
     return Object.entries(map).sort((a,b)=>b[1]-a[1]); }, [days, rangeStart]);
+  const antiTagFreq = useMemo(()=>{ const map={}; Object.entries(days).forEach(([ds,e])=>{ if(ds<rangeStart) return; (e.antiTags||[]).forEach(tg=>{ map[tg]=(map[tg]||0)+1; }); });
+    return Object.entries(map).sort((a,b)=>b[1]-a[1]); }, [days, rangeStart]);
 
   // план/факт по выбранному месяцу (история планов помесячная)
   const pfTx = finance.transactions.filter(t=>t.date.slice(0,7)===pfMonth && !t.exclude);
@@ -3223,6 +3393,39 @@ function StatsTab({days, finance, budgets, incomePlans, habits=[], finMask={}}){
         ))}
       </div>
 
+      {vis('stats.recap') && (
+      <div style={{...S.panel, borderColor:C.amber}}>
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:8,marginBottom:10}}>
+          <div style={{...S.panelTitle,marginBottom:0,color:C.amber}}>📊 Итоги</div>
+          <div style={{display:'flex',gap:6}}>
+            {[{id:'week',label:'Неделя'},{id:'month',label:'Месяц'},{id:'year',label:'Год'}].map(p=>(
+              <div key={p.id} className="chip" onClick={()=>setRecapPeriod(p.id)} style={{background:recapPeriod===p.id?C.amber:C.panelAlt,color:recapPeriod===p.id?'#1A1200':C.dim,borderColor:recapPeriod===p.id?C.amber:C.border,padding:'3px 10px',fontSize:11}}>{p.label}</div>
+            ))}
+          </div>
+        </div>
+        <div className="grid3" style={{...S.grid3,gap:10}}>
+          <div style={S.statCard}><div style={S.statVal}>{recap.tasksDone}</div><div style={S.dimSpan}>задач выполнено</div></div>
+          <div style={S.statCard}><div style={S.statVal}>{recap.perfect}</div><div style={S.dimSpan}>идеальных дней</div></div>
+          <div style={S.statCard}><div style={S.statVal}>{recap.activeDays}</div><div style={S.dimSpan}>активных дней</div></div>
+          <div style={S.statCard}><div style={S.statVal}>{recap.habitChecks}</div><div style={S.dimSpan}>привычек отмечено</div></div>
+          <div style={S.statCard}><div style={S.statVal}>{recap.achCount}</div><div style={S.dimSpan}>достижений открыто</div></div>
+          <div style={S.statCard}><div style={S.statVal}>{recap.studyDone}</div><div style={S.dimSpan}>дел закрыто</div></div>
+          <div style={S.statCard}><div style={S.statVal}>{recap.avgRating!=null?recap.avgRating:'–'}</div><div style={S.dimSpan}>средняя оценка</div></div>
+          <div style={S.statCard}><div style={S.statVal}>{recap.avgSleep!=null?`${recap.avgSleep}ч`:'–'}</div><div style={S.dimSpan}>средний сон</div></div>
+          <div style={S.statCard}><div style={{...S.statVal,color:recap.antiCount?C.red:C.dim}}>{recap.antiCount}</div><div style={S.dimSpan}>анти-тегов</div></div>
+          <div style={S.statCard}><div style={{...S.statVal,color:C.red}}>{mo(recap.exp)}</div><div style={S.dimSpan}>расход</div></div>
+          <div style={S.statCard}><div style={{...S.statVal,color:C.green}}>{mo(recap.inc)}</div><div style={S.dimSpan}>доход</div></div>
+          <div style={S.statCard}><div style={{...S.statVal,color:C.green}}>{recap.inc-recap.exp>=0?'+':''}{mo(recap.inc-recap.exp)}</div><div style={S.dimSpan}>чистыми</div></div>
+        </div>
+        <div style={{fontSize:11.5,color:C.dim,marginTop:10,lineHeight:1.6}}>
+          {recap.bestDay.date && <>🏅 Лучший день: <b style={{color:C.text}}>{recap.bestDay.date}</b> — {recap.bestDay.n} задач<br/></>}
+          {recap.bestWd && <>📅 Продуктивнее всего по: <b style={{color:C.text}}>{recap.bestWd}</b><br/></>}
+          {recap.topCat && <>💸 Больше всего трат: <b style={{color:C.text}}>{recap.topCat[0]}</b> — {mo(recap.topCat[1])}</>}
+          {recap.tasksDone===0 && recap.activeDays===0 && <span style={S.emptyState}>За период пока пусто — заполняй дни, и здесь появится сводка.</span>}
+        </div>
+      </div>
+      )}
+
       {vis('stats.weekly') && (
       <div style={S.panel}>
         <div style={S.panelTitle}>📈 Обзор · {rangeLabel}</div>
@@ -3237,27 +3440,62 @@ function StatsTab({days, finance, budgets, incomePlans, habits=[], finMask={}}){
       </div>
       )}
 
-      {vis('stats.analysis') && (
-      <div style={S.panel}>
-        <div style={S.panelTitle}>🔬 Анализ: что влияет на оценку дня · {rangeLabel}</div>
-        <div style={{...S.dimSpan,marginLeft:0,marginBottom:10,display:'block'}}>Корреляция (Пирсон) между оценкой дня и факторами. Ближе к ±1 — сильнее связь; знак = направление. Нужно ≥4 дня с оценкой.</div>
-        {factorCorrelations.every(f=>f.r==null) && <div style={S.emptyState}>Мало данных за период — ставь оценку дня почаще.</div>}
-        {factorCorrelations.filter(f=>f.r!=null).map(f=>(
-          <div key={f.key} style={{marginBottom:10}}>
-            <div style={{display:'flex',justifyContent:'space-between',fontSize:12.5,marginBottom:3,gap:8}}>
-              <span>{f.label}</span>
-              <span style={{color:C.dim,fontFamily:"'JetBrains Mono',monospace",flexShrink:0}}>r={f.r} · {corrStrength(f.r)} · {f.n} дн.</span>
-            </div>
-            {/* полоса от центра: вправо (зелёная) при r>0, влево (красная) при r<0 */}
-            <div style={{position:'relative',height:6,background:C.panelAlt,borderRadius:3,overflow:'hidden'}}>
-              <div style={{position:'absolute',left:'50%',top:0,bottom:0,width:1,background:C.border}}/>
-              <div style={{position:'absolute',top:0,bottom:0,background:f.r>=0?C.green:C.red,
-                left: f.r>=0?'50%':`${50-Math.abs(f.r)*50}%`, width:`${Math.abs(f.r)*50}%`}}/>
-            </div>
+      {vis('stats.analysis') && (() => {
+        const tgtLabel = (TARGETS.find(t=>t.key===analysisTarget)||TARGETS[0]).label;
+        const bar = (r) => (
+          <div style={{position:'relative',height:6,background:C.panelAlt,borderRadius:3,overflow:'hidden'}}>
+            <div style={{position:'absolute',left:'50%',top:0,bottom:0,width:1,background:C.border}}/>
+            <div style={{position:'absolute',top:0,bottom:0,background:r>=0?C.green:C.red,
+              left: r>=0?'50%':`${50-Math.abs(r)*50}%`, width:`${Math.abs(r)*50}%`}}/>
           </div>
-        ))}
-      </div>
-      )}
+        );
+        const detailSection = (id, title, list) => (
+          <div style={{marginTop:10,borderTop:`1px solid ${C.border}`,paddingTop:10}}>
+            <div style={{...S.panelTitle,fontSize:13,cursor:'pointer',display:'flex',alignItems:'center',marginBottom:openDetail[id]?8:0}}
+              onClick={()=>setOpenDetail(o=>({...o,[id]:!o[id]}))}>
+              <span style={{marginRight:6}}>{openDetail[id]?'▼':'▶'}</span>{title} <span style={S.dimSpan}>{list.length}</span>
+            </div>
+            {openDetail[id] && (list.length===0
+              ? <div style={S.emptyState}>Мало данных (нужно, чтобы элемент встречался в части дней)</div>
+              : list.map(f=>(
+                <div key={f.name} style={{marginBottom:9}}>
+                  <div style={{display:'flex',justifyContent:'space-between',fontSize:12,marginBottom:3,gap:8}}>
+                    <span style={{minWidth:0,overflowWrap:'anywhere'}}>{f.name}</span>
+                    <span style={{color:f.r>=0?C.green:C.red,fontFamily:"'JetBrains Mono',monospace",flexShrink:0}}>r={f.r>0?'+':''}{f.r} · {f.present}д</span>
+                  </div>
+                  {bar(f.r)}
+                </div>
+              )))}
+          </div>
+        );
+        return (
+        <div style={S.panel}>
+          <div style={S.panelTitle}>🔬 Анализ корреляций · {rangeLabel}</div>
+          <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:10}}>
+            <span style={{fontSize:11.5,color:C.dim,alignSelf:'center'}}>цель:</span>
+            {TARGETS.map(t=>(
+              <div key={t.key} className="chip" onClick={()=>setAnalysisTarget(t.key)}
+                style={{background:analysisTarget===t.key?C.amber:C.panelAlt,color:analysisTarget===t.key?'#1A1200':C.dim,borderColor:analysisTarget===t.key?C.amber:C.border,padding:'3px 10px',fontSize:11}}>{t.label}</div>
+            ))}
+          </div>
+          <div style={{...S.dimSpan,marginLeft:0,marginBottom:10,display:'block'}}>Корреляция (Пирсон) между «{tgtLabel}» и факторами. Ближе к ±1 — сильнее связь; знак = направление. Нужно ≥4 дня с данными. Разделы ниже — по конкретным тегам/привычкам (тыкни, чтобы раскрыть).</div>
+          {analysisData.aggregate.length===0
+            ? <div style={S.emptyState}>Мало данных за период — заполняй дни почаще.</div>
+            : analysisData.aggregate.map(f=>(
+              <div key={f.key} style={{marginBottom:10}}>
+                <div style={{display:'flex',justifyContent:'space-between',fontSize:12.5,marginBottom:3,gap:8}}>
+                  <span>{f.label}</span>
+                  <span style={{color:C.dim,fontFamily:"'JetBrains Mono',monospace",flexShrink:0}}>r={f.r>0?'+':''}{f.r} · {corrStrength(f.r)} · {f.n} дн.</span>
+                </div>
+                {bar(f.r)}
+              </div>
+            ))}
+          {detailSection('tags', '🏷 По тегам', analysisData.tagsDetail)}
+          {detailSection('habits', '🔁 По привычкам', analysisData.habitsDetail)}
+          {detailSection('anti', '🚫 По анти-тегам', analysisData.antiDetail)}
+        </div>
+        );
+      })()}
 
       {vis('stats.heatmap') && (
       <div style={S.panel}>
@@ -3349,6 +3587,13 @@ function StatsTab({days, finance, budgets, incomePlans, habits=[], finMask={}}){
         <div style={S.panel}>
           <div style={S.panelTitle}>Частота тегов · период</div>
           <ChartCanvas type="bar" data={{labels:tagFreq.map(t=>t[0]), datasets:[{label:'дней', data:tagFreq.map(t=>t[1]), backgroundColor:C.cyan}]}} options={baseChartOpts()} />
+        </div>
+      )}
+
+      {vis('stats.antiTagFreq') && antiTagFreq.length>0 && (
+        <div style={S.panel}>
+          <div style={{...S.panelTitle,color:C.red}}>🚫 Частота анти-тегов · период</div>
+          <ChartCanvas type="bar" data={{labels:antiTagFreq.map(t=>t[0]), datasets:[{label:'дней', data:antiTagFreq.map(t=>t[1]), backgroundColor:C.red}]}} options={baseChartOpts()} />
         </div>
       )}
 
