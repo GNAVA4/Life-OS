@@ -10,7 +10,7 @@ Chart.register(...registerables);
 
 // Видимый штамп сборки — показывается в Настройках. Меняй при каждой пересборке APK,
 // чтобы точно знать, свежую версию установили или старую (session 013 не смогла это исключить).
-const BUILD_ID = '2026-07-20b-blackscreen-fix';
+const BUILD_ID = '2026-07-21a-batch8';
 
 // ---------- tokens & helpers ----------
 const C = {bg:'#0B0E13',panel:'#141A22',panelAlt:'#1B222C',border:'#2A323D',text:'#E7EAEE',dim:'#8992A3',amber:'#F2A93B',cyan:'#4FD1C5',red:'#E2584F',green:'#6FCF97',purple:'#9B7BD9'};
@@ -262,8 +262,7 @@ const MODULE_GROUPS = [
     {id:'assets.accountTrends', label:'Баланс по счетам во времени'},
   ]},
   {group:'Статистика', items:[
-    {id:'stats.recap', label:'📊 Итоги (неделя/месяц/год)'},
-    {id:'stats.weekly', label:'Обзор за период'},
+    {id:'stats.recap', label:'📊 Итоги (сводка за период) — плитки ниже'},
     {id:'stats.analysis', label:'Анализ факторов оценки дня'},
     {id:'stats.heatmap', label:'Дисциплин-грид'},
     {id:'stats.tasks', label:'Выполнение задач'},
@@ -278,6 +277,21 @@ const MODULE_GROUPS = [
     {id:'stats.tagFreq', label:'Частота тегов'},
     {id:'stats.antiTagFreq', label:'Частота анти-тегов'},
     {id:'stats.planfact', label:'План / факт по месяцу'},
+  ]},
+  {group:'Итоги — плитки', items:[
+    {id:'recap.tasks', label:'Задач выполнено'},
+    {id:'recap.perfect', label:'Идеальных дней'},
+    {id:'recap.active', label:'Активных дней'},
+    {id:'recap.habits', label:'Привычек отмечено'},
+    {id:'recap.ach', label:'Достижений открыто'},
+    {id:'recap.study', label:'Дел закрыто'},
+    {id:'recap.rating', label:'Средняя оценка'},
+    {id:'recap.sleep', label:'Средний сон'},
+    {id:'recap.anti', label:'Анти-тегов'},
+    {id:'recap.exp', label:'Расход'},
+    {id:'recap.inc', label:'Доход'},
+    {id:'recap.net', label:'Чистыми'},
+    {id:'recap.highlights', label:'Лучший день · день недели · топ трат'},
   ]},
 ];
 
@@ -3265,12 +3279,15 @@ function StatsTab({days, finance, budgets, incomePlans, habits=[], finMask={}, s
   const [range,setRange] = useState('30');
   const [analysisTarget,setAnalysisTarget] = useState('rating'); // что анализируем: оценка/задачи/сон
   const [openDetail,setOpenDetail] = useState({}); // раскрытые детальные разделы (tags/habits/anti)
-  const [recapPeriod,setRecapPeriod] = useState('week'); // Итоги: неделя/месяц/год
+  const rangeDays = range==='7'?7 : range==='30'?30 : range==='90'?90 : range==='year'?365 : 1000;
+  const rangeLabel = range==='7'?'7 дней' : range==='30'?'30 дней' : range==='90'?'90 дней' : range==='year'?'год' : 'всё время';
 
-  // 📊 Итоги за период (session 025): авто-сводка достижений периода из датированных данных.
+  // 📊 Итоги за выбранный диапазон (session 025; объединено с бывшим «Обзором» — реагируют на верхний
+  // селектор 7/30/90/год/всё). Авто-сводка достижений периода из ДАТИРОВАННЫХ данных. Видимость каждой
+  // плитки настраивается в «Что показывать → Итоги» (модули recap.*).
   const recap = useMemo(()=>{
-    const scope=recapPeriod, cur=periodOf(scope);
-    const inP = ds => periodOf(scope, ds)===cur;
+    const start = daysAgoStr(rangeDays-1);
+    const inP = ds => ds>=start;
     let tasksDone=0, perfect=0, activeDays=0, habitChecks=0, antiCount=0; const ratings=[], sleeps=[]; const wd=[0,0,0,0,0,0,0]; let bestDay={date:null,n:0};
     Object.entries(days).forEach(([ds,e])=>{ if(!inP(ds)) return;
       const done=(e.tasks||[]).filter(t=>t.done).length + Object.values(e.dailyCompletions||{}).filter(Boolean).length;
@@ -3293,24 +3310,7 @@ function StatsTab({days, finance, budgets, incomePlans, habits=[], finMask={}, s
     const WD=['Вс','Пн','Вт','Ср','Чт','Пт','Сб'];
     return { tasksDone, perfect, activeDays, habitChecks, antiCount, avgRating:avg(ratings), avgSleep:avg(sleeps),
       exp, inc, topCat, studyDone, achCount, bestDay, bestWd: wd.some(x=>x>0)?WD[wd.indexOf(Math.max(...wd))]:null };
-  }, [days, finance, habits, study, unlocked, recapPeriod]);
-  const rangeDays = range==='7'?7 : range==='30'?30 : range==='90'?90 : range==='year'?365 : 1000;
-  const rangeLabel = range==='7'?'7 дней' : range==='30'?'30 дней' : range==='90'?'90 дней' : range==='year'?'год' : 'всё время';
-
-  // 📈 Обзор за выбранный период (реагирует на селектор диапазона вверху). session 019; диапазон — 020.
-  const periodOverview = useMemo(()=>{
-    let tasksDone=0, habitDone=0; const ratings=[], sleeps=[];
-    for(let i=0;i<rangeDays;i++){ const ds=daysAgoStr(i); const e=days[ds]; if(!e) continue;
-      tasksDone += (e.tasks||[]).filter(t=>t.done).length;
-      habitDone += habits.reduce((n,h)=> n + (h.log && h.log[ds] ? 1 : 0), 0);
-      if(e.rating!=null) ratings.push(e.rating);
-      if(e.sleepHours!=null) sleeps.push(e.sleepHours);
-    }
-    const start = daysAgoStr(rangeDays-1); let exp=0, inc=0;
-    finance.transactions.forEach(t=>{ if(t.exclude || t.date<start) return; if(t.type==='expense') exp+=t.amount; else inc+=t.amount; });
-    const avg = a => a.length ? Math.round(a.reduce((s,x)=>s+x,0)/a.length*10)/10 : null;
-    return { tasksDone, habitDone, avgRating:avg(ratings), avgSleep:avg(sleeps), exp, inc };
-  }, [days, habits, finance.transactions, rangeDays]);
+  }, [days, finance, habits, study, unlocked, rangeDays]);
 
   // 🔬 Детальный анализ корреляций (session 020; расширен session 025): выбираем ЦЕЛЬ (оценка дня /
   // выполнено задач / сон) и смотрим, что с ней связано — агрегатные факторы + детальный разбор
@@ -3443,48 +3443,29 @@ function StatsTab({days, finance, budgets, incomePlans, habits=[], finMask={}, s
 
       {vis('stats.recap') && (
       <div style={{...S.panel, borderColor:C.amber}}>
-        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:8,marginBottom:10}}>
-          <div style={{...S.panelTitle,marginBottom:0,color:C.amber}}>📊 Итоги</div>
-          <div style={{display:'flex',gap:6}}>
-            {[{id:'week',label:'Неделя'},{id:'month',label:'Месяц'},{id:'year',label:'Год'}].map(p=>(
-              <div key={p.id} className="chip" onClick={()=>setRecapPeriod(p.id)} style={{background:recapPeriod===p.id?C.amber:C.panelAlt,color:recapPeriod===p.id?'#1A1200':C.dim,borderColor:recapPeriod===p.id?C.amber:C.border,padding:'3px 10px',fontSize:11}}>{p.label}</div>
-            ))}
-          </div>
-        </div>
+        <div style={{...S.panelTitle,color:C.amber}}>📊 Итоги · {rangeLabel}</div>
         <div className="grid3" style={{...S.grid3,gap:10}}>
-          <div style={S.statCard}><div style={S.statVal}>{recap.tasksDone}</div><div style={S.dimSpan}>задач выполнено</div></div>
-          <div style={S.statCard}><div style={S.statVal}>{recap.perfect}</div><div style={S.dimSpan}>идеальных дней</div></div>
-          <div style={S.statCard}><div style={S.statVal}>{recap.activeDays}</div><div style={S.dimSpan}>активных дней</div></div>
-          <div style={S.statCard}><div style={S.statVal}>{recap.habitChecks}</div><div style={S.dimSpan}>привычек отмечено</div></div>
-          <div style={S.statCard}><div style={S.statVal}>{recap.achCount}</div><div style={S.dimSpan}>достижений открыто</div></div>
-          <div style={S.statCard}><div style={S.statVal}>{recap.studyDone}</div><div style={S.dimSpan}>дел закрыто</div></div>
-          <div style={S.statCard}><div style={S.statVal}>{recap.avgRating!=null?recap.avgRating:'–'}</div><div style={S.dimSpan}>средняя оценка</div></div>
-          <div style={S.statCard}><div style={S.statVal}>{recap.avgSleep!=null?`${recap.avgSleep}ч`:'–'}</div><div style={S.dimSpan}>средний сон</div></div>
-          <div style={S.statCard}><div style={{...S.statVal,color:recap.antiCount?C.red:C.dim}}>{recap.antiCount}</div><div style={S.dimSpan}>анти-тегов</div></div>
-          <div style={S.statCard}><div style={{...S.statVal,color:C.red}}>{mo(recap.exp)}</div><div style={S.dimSpan}>расход</div></div>
-          <div style={S.statCard}><div style={{...S.statVal,color:C.green}}>{mo(recap.inc)}</div><div style={S.dimSpan}>доход</div></div>
-          <div style={S.statCard}><div style={{...S.statVal,color:C.green}}>{recap.inc-recap.exp>=0?'+':''}{mo(recap.inc-recap.exp)}</div><div style={S.dimSpan}>чистыми</div></div>
+          {vis('recap.tasks')  && <div style={S.statCard}><div style={S.statVal}>{recap.tasksDone}</div><div style={S.dimSpan}>задач выполнено</div></div>}
+          {vis('recap.perfect')&& <div style={S.statCard}><div style={S.statVal}>{recap.perfect}</div><div style={S.dimSpan}>идеальных дней</div></div>}
+          {vis('recap.active') && <div style={S.statCard}><div style={S.statVal}>{recap.activeDays}</div><div style={S.dimSpan}>активных дней</div></div>}
+          {vis('recap.habits') && <div style={S.statCard}><div style={S.statVal}>{recap.habitChecks}</div><div style={S.dimSpan}>привычек отмечено</div></div>}
+          {vis('recap.ach')    && <div style={S.statCard}><div style={S.statVal}>{recap.achCount}</div><div style={S.dimSpan}>достижений открыто</div></div>}
+          {vis('recap.study')  && <div style={S.statCard}><div style={S.statVal}>{recap.studyDone}</div><div style={S.dimSpan}>дел закрыто</div></div>}
+          {vis('recap.rating') && <div style={S.statCard}><div style={S.statVal}>{recap.avgRating!=null?recap.avgRating:'–'}</div><div style={S.dimSpan}>средняя оценка</div></div>}
+          {vis('recap.sleep')  && <div style={S.statCard}><div style={S.statVal}>{recap.avgSleep!=null?`${recap.avgSleep}ч`:'–'}</div><div style={S.dimSpan}>средний сон</div></div>}
+          {vis('recap.anti')   && <div style={S.statCard}><div style={{...S.statVal,color:recap.antiCount?C.red:C.dim}}>{recap.antiCount}</div><div style={S.dimSpan}>анти-тегов</div></div>}
+          {vis('recap.exp')    && <div style={S.statCard}><div style={{...S.statVal,color:C.red}}>{mo(recap.exp)}</div><div style={S.dimSpan}>расход</div></div>}
+          {vis('recap.inc')    && <div style={S.statCard}><div style={{...S.statVal,color:C.green}}>{mo(recap.inc)}</div><div style={S.dimSpan}>доход</div></div>}
+          {vis('recap.net')    && <div style={S.statCard}><div style={{...S.statVal,color:C.green}}>{recap.inc-recap.exp>=0?'+':''}{mo(recap.inc-recap.exp)}</div><div style={S.dimSpan}>чистыми</div></div>}
         </div>
+        {vis('recap.highlights') && (
         <div style={{fontSize:11.5,color:C.dim,marginTop:10,lineHeight:1.6}}>
           {recap.bestDay.date && <>🏅 Лучший день: <b style={{color:C.text}}>{recap.bestDay.date}</b> — {recap.bestDay.n} задач<br/></>}
           {recap.bestWd && <>📅 Продуктивнее всего по: <b style={{color:C.text}}>{recap.bestWd}</b><br/></>}
           {recap.topCat && <>💸 Больше всего трат: <b style={{color:C.text}}>{recap.topCat[0]}</b> — {mo(recap.topCat[1])}</>}
           {recap.tasksDone===0 && recap.activeDays===0 && <span style={S.emptyState}>За период пока пусто — заполняй дни, и здесь появится сводка.</span>}
         </div>
-      </div>
-      )}
-
-      {vis('stats.weekly') && (
-      <div style={S.panel}>
-        <div style={S.panelTitle}>📈 Обзор · {rangeLabel}</div>
-        <div className="grid3" style={{...S.grid3,gap:10}}>
-          <div style={S.statCard}><div style={S.statVal}>{periodOverview.tasksDone}</div><div style={S.dimSpan}>задач выполнено</div></div>
-          <div style={S.statCard}><div style={S.statVal}>{periodOverview.habitDone}</div><div style={S.dimSpan}>привычек отмечено</div></div>
-          <div style={S.statCard}><div style={S.statVal}>{periodOverview.avgRating!=null?periodOverview.avgRating:'–'}</div><div style={S.dimSpan}>средняя оценка</div></div>
-          <div style={S.statCard}><div style={S.statVal}>{periodOverview.avgSleep!=null?`${periodOverview.avgSleep} ч`:'–'}</div><div style={S.dimSpan}>средний сон</div></div>
-          <div style={S.statCard}><div style={{...S.statVal,color:C.red}}>{mo(periodOverview.exp)}</div><div style={S.dimSpan}>расход за период</div></div>
-          <div style={S.statCard}><div style={{...S.statVal,color:C.green}}>{mo(periodOverview.inc)}</div><div style={S.dimSpan}>доход за период</div></div>
-        </div>
+        )}
       </div>
       )}
 
@@ -3956,7 +3937,7 @@ function SettingsTab({hidden, toggleModule, defaults, setDefault, categories, ac
           <div>🗂 <b>Дела</b> — эпики, статусы, важность/срочность, дедлайны, архив.</div>
           <div>📝 <b>Заметки</b> — заметки и напоминания (с повтором), закрепление, чек-листы.</div>
           <div>💰 <b>Финансы</b> — операции, счета, должники, планы по месяцам, бюджет-алерты с прогнозом, графики.</div>
-          <div>📊 <b>Статистика</b> — дисциплин-грид, обзор за период, тренды, план/факт, анализ факторов оценки дня.</div>
+          <div>📊 <b>Статистика</b> — итоги за период, дисциплин-грид, тренды, план/факт, анализ факторов оценки дня.</div>
           <div>🏅 <b>Геймификация</b> — XP и уровень (потолок {LEVEL_CAP}) с рангами, стрик, здоровье, ⚡импульс, 🔗комбо, 🎯задания дня, 🏆испытание недели, анти-теги, ~300 достижений.</div>
           <div>🔔 <b>Уведомления</b> — привычки, напоминания, дедлайны, утренняя сводка (на телефоне).</div>
           <div>☁ <b>Синхронизация и бэкап</b> — Firebase (вход Google), экспорт/импорт JSON и Excel, «Поделиться» на телефоне.</div>
