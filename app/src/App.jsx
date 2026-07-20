@@ -10,7 +10,7 @@ Chart.register(...registerables);
 
 // Видимый штамп сборки — показывается в Настройках. Меняй при каждой пересборке APK,
 // чтобы точно знать, свежую версию установили или старую (session 013 не смогла это исключить).
-const BUILD_ID = '2026-07-20a-stats-recap-coach';
+const BUILD_ID = '2026-07-20b-blackscreen-fix';
 
 // ---------- tokens & helpers ----------
 const C = {bg:'#0B0E13',panel:'#141A22',panelAlt:'#1B222C',border:'#2A323D',text:'#E7EAEE',dim:'#8992A3',amber:'#F2A93B',cyan:'#4FD1C5',red:'#E2584F',green:'#6FCF97',purple:'#9B7BD9'};
@@ -1376,6 +1376,13 @@ function App(){
     if(!silent) setToasts(prev=>[...prev, {tid:uid(), weekly:weekly.chal.label}]);
   }, [weekly.done, weekly.claimed]); // eslint-disable-line
 
+  // приватность финансов — флаги маскировки (объявлено ДО coachInsights: он читает finMask.ops). session 025 (был баг TDZ)
+  const finMask = {
+    net:   !!(settings.maskAllFinance || settings.maskNetWorth),
+    debts: !!(settings.maskAllFinance || settings.maskDebts),
+    ops:   !!(settings.maskAllFinance || settings.maskOps),
+  };
+
   // 🧠 «Тренер»: проактивные инсайты на «Сегодня» (session 025). Правила-подсказки + риски из данных.
   const coachInsights = useMemo(() => {
     const out=[]; const t=todayStr(); const mm=(n)=>maskMoney(finMask.ops, n);
@@ -1538,11 +1545,6 @@ function App(){
   let lsBytes = 0; for(let i=0;i<localStorage.length;i++){ const k=localStorage.key(i); if(k&&k.startsWith('lifeos:')) lsBytes += (k.length + (localStorage.getItem(k)||'').length)*2; }
   const lsPct = Math.round(lsBytes/LS_QUOTA*100);
   // маски приватности финансов: master maskAllFinance перекрывает все типы. session 022.
-  const finMask = {
-    net:   !!(settings.maskAllFinance || settings.maskNetWorth),
-    debts: !!(settings.maskAllFinance || settings.maskDebts),
-    ops:   !!(settings.maskAllFinance || settings.maskOps),
-  };
   const NAV = [
     {id:'today', label:'Сегодня'}, {id:'habits', label:'Привычки'}, {id:'goals', label:'Цели'}, {id:'study', label:'Дела'},
     {id:'notes', label:'Заметки'}, {id:'finance', label:'Финансы'}, {id:'stats', label:'Статистика'},
