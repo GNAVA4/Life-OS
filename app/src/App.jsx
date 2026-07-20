@@ -52,7 +52,10 @@ const GAMIFY_DEFAULT = {
   hpHabit: 3,      // здоровья за пропущенную запланированную привычку (cap ниже)
   hpDeadline: 4,   // здоровья за просроченный дедлайн дела (разово)
   comboBonus: 5,   // XP-бонус за каждый день комбо (× streak, cap COMBO_CAP_DAYS)
+  hpSurrender: 10, // здоровья за «сдаться» у привычки (разово)
+  impSurrender: 15,// импульса за «сдаться» (затухает за 7 дней, т.к. импульс вычисляемый)
 };
+const IMPULSE_DECAY_DAYS = 7; // за сколько дней штраф импульса от «сдаться» сходит на нет
 const gamifyCfg = (settings) => ({...GAMIFY_DEFAULT, ...((settings&&settings.gamify)||{})});
 const HEALTH_MISSED_HABIT_CAP = 9;
 const COMBO_CAP_DAYS = 10;      // на скольких днях подряд комбо-бонус максимален
@@ -355,6 +358,12 @@ const ACH_TIERS = {
   legend:  {c:C.red,    label:'легендарная', pts:10},
 };
 const daysBetween = (a,b) => Math.round((new Date(b+'T00:00:00') - new Date(a+'T00:00:00'))/864e5);
+// остаток штрафа импульса от «сдаться» — линейно затухает за IMPULSE_DECAY_DAYS дней (session: habit-surrender-penalty)
+const impulsePenaltyRemaining = (pen, today=todayStr()) => {
+  if(!pen || !pen.amt || !pen.date) return 0;
+  const frac = Math.max(0, (IMPULSE_DECAY_DAYS - daysBetween(pen.date, today)) / IMPULSE_DECAY_DAYS);
+  return pen.amt * frac;
+};
 // самая длинная серия ИДУЩИХ ПОДРЯД дат в отсортированном списке дат, удовлетворяющих условию
 const longestRun = (sortedDates) => {
   let max=0, run=0, prev=null;
@@ -1221,7 +1230,17 @@ function App(){
     persistHabitsArchive([...habitsArchive, snap]);
     persist.habits(habits.filter(x=>x.id!==id));
   };
-  const abandonHabit = (id) => archiveHabit(id, 'failed'); // «сдаться»: провал → в архив с пометкой
+  // «сдаться»: провал → в архив + разовый штраф здоровья и импульса (импульс затухает за 7 дней). session: habit-surrender-penalty
+  const abandonHabit = (id) => {
+    if(!habits.some(x=>x.id===id)) return;
+    archiveHabit(id, 'failed');
+    const t = todayStr();
+    const remaining = impulsePenaltyRemaining(meta.impulsePenalty, t);
+    const nm = { ...meta,
+      health: Math.max(0, Math.min(100, (meta.health ?? 100) - gamify.hpSurrender)),
+      impulsePenalty: { amt: remaining + gamify.impSurrender, date: t } };
+    setMeta(nm); saveKey('lifeos:meta', nm);
+  };
   const deleteArchivedHabit = (id, archivedAt) => persistHabitsArchive(habitsArchive.filter(h=>!(h.id===id && h.archivedAt===archivedAt)));
   const restoreHabit = (id, archivedAt) => {
     const h = habitsArchive.find(x=>x.id===id && x.archivedAt===archivedAt); if(!h) return;
@@ -1291,8 +1310,9 @@ function App(){
          + Object.values(days[ds]?.dailyCompletions||{}).filter(Boolean).length
          + habits.reduce((n,h)=> n + (h.log && h.log[ds] ? 1 : 0), 0);
     }
-    return Math.min(100, Math.round(c/21*100));
-  }, [days, habits]);
+    const base = Math.min(100, Math.round(c/21*100));
+    return Math.max(0, Math.round(base - impulsePenaltyRemaining(meta.impulsePenalty))); // −штраф за «сдаться» (затухает)
+  }, [days, habits, meta.impulsePenalty]);
 
   // 🔗 Комбо: сколько дней ПОДРЯД была активность (задача/ежедневная/привычка), считая от сегодня
   // (или со вчера, если сегодня ещё пусто). Множитель для показа: ×1.0…×2.0 (cap на COMBO_CAP_DAYS).
@@ -3796,6 +3816,8 @@ function SettingsTab({hidden, toggleModule, defaults, setDefault, categories, ac
           {k:'hpAnti',     label:'Анти-тег: снять здоровья (в день)',  min:0, max:50},
           {k:'hpHabit',    label:'Пропуск привычки: снять здоровья',   min:0, max:50},
           {k:'hpDeadline', label:'Просроченный дедлайн: снять здоровья',min:0, max:50},
+          {k:'hpSurrender',label:'«Сдаться» привычкой: снять здоровья', min:0, max:50},
+          {k:'impSurrender',label:'«Сдаться» привычкой: снять импульса',min:0, max:100},
           {k:'comboBonus', label:'Комбо: XP за день серии (× дни)',    min:0, max:50},
         ].map(row=>(
           <div key={row.k} className="row-hover" style={{...S.taskRow,alignItems:'center'}}>
