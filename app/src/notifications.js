@@ -152,6 +152,25 @@ function deadlineNotifs(study, cfg){
   return out;
 }
 
+// 💸 Регулярные платежи: ежемесячное напоминание для платежей с notify, за leadDays дней до dayOfMonth.
+function billNotifs(bills, cfg){
+  if(!cfg || cfg.off) return [];
+  const hm = HM(cfg.time || '09:00'); if(!hm) return [];
+  const [hh,mm] = hm;
+  const lead = (cfg.leadDays!=null && cfg.leadDays>=0) ? cfg.leadDays : 1;
+  const out = [];
+  (bills||[]).filter(b=>b.notify).forEach((b, bi) => {
+    const dom = parseInt(b.dayOfMonth,10); if(isNaN(dom)||dom<1) return;
+    const at = nextMonthly(dom, hh, mm);
+    if(lead>0) at.setDate(at.getDate()-lead);
+    if(at.getTime() <= Date.now()) at.setMonth(at.getMonth()+1); // сдвинули в прошлое — планируем на следующий месяц
+    const when = lead>0 ? `через ${lead} дн. (${dom} числа)` : `сегодня (${dom} числа)`;
+    out.push({ id: 500000 + bi, title:'💸 Платёж', body:`${b.name} — ${when}`, channelId:CHANNEL_ID,
+      schedule:{ at, every:'month', allowWhileIdle:true } });
+  });
+  return out;
+}
+
 // 🌅 Утренняя сводка: одно ежедневное уведомление в заданное время с краткой сводкой дня.
 // Тело (body) считается в App (сколько привычек/дедлайнов/напоминаний сегодня) и фиксируется на момент
 // планирования — обновляется при каждом запуске приложения (пересборка расписания).
@@ -164,12 +183,12 @@ function morningSummaryNotif(cfg, body){
 }
 
 // пересобрать ВСЕ уведомления (снять запланированные, потом запланировать заново). Возвращает число запланированных (-1 при ошибке планирования).
-export async function syncNotifications({ habits=[], notes=[], study=[], deadlineCfg=null, morningCfg=null, morningBody='', enabled=true }){
+export async function syncNotifications({ habits=[], notes=[], study=[], bills=[], deadlineCfg=null, morningCfg=null, billsCfg=null, morningBody='', enabled=true }){
   const l = ln(); if(!l) return 0;
   await ensureChannel(l);
   try{ const pend = await withTimeout(l.getPending(), 4000, 'getPending'); if(pend.notifications && pend.notifications.length) await withTimeout(l.cancel({ notifications: pend.notifications.map(n=>({id:n.id})) }), 4000, 'cancel'); }catch(e){}
   if(!enabled) return 0;
-  const list = [...habitNotifs(habits), ...noteNotifs(notes), ...deadlineNotifs(study, deadlineCfg), ...morningSummaryNotif(morningCfg, morningBody)];
+  const list = [...habitNotifs(habits), ...noteNotifs(notes), ...deadlineNotifs(study, deadlineCfg), ...billNotifs(bills, billsCfg), ...morningSummaryNotif(morningCfg, morningBody)];
   if(list.length){ try{ await withTimeout(l.schedule({ notifications: list }), 4000, 'schedule'); }catch(e){ return -1; } }
   return list.length;
 }

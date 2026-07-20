@@ -1204,7 +1204,7 @@ function App(){
       if(r.reason==='web'){ setNotifMsg('⚠️ Только в приложении на телефоне (в браузере не работает).'); return; }
       if(r.reason==='not-implemented'){ setNotifMsg('⚠️ Плагин уведомлений не найден — на телефоне СТАРЫЙ APK. Переустанови свежий.'); return; }
       if(r.ok){ setSettingFlag('notifOff', false);
-        const n = await syncNotifications({habits: habitsForNotif(), notes, study, deadlineCfg: settings.deadlineNotif, morningCfg: settings.morningSummary, morningBody: computeMorningBody(), enabled:true});
+        const n = await syncNotifications({habits: habitsForNotif(), notes, study, bills, deadlineCfg: settings.deadlineNotif, morningCfg: settings.morningSummary, billsCfg: settings.billsNotif, morningBody: computeMorningBody(), enabled:true});
         setNotifMsg(`✅ Разрешение выдано. Запланировано уведомлений: ${n}.`); }
       else setNotifMsg('❌ Разрешение не выдано: '+(r.display||r.reason||'')+(r.message?` — ${r.message}`:''));
     } catch(e){ setNotifMsg('💥 Ошибка при запросе: '+((e&&e.message)||String(e))); }
@@ -1234,6 +1234,7 @@ function App(){
   };
   const addBill = (name,amount,dayOfMonth) => persist.bills([...bills,{id:uid(),name,amount,dayOfMonth}]);
   const deleteBill = (id) => persist.bills(bills.filter(b=>b.id!==id));
+  const updateBill = (id,patch) => persist.bills(bills.map(b=>b.id===id?{...b,...patch}:b));
 
   const addHabit = (habit) => persist.habits([...habits, {id:uid(), createdAt:todayStr(), log:{}, ...habit}]);
   const updateHabit = (id, patch) => persist.habits(habits.map(h=>h.id===id?{...h,...patch}:h));
@@ -1509,7 +1510,7 @@ function App(){
     const parts=[]; if(habitsToday) parts.push(`${habitsToday} привыч.`); if(dl) parts.push(`${dl} дедлайн.`); if(remToday) parts.push(`${remToday} напомин.`);
     return parts.length ? `Сегодня: ${parts.join(' · ')}` : 'На сегодня ничего не запланировано — начни что-то новое!';
   };
-  useEffect(() => { syncNotifications({ habits: habitsForNotif(), notes, study, deadlineCfg: settings.deadlineNotif, morningCfg: settings.morningSummary, morningBody: computeMorningBody(), enabled: !settings.notifOff }); }, [habits, notes, study, settings.notifOff, settings.deadlineNotif, settings.morningSummary]);
+  useEffect(() => { syncNotifications({ habits: habitsForNotif(), notes, study, bills, deadlineCfg: settings.deadlineNotif, morningCfg: settings.morningSummary, billsCfg: settings.billsNotif, morningBody: computeMorningBody(), enabled: !settings.notifOff }); }, [habits, notes, study, bills, settings.notifOff, settings.deadlineNotif, settings.morningSummary, settings.billsNotif]);
   // Android-виджет «Задачи на сегодня»: пишем прогресс по одноразовым задачам СЕГОДНЯ (session 023).
   useEffect(() => { const t = todayStr(); const e = days[t] || {}; const tasks = e.tasks || [];
     updateTodayWidget(tasks.filter(x=>x.done).length, tasks.length, t); }, [days]);
@@ -1717,7 +1718,7 @@ function App(){
         addTransaction={addTransaction} deleteTransaction={deleteTransaction}
         addCategory={addCategory} removeCategory={removeCategory} setBudget={setBudget} removeBudget={removeBudget}
         setIncomePlan={setIncomePlan} removeIncomePlan={removeIncomePlan} setBudgetsBatch={setBudgetsBatch} setIncomePlansBatch={setIncomePlansBatch}
-        addBill={addBill} deleteBill={deleteBill}
+        addBill={addBill} deleteBill={deleteBill} updateBill={updateBill}
         addAccount={addAccount} deleteAccount={deleteAccount} addSnapshot={addSnapshot} deleteSnapshot={deleteSnapshot}
         addDebtor={addDebtor} updateDebtor={updateDebtor} deleteDebtor={deleteDebtor} />}
       {tab==='stats' && <StatsTab days={days} finance={finance} budgets={budgets} incomePlans={incomePlans} habits={habits} finMask={finMask} study={study} unlocked={achievements.unlocked||{}} />}
@@ -2874,7 +2875,7 @@ function PlanPanel({title, open, setOpen, planSwitcher, kindToggle, categories, 
   );
 }
 
-function OpsSection({finance, categories, budgets, incomePlans, bills, monthTx, defaults={}, finMask={}, addTransaction, deleteTransaction, addCategory, removeCategory, setBudget, removeBudget, setIncomePlan, removeIncomePlan, setBudgetsBatch, setIncomePlansBatch, addBill, deleteBill, collapse={}, toggleCollapse, dismissedAlerts={}, dismissAlert}){
+function OpsSection({finance, categories, budgets, incomePlans, bills, monthTx, defaults={}, finMask={}, addTransaction, deleteTransaction, addCategory, removeCategory, setBudget, removeBudget, setIncomePlan, removeIncomePlan, setBudgetsBatch, setIncomePlansBatch, addBill, deleteBill, updateBill, collapse={}, toggleCollapse, dismissedAlerts={}, dismissAlert}){
   const mo = n => maskMoney(finMask.ops, n);   // приватность: скрытие сумм операций
   const [planOpen,setPlanOpen] = useState(false);
   const [planKind,setPlanKind] = useState('expense'); // переключатель внутри плашки планов (session 020)
@@ -3096,9 +3097,12 @@ function OpsSection({finance, categories, budgets, incomePlans, bills, monthTx, 
           <div key={b.id} className="row-hover" style={S.taskRow}>
             <div style={{flex:1,fontSize:13}}>{b.name} · {b.dayOfMonth} числа</div>
             <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:12.5}}>{mo(b.amount)}</div>
+            <button className="icon-btn" title={b.notify?'напоминание включено — выключить':'напоминать об этом платеже'}
+              style={{color:b.notify?C.amber:C.dim}} onClick={()=>updateBill && updateBill(b.id,{notify:!b.notify})}>{b.notify?'🔔':'🔕'}</button>
             <button className="icon-btn" onClick={()=>deleteBill(b.id)}>✕</button>
           </div>
         ))}
+        <div style={{...S.dimSpan,marginLeft:0,marginTop:8,display:'block',fontSize:11}}>🔔 — напоминать об этом платеже ежемесячно. Включить/настроить время: Настройки → «Уведомления и звук» → «Регулярные платежи».</div>
       </div>
       )}
 
@@ -3738,12 +3742,16 @@ function SettingsSection({title, icon, defaultOpen=false, children}){
 const SubHead = ({children}) => <div style={{fontSize:12.5,fontWeight:700,color:C.cyan,margin:'2px 0 8px',letterSpacing:'.02em'}}>{children}</div>;
 const SettingsDivider = () => <div style={{height:1,background:C.border,margin:'18px 0'}}/>;
 
-function SettingsTab({hidden, toggleModule, defaults, setDefault, categories, accounts, mobileTabs, toggleMobileTab, soundOff, notifOff, maskNetWorth, maskDebts, maskOps, maskAllFinance, morningCfg, setSettingFlag, gamify=GAMIFY_DEFAULT, setGamify, requestNotifs, testNotif, showNotifDiag, notifMsg, deadlineCfg}){
+function SettingsTab({hidden, toggleModule, defaults, setDefault, categories, accounts, mobileTabs, toggleMobileTab, soundOff, notifOff, maskNetWorth, maskDebts, maskOps, maskAllFinance, morningCfg, setSettingFlag, gamify=GAMIFY_DEFAULT, setGamify, requestNotifs, testNotif, showNotifDiag, notifMsg, deadlineCfg, showGoalDeadline=false, billsNotif=null}){
   const dlOn = !!(deadlineCfg && !deadlineCfg.off);
   const dlDays = (deadlineCfg && deadlineCfg.days && deadlineCfg.days.length) ? deadlineCfg.days : [3,1];
   const dlTime = (deadlineCfg && deadlineCfg.time) || '09:00';
   const msOn = !!(morningCfg && !morningCfg.off);
   const msTime = (morningCfg && morningCfg.time) || '08:00';
+  const billsOn = !!(billsNotif && !billsNotif.off);
+  const billsTime = (billsNotif && billsNotif.time) || '09:00';
+  const billsLead = (billsNotif && billsNotif.leadDays!=null) ? billsNotif.leadDays : 1;
+  const setBills = (patch) => setSettingFlag('billsNotif', {off:false, time:billsTime, leadDays:billsLead, ...(billsNotif||{}), ...patch});
   const setDl = (patch) => setSettingFlag('deadlineNotif', {off:false, days:dlDays, time:dlTime, ...(deadlineCfg||{}), ...patch});
   const toggleDlDay = (d) => { const has=dlDays.includes(d); const next=has?dlDays.filter(x=>x!==d):[...dlDays,d].sort((a,b)=>a-b); setDl({days:next}); };
   return (
@@ -3811,6 +3819,24 @@ function SettingsTab({hidden, toggleModule, defaults, setDefault, categories, ac
           <div style={{display:'flex',gap:8,alignItems:'center',marginTop:10}}>
             <span style={{fontSize:12,color:C.dim}}>время:</span>
             <input style={{...S.input,maxWidth:120}} type="time" value={msTime} onChange={e=>setSettingFlag('morningSummary', {off:false, time:e.target.value})} />
+          </div>
+        )}
+
+        <SettingsDivider/>
+        <SubHead>Регулярные платежи</SubHead>
+        <label className="row-hover" style={{...S.taskRow, cursor:'pointer'}}>
+          <input type="checkbox" checked={billsOn} onChange={()=> billsOn ? setSettingFlag('billsNotif', {...(billsNotif||{}), off:true}) : setBills({off:false})} />
+          <div style={{flex:1}}>Напоминать о регулярных платежах</div>
+          <span style={{fontSize:11,color:C.dim}}>{billsOn?'вкл':'выкл'}</span>
+        </label>
+        <div style={{...S.dimSpan,marginLeft:0,marginTop:6,display:'block'}}>Ежемесячно для платежей, у которых включён 🔔 (Финансы → Операции → Регулярные платежи). Сам список платежей можно скрыть в разделе «Что показывать» ниже.</div>
+        {billsOn && (
+          <div style={{display:'flex',gap:10,flexWrap:'wrap',alignItems:'center',marginTop:10}}>
+            <span style={{fontSize:12,color:C.dim}}>время:</span>
+            <input style={{...S.input,maxWidth:120}} type="time" value={billsTime} onChange={e=>setBills({time:e.target.value})} />
+            <span style={{fontSize:12,color:C.dim}}>за сколько дней:</span>
+            <input style={{...S.input,width:64,minWidth:0,textAlign:'center',flex:'none'}} type="number" min="0" max="14"
+              value={billsLead} onChange={e=>{ let v=parseInt(e.target.value,10); if(isNaN(v)) v=0; v=Math.max(0,Math.min(14,v)); setBills({leadDays:v}); }} />
           </div>
         )}
       </SettingsSection>
