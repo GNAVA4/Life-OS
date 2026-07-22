@@ -86,7 +86,7 @@ export function computeAchStats({days, goals, study, notes, finance, meta, ongoi
   // многодневные
   s.ongoingDone=(ongoing||[]).filter(o=>o.done).length;
   // финансы
-  s.txCount=finance.transactions.length;
+  s.txCount=finance.transactions.filter(t=>!t.debtFlow).length; // движения долгов — не «операции»
   s.accountsCount=finance.accounts.length;
   s.snapshotsCount=finance.accounts.reduce((n,a)=>n+a.snapshots.length,0);
   s.debtorsCount=(finance.debtors||[]).length;
@@ -119,7 +119,9 @@ export function computeAchStats({days, goals, study, notes, finance, meta, ongoi
   s.polymath = (s.maxStreak>=30 && goalsDone>=5 && s.studyDone>=10 && s.txCount>=50 && s.level>=10) ? 1 : 0;
   // привычки — включая архивные (снимок хранит log, поэтому метрики восстанавливаются)
   const H = allHabits; const tdy = todayStr();
-  s.habitsCount = H.length;
+  // «Привычек заведено» НЕ считает сдавшиеся (outcome==='failed'): бросил привычку — она не идёт в зачёт
+  // как созданная. Реальные отметки/стрики/челленджи ниже считаем по всем (они были заработаны). session 028b.
+  s.habitsCount = H.filter(h=>h.outcome!=='failed').length;
   s.habitCompletions = H.reduce((n,h)=>n+habitCompletedCount(h),0);
   s.habitBestStreak = H.reduce((mx,h)=>Math.max(mx, habitBestStreak(h, tdy)), 0);
   s.habitsChallengeDone = H.filter(h=>habitChallengeDone(h)).length;
