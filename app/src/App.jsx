@@ -733,8 +733,8 @@ function App(){
   // ---------- achievements: unlocked-множество ОТРАЖАЕТ ТЕКУЩЕЕ состояние (session 011) ----------
   // Раньше было «липко» (раз получил — навсегда). Теперь отменяемо: откатил действие → награда
   // уходит. Стрик/суммарные награды не пропадают, т.к. их метрики — исторические максимумы/тоталы.
-  const achStats = useMemo(()=>computeAchStats({days,goals,study,notes,finance,meta,ongoing,budgets,habits,goalsArchive}),
-    [days,goals,study,notes,finance,meta,ongoing,budgets,habits,goalsArchive]);
+  const achStats = useMemo(()=>computeAchStats({days,goals,study,notes,finance,meta,ongoing,budgets,habits,goalsArchive,studyArchive,habitsArchive}),
+    [days,goals,study,notes,finance,meta,ongoing,budgets,habits,goalsArchive,studyArchive,habitsArchive]);
   // primitive dep so the unlock effect only fires when the earned SET actually changes
   const earnedIds = useMemo(()=> ACHIEVEMENTS.filter(a=>a.val(achStats)>=a.target).map(a=>a.id).join(','), [achStats]);
   useEffect(() => {

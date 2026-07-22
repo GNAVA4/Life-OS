@@ -21,7 +21,12 @@ export const longestRun = (sortedDates) => {
   return max;
 };
 
-export function computeAchStats({days, goals, study, notes, finance, meta, ongoing, budgets, habits, goalsArchive}){
+export function computeAchStats({days, goals, study, notes, finance, meta, ongoing, budgets, habits, goalsArchive, studyArchive, habitsArchive}){
+  // Архивные дела/привычки ДОЛЖНЫ учитываться в достижениях: награды не липкие (ADR-002), поэтому
+  // без слияния архивированное дело выпадает из метрик → достижение сбрасывается. Цели уже так лечат
+  // (goalsArchive ниже). session: archive-counts-in-achievements.
+  const allStudy = [...(study||[]), ...(studyArchive||[])];
+  const allHabits = [...(habits||[]), ...(habitsArchive||[])];
   const s = {};
   let tasksDone=0, perfectDays=0, noteDays=0, rating10count=0, ratingDays=0, sleepNights=0, daysLogged=0, maxTagsDay=0, maxTasksDay=0;
   let questsDone=0, cleanDays=0; // геймификация (session 024): выполнено квестов, активных дней без анти-тегов
@@ -67,15 +72,15 @@ export function computeAchStats({days, goals, study, notes, finance, meta, ongoi
     if(g.progress>=100){ goalsDone++; if(scope==='year') yearGoalsDone++; } }); });
   (goalsArchive||[]).forEach(g=>{ if((g.progress||0)>=100){ goalsDone++; if(g.scope==='year') yearGoalsDone++; } });
   s.goalsDone=goalsDone; s.yearGoalsDone=yearGoalsDone;
-  // дела (бывш. учёба)
-  s.studyDone=study.filter(x=>x.status==='Выполнено').length;
-  s.routineDone=study.filter(x=>x.epic==='Рутина' && x.status==='Выполнено').length;
-  const epicMap={}; study.forEach(x=>{ (epicMap[x.epic]=epicMap[x.epic]||[]).push(x); });
+  // дела (бывш. учёба) — включая архивные (иначе архивация сбрасывает награду)
+  s.studyDone=allStudy.filter(x=>x.status==='Выполнено').length;
+  s.routineDone=allStudy.filter(x=>x.epic==='Рутина' && x.status==='Выполнено').length;
+  const epicMap={}; allStudy.forEach(x=>{ (epicMap[x.epic]=epicMap[x.epic]||[]).push(x); });
   s.distinctEpics=Object.keys(epicMap).length;
   s.epicsDone=Object.values(epicMap).filter(list=>list.length>=3 && list.every(x=>x.status==='Выполнено')).length;
   // дел закрыто в срок (дедлайн стоял и закрыто не позже него) + задействованы базовые сферы
-  s.deadlineHits=study.filter(x=>x.status==='Выполнено' && x.deadline && x.completedAt && x.completedAt<=x.deadline).length;
-  s.baseEpicsUsed=BASE_EPICS.filter(e=>study.some(x=>x.epic===e)).length;
+  s.deadlineHits=allStudy.filter(x=>x.status==='Выполнено' && x.deadline && x.completedAt && x.completedAt<=x.deadline).length;
+  s.baseEpicsUsed=BASE_EPICS.filter(e=>allStudy.some(x=>x.epic===e)).length;
   s.notesTotal=(notes||[]).length;
   s.remindersCount=(notes||[]).filter(n=>n.type==='Напоминание').length;
   // многодневные
@@ -92,9 +97,13 @@ export function computeAchStats({days, goals, study, notes, finance, meta, ongoi
     if(t.type==='income'){ totalIncome+=t.amount; byMonth[k].inc+=t.amount; if(t.amount>maxIncomeTx) maxIncomeTx=t.amount; }
     else { totalExpense+=t.amount; byMonth[k].exp+=t.amount; } });
   s.totalIncome=totalIncome; s.totalExpense=totalExpense; s.maxIncomeTx=maxIncomeTx;
+  // Норма сбережений — только по ЗАВЕРШЁННЫМ месяцам (текущий не считается): в начале месяца
+  // приходит доход, а расходов ещё нет → (доход−0)/доход=100% → незаслуженная награда. session: saverate-endofmonth.
+  // bestMonthIncome — по всем месяцам (доход, полученный рано, УЖЕ заработан, недоделанным месяцем не искажается).
+  const savCurYm = todayStr().slice(0,7);
   let bestSavingsRatePct=0, bestMonthIncome=0;
-  Object.values(byMonth).forEach(m=>{ if(m.inc>bestMonthIncome) bestMonthIncome=m.inc;
-    if(m.inc>0){ const r=Math.round((m.inc-m.exp)/m.inc*100); if(r>bestSavingsRatePct) bestSavingsRatePct=r; } });
+  Object.entries(byMonth).forEach(([ym,m])=>{ if(m.inc>bestMonthIncome) bestMonthIncome=m.inc;
+    if(ym<savCurYm && m.inc>0){ const r=Math.round((m.inc-m.exp)/m.inc*100); if(r>bestSavingsRatePct) bestSavingsRatePct=r; } });
   s.bestSavingsRatePct=bestSavingsRatePct; s.bestMonthIncome=bestMonthIncome;
   // дисциплина бюджета — только по ЗАВЕРШЁННЫМ месяцам (текущий не считается)
   const curYm=todayStr().slice(0,7); let disc=0;
@@ -104,12 +113,12 @@ export function computeAchStats({days, goals, study, notes, finance, meta, ongoi
   s.budgetDiscipline=disc;
   // мета / уровень
   s.level = levelForXp(meta.xp||0).level;
-  // всесторонность: задействованы все 5 разделов
-  s.facetsCount = (tasksDone>0?1:0)+(anyGoal?1:0)+(study.length>0?1:0)+((notes||[]).length>0?1:0)+(s.txCount>0?1:0);
+  // всесторонность: задействованы все 5 разделов (дела — включая архивные)
+  s.facetsCount = (tasksDone>0?1:0)+(anyGoal?1:0)+(allStudy.length>0?1:0)+((notes||[]).length>0?1:0)+(s.txCount>0?1:0);
   // полимат (секрет): силён во всех измерениях сразу
   s.polymath = (s.maxStreak>=30 && goalsDone>=5 && s.studyDone>=10 && s.txCount>=50 && s.level>=10) ? 1 : 0;
-  // привычки
-  const H = habits||[]; const tdy = todayStr();
+  // привычки — включая архивные (снимок хранит log, поэтому метрики восстанавливаются)
+  const H = allHabits; const tdy = todayStr();
   s.habitsCount = H.length;
   s.habitCompletions = H.reduce((n,h)=>n+habitCompletedCount(h),0);
   s.habitBestStreak = H.reduce((mx,h)=>Math.max(mx, habitBestStreak(h, tdy)), 0);
