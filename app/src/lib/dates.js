@@ -1,6 +1,16 @@
 // Дата/время-хелперы. ⚠️ toISOString() — ловушка (UTC-сдвиг); всегда через toLocalISODate.
 export const toLocalISODate = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-export const todayStr = () => toLocalISODate(new Date());
+// «Логический день» длится до DAY_ROLLOVER_HOUR:00 СЛЕДУЮЩЕГО календарного дня. Дела не всегда
+// заканчиваются ровно в полночь: с 00:00 до 10:00 приложение считает «сегодня» = вчерашняя дата,
+// поэтому тренер / задания дня / цели дня / редактируемый день не перескакивают раньше времени.
+// Единственная точка определения «сегодня» — всё (стрик, комбо, здоровье, completedAt) следует за ней.
+// session: logical-day-rollover. Значение обсуждено с пользователем («условно 10 утра»).
+export const DAY_ROLLOVER_HOUR = 10;
+export const todayStr = () => {
+  const d = new Date();
+  if(d.getHours() < DAY_ROLLOVER_HOUR) d.setDate(d.getDate()-1); // до 10 утра — ещё «вчерашний» день
+  return toLocalISODate(d);
+};
 export const addDays = (ds,n) => { const d=new Date(ds+'T00:00:00'); d.setDate(d.getDate()+n); return toLocalISODate(d); };
 export const daysAgoStr = (n) => addDays(todayStr(), -n);
 export const isoWeek = (ds) => {
