@@ -13,8 +13,10 @@ export const accountBalanceOn = (account, transactions, date) => {
     if(t.ts==null || anchor.ts==null) return true;
     return t.ts>=anchor.ts;
   };
+  // debtFlow-операции (возврат/взятие долга) НЕ считаются доходом/расходом (exclude:true → выпадают из
+  // всей P&L-статистики), но РЕАЛЬНО двигают баланс счёта → здесь учитываем их наравне с обычными. session 028c.
   const net = transactions
-    .filter(t=>t.accountId===account.id && !t.exclude && t.date<=date && (!anchor || countsAfterAnchor(t)))
+    .filter(t=>t.accountId===account.id && (!t.exclude || t.debtFlow) && t.date<=date && (!anchor || countsAfterAnchor(t)))
     .reduce((s,t)=> s + (t.type==='income'?t.amount:-t.amount), 0);
   return base + net;
 };
@@ -24,8 +26,9 @@ export const accountBalanceNow = (account, transactions) => {
   return accountBalanceOn(account, transactions, asOf);
 };
 // «нераспределённый» пул: чистый поток операций БЕЗ счёта (доход +, расход −) на дату.
+// debtFlow учитываем (реальное движение денег), хоть в доход/расход они и не идут (exclude:true). session 028c.
 export const unassignedNetOn = (transactions, date) => transactions
-  .filter(t=> !t.accountId && !t.exclude && t.date<=date)
+  .filter(t=> !t.accountId && (!t.exclude || t.debtFlow) && t.date<=date)
   .reduce((s,t)=> s + (t.type==='income'?t.amount:-t.amount), 0);
 
 // Планы (budgets/incomePlans) помесячные: {YYYY-MM:{cat:план}}. Миграция плоской формы -> текущий месяц.

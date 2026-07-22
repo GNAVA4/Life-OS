@@ -553,9 +553,36 @@ function App(){
   const deleteAccount = (id) => persist.finance({...finance, accounts:finance.accounts.filter(a=>a.id!==id)});
   const addSnapshot = (accId,snap) => persist.finance({...finance, accounts: finance.accounts.map(a=>a.id===accId?{...a,snapshots:[{id:uid(),ts:Date.now(),...snap},...a.snapshots]}:a)});
   const deleteSnapshot = (accId,snapId) => persist.finance({...finance, accounts: finance.accounts.map(a=>a.id===accId?{...a,snapshots:a.snapshots.filter(s=>s.id!==snapId)}:a)});
-  const addDebtor = (name,amount) => persist.finance({...finance, debtors:[...finance.debtors,{id:uid(),name,amount}]});
-  const updateDebtor = (id,amount) => persist.finance({...finance, debtors:finance.debtors.map(d=>d.id===id?{...d,amount}:d)});
-  const deleteDebtor = (id) => persist.finance({...finance, debtors:finance.debtors.filter(d=>d.id!==id)});
+  // Долги (session 028c). Долг: {id, name, amount(остаток), dir:'owed_to_me'|'i_owe', date}. Движения денег
+  // (взял/вернули/отдал) — как ОПЕРАЦИИ с флагом debtFlow: exclude:true → не идут в доход/расход/статистику,
+  // но РЕАЛЬНО меняют баланс счёта и «чистые активы» (accountBalanceOn/unassignedNetOn учитывают debtFlow).
+  // Функциональный setFinance(prev=>…) — правки могут приходить в одном тике до ре-рендера.
+  const commitFinance = (updater) => setFinance(prev => { const next = updater(prev); saveKey('lifeos:finance', next); return next; });
+  const mkDebtTx = ({accDelta, accountId, category, note, date, debtId}) => ({id:uid(), ts:Date.now(), type: accDelta>=0?'income':'expense', amount:Math.abs(accDelta), accountId:accountId||null, category, note:note||'', date:date||todayStr(), exclude:true, debtFlow:true, debtId});
+  // Создание долга сразу двигает счёт: «мне должны» = дал в долг → −счёт; «я должен» = взял → +счёт.
+  // Знак счёта = −Δдолга для owed_to_me и +Δдолга для i_owe (Δдолга при создании = +amount).
+  const addDebt = ({name, amount, dir, date, accountId}) => commitFinance(prev => {
+    const d = {id:uid(), name, amount, dir:dir||'owed_to_me', date:date||todayStr()};
+    const owedToMe = d.dir==='owed_to_me';
+    const accDelta = owedToMe ? -amount : amount;
+    const tx = accountId!=null ? mkDebtTx({accDelta, accountId, category: owedToMe?'Дал в долг':'Взял в долг', note:name, date:d.date, debtId:d.id}) : null;
+    return {...prev, debtors:[...prev.debtors, d], transactions: tx ? [tx, ...prev.transactions] : prev.transactions};
+  });
+  // Движение по долгу (как операция): decrease=true — вернули мне / я отдал (−остаток); false — дал ещё / взял ещё (+остаток).
+  // Δостатка = ±amount; знак счёта = −Δ для owed_to_me, +Δ для i_owe. Само пишет debtFlow-операцию и меняет остаток.
+  const debtMovement = ({debtId, amount, accountId, decrease, date}) => commitFinance(prev => {
+    const d = prev.debtors.find(x=>x.id===debtId); if(!d || !(amount>0)) return prev;
+    const owedToMe = (d.dir||'owed_to_me')==='owed_to_me';
+    const delta = decrease ? -Math.min(amount, d.amount||0) : amount; // изменение остатка долга
+    if(delta===0) return prev;
+    const accDelta = owedToMe ? -delta : delta;
+    const cat = owedToMe ? (decrease?'Возврат долга':'Дал в долг') : (decrease?'Погашение долга':'Взял в долг');
+    const tx = mkDebtTx({accDelta, accountId, category:cat, note:d.name, date, debtId});
+    const debtors = prev.debtors.map(x=> x.id===debtId ? {...x, amount:(x.amount||0)+delta} : x);
+    return {...prev, debtors, transactions:[tx, ...prev.transactions]};
+  });
+  const updateDebt = (id, patch) => commitFinance(prev => ({...prev, debtors: prev.debtors.map(d=> d.id===id ? {...d, ...patch} : d)})); // переименование (без движения денег)
+  const deleteDebt = (id) => commitFinance(prev => ({...prev, debtors:prev.debtors.filter(d=>d.id!==id)}));
 
   const streak = useMemo(() => {
     let count=0, cursor=todayStr();
@@ -987,7 +1014,7 @@ function App(){
         setIncomePlan={setIncomePlan} removeIncomePlan={removeIncomePlan} setBudgetsBatch={setBudgetsBatch} setIncomePlansBatch={setIncomePlansBatch}
         addBill={addBill} deleteBill={deleteBill} updateBill={updateBill}
         addAccount={addAccount} deleteAccount={deleteAccount} addSnapshot={addSnapshot} deleteSnapshot={deleteSnapshot}
-        addDebtor={addDebtor} updateDebtor={updateDebtor} deleteDebtor={deleteDebtor} />}
+        addDebt={addDebt} updateDebt={updateDebt} deleteDebt={deleteDebt} debtMovement={debtMovement} />}
       {tab==='stats' && <StatsTab days={days} finance={finance} budgets={budgets} incomePlans={incomePlans} habits={habits} finMask={finMask} study={study} unlocked={achievements.unlocked||{}} />}
       {tab==='achievements' && <AchievementsTab stats={achStats} unlocked={achievements.unlocked||{}} />}
       {tab==='settings' && <SettingsTab hidden={settings.hidden||{}} toggleModule={toggleModule}
