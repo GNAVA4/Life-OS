@@ -17,7 +17,7 @@ import { GAMIFY_DEFAULT, IMPULSE_DECAY_DAYS, HEALTH_MISSED_HABIT_CAP, COMBO_CAP_
 import { HABIT_WD, isHabitScheduled, habitDoneOn, habitCompletedCount, habitScheduleLabel, habitCurrentStreak, habitBestStreak, habitChallengeDone } from './lib/habits.js';
 import { snapshotValueRub, accountBalanceOn, accountBalanceNow, unassignedNetOn, migratePlans } from './lib/finance.js';
 import { isLegacyNote, migrateNotes, mergeStudyById, noteTitleOf, notePreviewOf, repeatLabel, reminderWhenLabel, hasReminderWhen } from './lib/notes.js';
-import { goalLinkOptions, goalByKey, goalLinksOf } from './lib/goals.js';
+import { goalLinkOptions, goalByKey, goalLinksOf, goalMode } from './lib/goals.js';
 import { ACH_TIERS, ACHIEVEMENTS, ACH_GROUPS, computeAchStats, achValDisplay, longestRun } from './lib/achievements.js';
 import { axisColor, gridColor, baseChartOpts } from './lib/charts.js';
 import { Select, Modal, ConfirmIconBtn, SettingsSection, SubHead, SettingsDivider, StatusSeg } from './ui/primitives.jsx';
@@ -256,12 +256,14 @@ function App(){
 
   // вклад выполненной задачи в привязанную цель. link={scope,goalId,amount}. sign +1 при выполнении, -1 при откате.
   // счётчиковая цель — прибавляем к counter.current (штуки); обычная — к progress (проценты).
+  // Различаем по АКТИВНОМУ режиму (goalMode), а не по наличию g.counter: %-цель может хранить старый
+  // counter (session 026 не стирает его при смене типа) — тогда вклад должен идти в проценты. session: goal-link-mode-fix.
   const contributeToGoal = (link, sign) => {
     if(!link || !link.goalId || !link.amount) return;
     setGoals(prev => {
       const list = (prev[link.scope]||[]).map(g=>{
         if(g.id!==link.goalId) return g;
-        if(g.counter){ const cur=Math.max(0,(g.counter.current||0)+sign*link.amount);
+        if(goalMode(g)==='counter' && g.counter){ const cur=Math.max(0,(g.counter.current||0)+sign*link.amount);
           return {...g, counter:{...g.counter, current:cur}, progress: g.counter.target>0? Math.min(100,Math.round(cur/g.counter.target*100)) : g.progress}; }
         return {...g, progress: Math.max(0,Math.min(100,(g.progress||0)+sign*link.amount))};
       });

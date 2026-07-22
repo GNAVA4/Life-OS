@@ -1,4 +1,5 @@
 // Вкладка/раздел: SettingsTab (вынесено из App.jsx, session: decompose phase 3)
+import { useState } from 'react';
 import { ALL_MOBILE_TAB_IDS, BUILD_ID, TAB_META } from '../lib/constants.js';
 import { GAMIFY_DEFAULT, LEVEL_CAP, WEEKLY_XP } from '../lib/gamify.js';
 import { MODULE_GROUPS } from '../lib/storage.js';
@@ -18,6 +19,9 @@ export function SettingsTab({hidden, toggleModule, defaults, setDefault, categor
   const setBills = (patch) => setSettingFlag('billsNotif', {off:false, time:billsTime, leadDays:billsLead, ...(billsNotif||{}), ...patch});
   const setDl = (patch) => setSettingFlag('deadlineNotif', {off:false, days:dlDays, time:dlTime, ...(deadlineCfg||{}), ...patch});
   const toggleDlDay = (d) => { const has=dlDays.includes(d); const next=has?dlDays.filter(x=>x!==d):[...dlDays,d].sort((a,b)=>a-b); setDl({days:next}); };
+  // «Что показывать» — раздел большой, поэтому каждая группа модулей сворачивается (по умолчанию свёрнута)
+  const [openGroups,setOpenGroups] = useState({});
+  const toggleGroup = (name) => setOpenGroups(s=>({...s,[name]:!s[name]}));
   return (
     <div>
       <SettingsSection title="Уведомления и звук" icon="🔔">
@@ -199,20 +203,32 @@ export function SettingsTab({hidden, toggleModule, defaults, setDefault, categor
       </SettingsSection>
 
       <SettingsSection title="Что показывать (модули и графики)" icon="📊">
-        <div style={{...S.dimSpan,marginLeft:0,marginBottom:8,display:'block'}}>Выключенные модули и графики скрываются из приложения. Настройка синхронизируется между устройствами.</div>
-        {MODULE_GROUPS.map((g,gi)=>(
-          <div key={g.group}>
-            {gi>0 && <SettingsDivider/>}
-            <SubHead>{g.group}</SubHead>
-            {g.items.map(it=>(
-              <label key={it.id} className="row-hover" style={{...S.taskRow, cursor:'pointer'}}>
-                <input type="checkbox" checked={!hidden[it.id]} onChange={()=>toggleModule(it.id)} />
-                <div style={{flex:1, color: hidden[it.id]?C.dim:C.text}}>{it.label}</div>
-                <span style={{fontSize:11, color:C.dim}}>{hidden[it.id]?'скрыто':'показано'}</span>
-              </label>
-            ))}
-          </div>
-        ))}
+        <div style={{...S.dimSpan,marginLeft:0,marginBottom:10,display:'block'}}>Выключенные модули и графики скрываются из приложения. Настройка синхронизируется между устройствами. Нажми на группу, чтобы раскрыть.</div>
+        {MODULE_GROUPS.map((g)=>{
+          const shown = g.items.filter(it=>!hidden[it.id]).length;
+          const open = !!openGroups[g.group];
+          return (
+            <div key={g.group} style={{border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden',marginBottom:8}}>
+              <div className="row-hover" onClick={()=>toggleGroup(g.group)}
+                style={{display:'flex',alignItems:'center',gap:8,padding:'10px 12px',cursor:'pointer',userSelect:'none'}}>
+                <span style={{color:C.dim,fontSize:12,transition:'transform .2s ease',transform:open?'rotate(180deg)':'none'}}>▾</span>
+                <div style={{flex:1,fontWeight:600,fontSize:13}}>{g.group}</div>
+                <span style={{fontSize:11,color: shown<g.items.length?C.amber:C.dim}}>{shown}/{g.items.length}</span>
+              </div>
+              {open && (
+                <div className="anim-collapse" style={{padding:'0 12px 6px'}}>
+                  {g.items.map(it=>(
+                    <label key={it.id} className="row-hover" style={{...S.taskRow, cursor:'pointer'}}>
+                      <input type="checkbox" checked={!hidden[it.id]} onChange={()=>toggleModule(it.id)} />
+                      <div style={{flex:1, color: hidden[it.id]?C.dim:C.text}}>{it.label}</div>
+                      <span style={{fontSize:11, color:C.dim}}>{hidden[it.id]?'скрыто':'показано'}</span>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </SettingsSection>
 
       <SettingsSection title="О приложении" icon="ℹ️">

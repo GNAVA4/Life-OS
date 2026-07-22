@@ -4,6 +4,7 @@ import { PERIOD_LABEL } from '../lib/constants.js';
 import { daysBetween, toLocalISODate, todayStr } from '../lib/dates.js';
 import { S } from '../lib/styles.js';
 import { C } from '../lib/theme.js';
+import { goalMode as modeOf } from '../lib/goals.js';
 import { ConfirmIconBtn, Select } from '../ui/primitives.jsx';
 
 export function GoalsTab({goals, addGoal, setGoalProgress, addGoalSubtask, toggleGoalSubtask, deleteGoalSubtask, deleteGoal, setGoalMode, setGoalCounter, setGoalDeadline, archiveGoal, archive=[], restoreGoal, deleteArchivedGoal, showGoalDeadline=false, collapsed={}, onToggleCollapse}){
@@ -12,7 +13,7 @@ export function GoalsTab({goals, addGoal, setGoalProgress, addGoalSubtask, toggl
   const [archiveShow,setArchiveShow] = useState(false);
   const scopes = [{id:'year',label:'Год'},{id:'month',label:'Месяц'},{id:'week',label:'Неделя'},{id:'day',label:'День'}];
   const addFromForm = () => { if(text.trim()){ addGoal(scope,text.trim()); setText(''); } };
-  const modeOf = (g) => g.mode ? g.mode : (g.counter?'counter':g.subtasks?'subtasks':'slider'); // legacy: undefined→ползунок
+  // modeOf импортирован из lib/goals (goalMode) — единый источник, чтобы привязка/вклад и UI совпадали
   // последний день текущего периода скоупа — неявный дедлайн, если явный не задан (session: goal-deadline-hide)
   const endOfScope = (scope) => {
     const t = todayStr(); const d = new Date(t+'T00:00:00');
@@ -123,7 +124,7 @@ export function GoalsTab({goals, addGoal, setGoalProgress, addGoalSubtask, toggl
 
                   {mode==='slider' && (
                     <div style={{display:'flex',alignItems:'center',gap:8,marginTop:4}}>
-                      <input type="range" min="0" max="100" step="5" value={g.progress||0} style={{flex:1,minWidth:0}} onChange={e=>setGoalProgress(id,g.id,parseInt(e.target.value,10))} />
+                      <input type="range" min="0" max="100" step="1" value={g.progress||0} style={{flex:1,minWidth:0}} onChange={e=>setGoalProgress(id,g.id,parseInt(e.target.value,10))} />
                       <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11.5,color:C.dim,minWidth:34,textAlign:'right'}}>{g.progress||0}%</div>
                     </div>
                   )}
