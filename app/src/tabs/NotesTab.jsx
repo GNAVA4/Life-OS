@@ -6,7 +6,7 @@ import { uid } from '../lib/format.js';
 import { hasReminderWhen, notePreviewOf, noteTitleOf, reminderWhenLabel } from '../lib/notes.js';
 import { S } from '../lib/styles.js';
 import { C } from '../lib/theme.js';
-import { Modal, Select } from '../ui/primitives.jsx';
+import { ConfirmIconBtn, Modal, Select } from '../ui/primitives.jsx';
 
 export function NotesTab({notes, addNote, updateNote, deleteNote}){
   const [filter,setFilter] = useState('Все');
@@ -37,7 +37,7 @@ export function NotesTab({notes, addNote, updateNote, deleteNote}){
                 <span style={{fontSize:10,color:col,letterSpacing:'.05em'}}>{n.pinned?'📌 ':''}{n.type==='Напоминание'?'⏰ НАПОМИНАНИЕ':'ЗАМЕТКА'}</span>
                 <div style={{display:'flex',alignItems:'center',gap:2}}>
                   <button className="icon-btn" title={n.pinned?'открепить':'закрепить'} style={n.pinned?{color:C.amber}:undefined} onClick={e=>{ e.stopPropagation(); updateNote(n.id,{pinned:!n.pinned}); }}>📌</button>
-                  <button className="icon-btn" onClick={e=>{ e.stopPropagation(); deleteNote(n.id); }}>✕</button>
+                  <ConfirmIconBtn onConfirm={()=>deleteNote(n.id)} confirmLabel="удалить?" title="удалить запись" />
                 </div>
               </div>
               <div style={{fontSize:14,fontWeight:600,color:C.text}}>{noteTitleOf(n)}</div>
@@ -71,6 +71,7 @@ export function NoteEditor({note, onSave, onDelete, onClose}){
   const [pinned,setPinned] = useState(!!note.pinned);
   const [checklist,setChecklist] = useState(Array.isArray(note.checklist)?note.checklist:[]);
   const [newItem,setNewItem] = useState('');
+  const [confirmDel,setConfirmDel] = useState(false); // двухшаговое подтверждение удаления (WebView-safe, без confirm())
   const isRem = type==='Напоминание';
   const addItem = () => { if(!newItem.trim()) return; setChecklist([...checklist,{id:uid(),text:newItem.trim(),done:false}]); setNewItem(''); };
   const toggleItem = (id) => setChecklist(checklist.map(i=>i.id===id?{...i,done:!i.done}:i));
@@ -120,7 +121,10 @@ export function NoteEditor({note, onSave, onDelete, onClose}){
         </div>
       )}
       <div style={{display:'flex',gap:8,marginTop:16,justifyContent:'space-between'}}>
-        {note.id ? <button style={{...S.exportBtn,borderColor:C.red,color:C.red}} onClick={()=>{ onDelete(note.id); onClose(); }}>Удалить</button> : <span/>}
+        {note.id ? (confirmDel
+          ? <button style={{...S.exportBtn,borderColor:C.red,color:C.red,fontWeight:700}} onClick={()=>{ onDelete(note.id); onClose(); }}>Точно удалить?</button>
+          : <button style={{...S.exportBtn,borderColor:C.red,color:C.red}} onClick={()=>setConfirmDel(true)}>Удалить</button>)
+        : <span/>}
         <button style={{...S.iconBtnAmber,width:'auto',padding:'0 24px',height:38,fontWeight:700}} onClick={save}>Сохранить</button>
       </div>
     </Modal>
