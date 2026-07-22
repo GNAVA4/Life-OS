@@ -106,6 +106,8 @@ export function OpsSection({finance, categories, budgets, incomePlans, bills, mo
   const [newCat,setNewCat] = useState(''); const [showCatManager,setShowCatManager] = useState(false);
   const [catKind,setCatKind] = useState('expense');
   const [billName,setBillName] = useState(''); const [billAmount,setBillAmount] = useState(''); const [billDay,setBillDay] = useState('');
+  const [opsCat,setOpsCat] = useState('');        // фильтр списка операций по категории (session: ops-filter-group)
+  const [opsGroup,setOpsGroup] = useState(false); // группировка списка операций по дням
   const cats = txType==='expense' ? categories.expense : categories.income;
   const managedCats = catKind==='expense' ? categories.expense : categories.income;
   const accountName = (id) => finance.accounts.find(a=>a.id===id)?.name;
@@ -185,6 +187,26 @@ export function OpsSection({finance, categories, budgets, incomePlans, bills, mo
     for(let i=29;i>=0;i--){ const ds=daysAgoStr(i); labels.push(ds.slice(5)); data.push(byDate[ds]||0); }
     return {labels, data};
   }, [finance.transactions]);
+
+  // список операций: фильтр по категории + опциональная группировка по дням (session: ops-filter-group)
+  const opsCats = useMemo(()=>{ const set=new Set(); finance.transactions.forEach(t=>set.add(t.category)); return [...set].sort(); }, [finance.transactions]);
+  const filteredTx = useMemo(()=> finance.transactions.filter(t=> !opsCat || t.category===opsCat), [finance.transactions, opsCat]);
+  const groupedTx = useMemo(()=>{
+    const map={}; filteredTx.slice(0,120).forEach(t=>{ (map[t.date]=map[t.date]||[]).push(t); });
+    return Object.keys(map).sort((a,b)=>b<a?-1:1).map(date=>{ const rows=map[date];
+      const inc=rows.filter(t=>t.type==='income'&&!t.exclude).reduce((s,t)=>s+t.amount,0);
+      const exp=rows.filter(t=>t.type==='expense'&&!t.exclude).reduce((s,t)=>s+t.amount,0);
+      return {date, rows, inc, exp}; });
+  }, [filteredTx]);
+  const txRow = (t) => (
+    <div key={t.id} className="row-hover" style={S.taskRow}>
+      <div style={{width:8,height:8,borderRadius:4,background:t.type==='income'?C.green:C.red}} />
+      <div style={{width:60,fontSize:12,color:C.dim,fontFamily:"'JetBrains Mono',monospace"}}>{t.date.slice(5)}</div>
+      <div style={{flex:1,fontSize:13.5}}>{t.category}{t.accountId?` · ${accountName(t.accountId)||'?'}`:''}{t.note?` · ${t.note}`:''}{t.exclude?<span style={{...S.dimSpan,marginLeft:4}}>(не считается)</span>:null}</div>
+      <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:13,color:t.type==='income'?C.green:C.red}}>{t.type==='income'?'+':'−'}{mo(t.amount)}</div>
+      <button className="icon-btn" onClick={()=>deleteTransaction(t.id)}>✕</button>
+    </div>
+  );
 
   return (
     <div>
@@ -346,15 +368,29 @@ export function OpsSection({finance, categories, budgets, incomePlans, bills, mo
       )}
 
       <div style={S.panel}>
-        <div style={S.panelTitle}>Последние операции</div>
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8,flexWrap:'wrap',marginBottom:10}}>
+          <div style={{...S.panelTitle,marginBottom:0}}>Последние операции</div>
+          <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
+            <Select small style={{minWidth:150}} value={opsCat} onChange={setOpsCat}
+              options={[{value:'',label:'все категории'}, ...opsCats.map(c=>({value:c,label:c}))]} />
+            <div className="chip" onClick={()=>setOpsGroup(v=>!v)} title="сгруппировать по дням"
+              style={{background:opsGroup?C.amber:C.panelAlt,color:opsGroup?'#1A1200':C.dim,borderColor:opsGroup?C.amber:C.border}}>📅 по дням</div>
+          </div>
+        </div>
         {finance.transactions.length===0 && <div style={S.emptyState}>Операций пока нет</div>}
-        {finance.transactions.slice(0,25).map(t=>(
-          <div key={t.id} className="row-hover" style={S.taskRow}>
-            <div style={{width:8,height:8,borderRadius:4,background:t.type==='income'?C.green:C.red}} />
-            <div style={{width:60,fontSize:12,color:C.dim,fontFamily:"'JetBrains Mono',monospace"}}>{t.date.slice(5)}</div>
-            <div style={{flex:1,fontSize:13.5}}>{t.category}{t.accountId?` · ${accountName(t.accountId)||'?'}`:''}{t.note?` · ${t.note}`:''}{t.exclude?<span style={{...S.dimSpan,marginLeft:4}}>(не считается)</span>:null}</div>
-            <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:13,color:t.type==='income'?C.green:C.red}}>{t.type==='income'?'+':'−'}{mo(t.amount)}</div>
-            <button className="icon-btn" onClick={()=>deleteTransaction(t.id)}>✕</button>
+        {finance.transactions.length>0 && filteredTx.length===0 && <div style={S.emptyState}>Нет операций по этому фильтру</div>}
+        {!opsGroup && filteredTx.slice(0,25).map(txRow)}
+        {opsGroup && groupedTx.map(({date,rows,inc,exp})=>(
+          <div key={date} style={{marginBottom:12}}>
+            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8,padding:'4px 0',borderBottom:`1px solid ${C.border}`,marginBottom:2}}>
+              <span style={{fontSize:12,color:C.dim,fontFamily:"'JetBrains Mono',monospace"}}>{date}</span>
+              <span style={{fontSize:11.5,fontFamily:"'JetBrains Mono',monospace"}}>
+                {inc>0 && <span style={{color:C.green}}>+{mo(inc)}</span>}
+                {inc>0 && exp>0 && <span style={{color:C.dim}}> · </span>}
+                {exp>0 && <span style={{color:C.red}}>−{mo(exp)}</span>}
+              </span>
+            </div>
+            {rows.map(txRow)}
           </div>
         ))}
       </div>
