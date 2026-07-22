@@ -1,16 +1,25 @@
 // Вкладка/раздел: AchievementsTab (вынесено из App.jsx, session: decompose phase 3)
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { ACHIEVEMENTS, ACH_GROUPS, ACH_TIERS, achValDisplay } from '../lib/achievements.js';
+import { formatDateRu } from '../lib/dates.js';
 import { S } from '../lib/styles.js';
 import { C } from '../lib/theme.js';
 
 export function AchievementsTab({stats, unlocked}){
   const [filter,setFilter] = useState('all'); // all | done | todo
+  const [byDay,setByDay] = useState(false);   // просмотр по дням открытия vs каталог по группам
   const total = ACHIEVEMENTS.length;
   const doneCount = ACHIEVEMENTS.filter(a=>unlocked[a.id]).length;
   const points = ACHIEVEMENTS.reduce((p,a)=> p + (unlocked[a.id]?ACH_TIERS[a.tier].pts:0), 0);
   const maxPoints = ACHIEVEMENTS.reduce((p,a)=> p+ACH_TIERS[a.tier].pts, 0);
   const pct = total? Math.round(doneCount/total*100) : 0;
+
+  // Хронология: полученные достижения, сгруппированные по дате открытия (новые сверху). session: ach-by-day.
+  const timeline = useMemo(()=>{
+    const byDate = {};
+    ACHIEVEMENTS.forEach(a=>{ const d=unlocked[a.id]; if(!d) return; (byDate[d]=byDate[d]||[]).push(a); });
+    return Object.keys(byDate).sort((a,b)=>b<a?-1:1).map(date=>({date, list:byDate[date]}));
+  }, [unlocked]);
 
   return (
     <div>
@@ -20,14 +29,40 @@ export function AchievementsTab({stats, unlocked}){
           <div style={{height:'100%', width:`${pct}%`, background:C.amber}}/>
         </div>
         <div style={S.dimSpan}>Очки славы: {points} / {maxPoints} · открыто {pct}%</div>
-        <div style={{display:'flex', gap:6, marginTop:12, flexWrap:'wrap'}}>
-          {[{id:'all',label:'Все'},{id:'done',label:'Полученные'},{id:'todo',label:'В процессе'}].map(f=>(
+        <div style={{display:'flex', gap:6, marginTop:12, flexWrap:'wrap', alignItems:'center'}}>
+          {!byDay && [{id:'all',label:'Все'},{id:'done',label:'Полученные'},{id:'todo',label:'В процессе'}].map(f=>(
             <div key={f.id} className="chip" onClick={()=>setFilter(f.id)} style={{background:filter===f.id?C.amber:C.panelAlt, color:filter===f.id?'#1A1200':C.dim, borderColor:filter===f.id?C.amber:C.border}}>{f.label}</div>
           ))}
+          <div className="chip" onClick={()=>setByDay(v=>!v)} title="группировать по дате открытия"
+            style={{marginLeft:byDay?0:'auto', background:byDay?C.cyan:C.panelAlt, color:byDay?'#0B0E13':C.dim, borderColor:byDay?C.cyan:C.border}}>📅 по дням</div>
         </div>
       </div>
 
-      {ACH_GROUPS.map(group=>{
+      {byDay && (
+        timeline.length===0
+          ? <div style={{...S.panel,...S.emptyState}}>Пока нет полученных достижений</div>
+          : timeline.map(({date,list})=>(
+            <div key={date} style={S.panel}>
+              <div style={S.panelTitle}><span style={{textTransform:'capitalize'}}>{formatDateRu(date)}</span> <span style={S.dimSpan}>{date} · +{list.length}</span></div>
+              <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(230px,1fr))', gap:10}}>
+                {list.map(a=>{ const tier=ACH_TIERS[a.tier]; return (
+                  <div key={a.id} style={{border:`1px solid ${tier.c}`, background:C.panelAlt, borderRadius:8, padding:12}}>
+                    <div style={{display:'flex', alignItems:'center', gap:10}}>
+                      <div style={{fontSize:26}}>{a.icon}</div>
+                      <div style={{flex:1, minWidth:0}}>
+                        <div style={{fontSize:13.5, fontWeight:700, color:C.text}}>{a.title}</div>
+                        <div style={{fontSize:10, color:tier.c, textTransform:'uppercase', letterSpacing:'.05em'}}>{tier.label} · {a.g}</div>
+                      </div>
+                    </div>
+                    <div style={{fontSize:11.5, color:C.dim, marginTop:8}}>{a.desc}</div>
+                  </div>
+                ); })}
+              </div>
+            </div>
+          ))
+      )}
+
+      {!byDay && ACH_GROUPS.map(group=>{
         const list = ACHIEVEMENTS.filter(a=>a.g===group).filter(a=>{
           const done=!!unlocked[a.id];
           return filter==='all' || (filter==='done'&&done) || (filter==='todo'&&!done);
