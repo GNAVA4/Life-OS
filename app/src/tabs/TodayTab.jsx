@@ -43,7 +43,13 @@ export function TodayTab({entry, selectedDate, setSelectedDate, addTask, toggleT
   const [ongoingText,setOngoingText] = useState('');
   const [ongoingEnd,setOngoingEnd] = useState('');
 
-  useEffect(()=>{ setSleepInput(entry.sleepHours ?? ''); setNoteInput(entry.note || ''); setRatingEdit(false); }, [selectedDate]);
+  // Ре-синк ПОЛЕЙ дня с загруженным entry. Раньше зависело только от selectedDate → на первом рендере
+  // entry пуст (данные грузятся асинхронно), а когда подгрузятся, поле «что было · почему» / сон
+  // оставались пустыми, пока не переключишь дату туда-обратно. Добавлены entry.note/sleepHours в deps:
+  // при вводе они не меняются (сохранение onBlur), поэтому набор текста не перетирается. session: dayfields-sync.
+  useEffect(()=>{ setRatingEdit(false); }, [selectedDate]);
+  useEffect(()=>{ setNoteInput(entry.note || ''); }, [selectedDate, entry.note]);
+  useEffect(()=>{ setSleepInput(entry.sleepHours ?? ''); }, [selectedDate, entry.sleepHours]);
 
   const doneCount = entry.tasks.filter(t=>t.done).length;
   const dayNum = parseInt(selectedDate.slice(8,10),10);
@@ -270,14 +276,14 @@ export function TodayTab({entry, selectedDate, setSelectedDate, addTask, toggleT
           <div style={S.panelTitle}>Оценка дня</div>
           {!ratingEdit ? (
             <div style={{display:'flex',alignItems:'center',gap:10}}>
-              <div style={{flex:1,fontFamily:"'JetBrains Mono',monospace",fontSize:16,fontWeight:700}}>{entry.rating!=null?`${entry.rating} / 10`:<span style={{color:C.dim,fontWeight:400,fontSize:13}}>не оценён</span>}</div>
+              <div style={{flex:1,fontFamily:"'JetBrains Mono',monospace",fontSize:16,fontWeight:700}}>{entry.rating!=null?`${entry.rating.toLocaleString('ru-RU')} / 10`:<span style={{color:C.dim,fontWeight:400,fontSize:13}}>не оценён</span>}</div>
               <button style={{...S.exportBtn,borderColor:C.amber,color:C.amber}} onClick={()=>{ setRatingDraft(entry.rating||5); setRatingEdit(true); }}>✏ {entry.rating!=null?'изменить':'оценить'}</button>
             </div>
           ) : (
             <div>
               <div style={{display:'flex',alignItems:'center',gap:10}}>
-                <input type="range" min="1" max="10" value={ratingDraft} style={{flex:1}} onChange={e=>setRatingDraft(parseInt(e.target.value,10))} />
-                <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:16,fontWeight:700,minWidth:24,textAlign:'right'}}>{ratingDraft}</div>
+                <input type="range" min="1" max="10" step="0.1" value={ratingDraft} style={{flex:1}} onChange={e=>setRatingDraft(Math.round(parseFloat(e.target.value)*10)/10)} />
+                <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:16,fontWeight:700,minWidth:34,textAlign:'right'}}>{ratingDraft.toLocaleString('ru-RU',{minimumFractionDigits:1,maximumFractionDigits:1})}</div>
               </div>
               <div style={{display:'flex',gap:8,marginTop:10}}>
                 <button style={{...S.exportBtn,borderColor:C.green,color:C.green,flex:1}} onClick={()=>{ updateEntry({rating:ratingDraft}); setRatingEdit(false); }}>💾 Сохранить</button>
