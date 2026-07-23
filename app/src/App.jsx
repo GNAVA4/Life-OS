@@ -588,11 +588,12 @@ function App(){
 
   const streak = useMemo(() => {
     let count=0, cursor=todayStr();
-    const hasDone = (ds) => (days[ds]?.tasks||[]).some(t=>t.done) || Object.values(days[ds]?.dailyCompletions||{}).some(Boolean);
+    // «дней подряд» учитывает задачи + ежедневные + привычки (согласовано с combo). session 032
+    const hasDone = (ds) => (days[ds]?.tasks||[]).some(t=>t.done) || Object.values(days[ds]?.dailyCompletions||{}).some(Boolean) || habits.some(h=>h.log&&h.log[ds]);
     if(!hasDone(cursor)) cursor = addDays(cursor,-1);
     while(hasDone(cursor)){ count++; cursor = addDays(cursor,-1); }
     return count;
-  }, [days]);
+  }, [days, habits]);
 
   const {level,into,needed,max:levelMax} = levelForXp(meta.xp||0);
   const rank = rankForLevel(level);
@@ -642,21 +643,23 @@ function App(){
     return { streak, mult };
   }, [days, habits]);
 
+  // Контекст квестов для произвольного дня ds (для «сегодня» и settle отложенных за вчера). session 032
+  const questCtxFor = (ds) => { const e = days[ds] || {}; return {
+    tasksDone:(e.tasks||[]).filter(x=>x.done).length,
+    taskTotal:(e.tasks||[]).length,
+    dailyDone:Object.values(e.dailyCompletions||{}).filter(Boolean).length,
+    hasDailies:(dailyTasks||[]).length>0,
+    habitDone:habits.filter(h=>h.log&&h.log[ds]).length,
+    hasHabits:habits.length>0,
+    rated:e.rating!=null, noted:!!(e.note&&e.note.trim()),
+    antiCount:(e.antiTags||[]).length, sleep:e.sleepHours??0,
+  }; };
   // 🎯 Задания дня (для СЕГОДНЯ): детерминированный набор из 3, со статусом выполнения/начисления. session 024
   const todayQuests = useMemo(() => {
     const t = todayStr(); const e = days[t] || {};
-    const ctx = {
-      tasksDone:(e.tasks||[]).filter(x=>x.done).length,
-      taskTotal:(e.tasks||[]).length,
-      dailyDone:Object.values(e.dailyCompletions||{}).filter(Boolean).length,
-      hasDailies:(dailyTasks||[]).length>0,
-      habitDone:habits.filter(h=>h.log&&h.log[t]).length,
-      hasHabits:habits.length>0,
-      rated:e.rating!=null, noted:!!(e.note&&e.note.trim()),
-      antiCount:(e.antiTags||[]).length, sleep:e.sleepHours??0,
-    };
+    const ctx = questCtxFor(t);
     const claimed = e.questsClaimed||[];
-    return questsForDate(t, ctx).map(q=>({ id:q.id, icon:q.icon, label:q.label, xp:q.xp, done:q.done(ctx), claimed:claimed.includes(q.id) }));
+    return questsForDate(t, ctx).map(q=>({ id:q.id, icon:q.icon, label:q.label, xp:q.xp, deferred:!!q.deferred, done:q.done(ctx), claimed:claimed.includes(q.id) }));
   }, [days, habits, dailyTasks]);
 
   // 🏆 Испытание недели (текущая ISO-неделя): прогресс + статус начисления. session 024
@@ -679,39 +682,57 @@ function App(){
   // Один общий patch дня, чтобы эффекты не затирали друг друга. Гейт mount-окном — на загрузке молча. session 024
   useEffect(() => {
     const t = todayStr(); const e = days[t]; if(!e) return;
-    let patch = null;
+    const yd = addDays(t,-1); const ey = days[yd]; // вчерашний день — для отложенных квестов «по итогам дня»
+    let patch = null, patchY = null, xpDelta = 0; const toastAdd = [];
+
+    // --- комбо-бонус (раз в день при первой активности; обратимо). session 031 ---
     const activeToday = (e.tasks||[]).some(x=>x.done) || Object.values(e.dailyCompletions||{}).some(Boolean) || habits.some(h=>h.log&&h.log[t]);
-    let comboBonus = 0;
     if(activeToday && !e.comboClaimed){
-      comboBonus = gamify.comboBonus*Math.min(combo.streak, COMBO_CAP_DAYS);
-      patch = {...(patch||e), comboClaimed:true, comboClaimedAmt:comboBonus};
+      const comboBonus = gamify.comboBonus*Math.min(combo.streak, COMBO_CAP_DAYS);
+      patch = {...(patch||e), comboClaimed:true, comboClaimedAmt:comboBonus}; xpDelta += comboBonus;
+      toastAdd.push({tid:uid(), combo:comboBonus, streak:combo.streak});
     } else if(!activeToday && e.comboClaimed){
-      // откат комбо-бонуса: сняли всю активность дня после начисления. Снимаем ровно выданную сумму. session 031
-      comboBonus = -(e.comboClaimedAmt || 0);
+      xpDelta += -(e.comboClaimedAmt || 0);
       patch = {...(patch||e), comboClaimed:false, comboClaimedAmt:0};
     }
-    const claimed = (patch||e).questsClaimed || [];
-    const newly = todayQuests.filter(q=>q.done && !claimed.includes(q.id));
-    // Обратимость: если засчитанное задание перестало быть выполненным (добавили анти-тег после
-    // «День без анти-тегов», сняли задачу и т.п.) — снимаем начисление, как у анти-тегов. session 031
-    const revoked = todayQuests.filter(q=>!q.done && claimed.includes(q.id));
-    let questBonus = 0;
-    if(newly.length || revoked.length){
-      const revokedIds = new Set(revoked.map(q=>q.id));
-      const nextClaimed = [...claimed.filter(id=>!revokedIds.has(id)), ...newly.map(q=>q.id)];
-      questBonus = newly.reduce((s,q)=>s+q.xp,0) - revoked.reduce((s,q)=>s+q.xp,0);
-      patch = {...(patch||e), questsClaimed:nextClaimed};
+
+    // --- задания дня СЕГОДНЯ: только НЕотложенные (deferred settle за вчера). Обратимо (session 031);
+    //     revoked также чистит преждевременно заклеймленные deferred-квесты (миграция/старые данные). session 032 ---
+    {
+      const claimed = (patch||e).questsClaimed || [];
+      const newly = todayQuests.filter(q=>!q.deferred && q.done && !claimed.includes(q.id));
+      const revoked = todayQuests.filter(q=>claimed.includes(q.id) && (q.deferred || !q.done));
+      if(newly.length || revoked.length){
+        const revSet = new Set(revoked.map(q=>q.id));
+        const nextClaimed = [...claimed.filter(id=>!revSet.has(id)), ...newly.map(q=>q.id)];
+        xpDelta += newly.reduce((s,q)=>s+q.xp,0) - revoked.reduce((s,q)=>s+q.xp,0);
+        patch = {...(patch||e), questsClaimed:nextClaimed};
+        newly.forEach(q=>toastAdd.push({tid:uid(), quest:q.label, xp:q.xp}));
+      }
     }
-    if(!patch) return;
-    persist.days({...days, [t]:patch});
-    const total = comboBonus + questBonus; if(total!==0) addXp(total);
+
+    // --- ВЧЕРАШНИЕ отложенные квесты («по итогам дня»): день прошёл → settle (обратимо). session 032 ---
+    if(ey){
+      const ctxY = questCtxFor(yd);
+      const yQuests = questsForDate(yd, ctxY).filter(q=>q.deferred).map(q=>({id:q.id, xp:q.xp, label:q.label, done:q.done(ctxY)}));
+      const claimedY = ey.questsClaimed || [];
+      const newlyY = yQuests.filter(q=>q.done && !claimedY.includes(q.id));
+      const revokedY = yQuests.filter(q=>!q.done && claimedY.includes(q.id));
+      if(newlyY.length || revokedY.length){
+        const revSet = new Set(revokedY.map(q=>q.id));
+        const nextClaimedY = [...claimedY.filter(id=>!revSet.has(id)), ...newlyY.map(q=>q.id)];
+        xpDelta += newlyY.reduce((s,q)=>s+q.xp,0) - revokedY.reduce((s,q)=>s+q.xp,0);
+        patchY = {...ey, questsClaimed:nextClaimedY};
+        newlyY.forEach(q=>toastAdd.push({tid:uid(), quest:q.label, xp:q.xp}));
+      }
+    }
+
+    if(!patch && !patchY) return;
+    const nextDays = {...days}; if(patch) nextDays[t]=patch; if(patchY) nextDays[yd]=patchY;
+    persist.days(nextDays);
+    if(xpDelta!==0) addXp(xpDelta);
     const silent = (Date.now()-mountAtRef.current) < 4000;
-    if(!silent){
-      const add=[];
-      if(comboBonus>0) add.push({tid:uid(), combo:comboBonus, streak:combo.streak});
-      newly.forEach(q=>add.push({tid:uid(), quest:q.label, xp:q.xp}));
-      if(add.length) setToasts(prev=>[...prev, ...add]);
-    }
+    if(!silent && toastAdd.length) setToasts(prev=>[...prev, ...toastAdd]);
   }, [days, habits, combo.streak, todayQuests]); // eslint-disable-line
 
   // Начисление награды за испытание недели (разово за неделю). Обратимо: прогресс упал ниже target → снимаем. session 031
@@ -749,7 +770,7 @@ function App(){
     // серия/комбо
     if(combo.streak>=3) out.push({icon:'🔥', text:`${combo.streak} дней активности подряд — комбо ×${combo.mult.toFixed(1)}. Не прерывай!`});
     // задания дня
-    const qLeft=todayQuests.filter(q=>!q.done).length;
+    const qLeft=todayQuests.filter(q=> q.deferred ? !q.claimed : !q.done ).length; // отложенные — незавершены до начисления. session 032
     if(qLeft>0 && qLeft<todayQuests.length) out.push({icon:'🎯', text:`Осталось заданий дня: ${qLeft}`});
     // сон ↔ оценка (последние 30 дней)
     { const hi=[],lo=[]; for(let i=0;i<30;i++){ const e=days[daysAgoStr(i)]; if(e&&e.rating!=null&&e.sleepHours!=null) (e.sleepHours>=7?hi:lo).push(e.rating); }

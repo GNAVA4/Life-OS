@@ -26,7 +26,8 @@ export const QUEST_POOL = [
   {id:'q_habit',   icon:'💪', label:'Отметь привычку',             xp:3, need:c=>c.hasHabits,  done:c=>c.habitDone>=1},
   {id:'q_rating',  icon:'⭐', label:'Оцени день',                  xp:3, done:c=>c.rated},
   {id:'q_note',    icon:'📓', label:'Опиши день',                  xp:3, done:c=>c.noted},
-  {id:'q_clean',   icon:'🧼', label:'День без анти-тегов',         xp:5, done:c=>c.tasksDone>0 && c.antiCount===0},
+  // deferred: «весь день» условие — засчитывается ТОЛЬКО когда день прошёл (settle за вчера), не авансом. session 032
+  {id:'q_clean',   icon:'🧼', label:'День без анти-тегов',         xp:5, deferred:true, done:c=>c.tasksDone>0 && c.antiCount===0},
   {id:'q_sleep',   icon:'😴', label:'Отметь сон 7ч+',              xp:3, done:c=>c.sleep>=7},
 ];
 const _hashStr = (s) => { let h=2166136261>>>0; for(let i=0;i<s.length;i++){ h^=s.charCodeAt(i); h=Math.imul(h,16777619)>>>0; } return h>>>0; };

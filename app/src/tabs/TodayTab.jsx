@@ -89,15 +89,16 @@ export function TodayTab({entry, selectedDate, setSelectedDate, addTask, toggleT
         {isToday && vis('today.quests') && quests.length>0 && (() => { const isC=!!collapsedUI.quests; return (
         <div style={S.panel}>
           <div style={{...S.panelTitle,cursor:'pointer',display:'flex',alignItems:'center',marginBottom:isC?0:10}} onClick={()=>onToggleUI && onToggleUI('quests')}>
-            <span style={{marginRight:6}}>{isC?'▶':'▼'}</span>🎯 Задания дня <span style={S.dimSpan}>{quests.filter(q=>q.done).length}/{quests.length}</span>
+            <span style={{marginRight:6}}>{isC?'▶':'▼'}</span>🎯 Задания дня <span style={S.dimSpan}>{quests.filter(q=>q.deferred?q.claimed:q.done).length}/{quests.length}</span>
           </div>
-          {!isC && quests.map(q=>(
+          {/* отложенные квесты («по итогам дня») не показываем «выполненными» среди дня — только после начисления (claimed). session 032 */}
+          {!isC && quests.map(q=>{ const dDone = q.deferred ? q.claimed : q.done; return (
             <div key={q.id} style={{display:'flex',alignItems:'center',gap:8,padding:'4px 0'}}>
-              <span style={{fontSize:15,opacity:q.done?1:.5}}>{q.done?'✅':q.icon}</span>
-              <span style={{flex:1,minWidth:0,fontSize:12.5,color:q.done?C.green:C.text,textDecoration:q.done?'line-through':'none',overflowWrap:'anywhere'}}>{q.label}</span>
+              <span style={{fontSize:15,opacity:dDone?1:.5}}>{dDone?'✅':q.icon}</span>
+              <span style={{flex:1,minWidth:0,fontSize:12.5,color:dDone?C.green:C.text,textDecoration:dDone?'line-through':'none',overflowWrap:'anywhere'}}>{q.label}{q.deferred&&!q.claimed?<span style={{color:C.dim,fontSize:10.5}}> · по итогам дня</span>:null}</span>
               <span style={{fontSize:11,color:q.claimed?C.green:C.dim,fontFamily:"'JetBrains Mono',monospace",flexShrink:0}}>+{q.xp}{q.claimed?' ✓':''}</span>
             </div>
-          ))}
+          ); })}
         </div>
         ); })()}
 
