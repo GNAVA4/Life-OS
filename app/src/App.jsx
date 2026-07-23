@@ -682,14 +682,29 @@ function App(){
     let patch = null;
     const activeToday = (e.tasks||[]).some(x=>x.done) || Object.values(e.dailyCompletions||{}).some(Boolean) || habits.some(h=>h.log&&h.log[t]);
     let comboBonus = 0;
-    if(activeToday && !e.comboClaimed){ comboBonus = gamify.comboBonus*Math.min(combo.streak, COMBO_CAP_DAYS); patch = {...(patch||e), comboClaimed:true}; }
+    if(activeToday && !e.comboClaimed){
+      comboBonus = gamify.comboBonus*Math.min(combo.streak, COMBO_CAP_DAYS);
+      patch = {...(patch||e), comboClaimed:true, comboClaimedAmt:comboBonus};
+    } else if(!activeToday && e.comboClaimed){
+      // откат комбо-бонуса: сняли всю активность дня после начисления. Снимаем ровно выданную сумму. session 031
+      comboBonus = -(e.comboClaimedAmt || 0);
+      patch = {...(patch||e), comboClaimed:false, comboClaimedAmt:0};
+    }
     const claimed = (patch||e).questsClaimed || [];
     const newly = todayQuests.filter(q=>q.done && !claimed.includes(q.id));
+    // Обратимость: если засчитанное задание перестало быть выполненным (добавили анти-тег после
+    // «День без анти-тегов», сняли задачу и т.п.) — снимаем начисление, как у анти-тегов. session 031
+    const revoked = todayQuests.filter(q=>!q.done && claimed.includes(q.id));
     let questBonus = 0;
-    if(newly.length){ questBonus = newly.reduce((s,q)=>s+q.xp,0); patch = {...(patch||e), questsClaimed:[...claimed, ...newly.map(q=>q.id)]}; }
+    if(newly.length || revoked.length){
+      const revokedIds = new Set(revoked.map(q=>q.id));
+      const nextClaimed = [...claimed.filter(id=>!revokedIds.has(id)), ...newly.map(q=>q.id)];
+      questBonus = newly.reduce((s,q)=>s+q.xp,0) - revoked.reduce((s,q)=>s+q.xp,0);
+      patch = {...(patch||e), questsClaimed:nextClaimed};
+    }
     if(!patch) return;
     persist.days({...days, [t]:patch});
-    const total = comboBonus + questBonus; if(total>0) addXp(total);
+    const total = comboBonus + questBonus; if(total!==0) addXp(total);
     const silent = (Date.now()-mountAtRef.current) < 4000;
     if(!silent){
       const add=[];
@@ -699,14 +714,20 @@ function App(){
     }
   }, [days, habits, combo.streak, todayQuests]); // eslint-disable-line
 
-  // Начисление награды за испытание недели (разово за неделю).
+  // Начисление награды за испытание недели (разово за неделю). Обратимо: прогресс упал ниже target → снимаем. session 031
   useEffect(() => {
-    if(!weekly.done || weekly.claimed) return;
-    const wc = {...(meta.weeklyClaimed||{}), [weekly.period]:true};
-    const nm = {...meta, weeklyClaimed:wc}; setMeta(nm); saveKey('lifeos:meta', nm);
-    addXp(WEEKLY_XP);
-    const silent = (Date.now()-mountAtRef.current) < 4000;
-    if(!silent) setToasts(prev=>[...prev, {tid:uid(), weekly:weekly.chal.label}]);
+    if(weekly.done && !weekly.claimed){
+      const wc = {...(meta.weeklyClaimed||{}), [weekly.period]:true};
+      const nm = {...meta, weeklyClaimed:wc}; setMeta(nm); saveKey('lifeos:meta', nm);
+      addXp(WEEKLY_XP);
+      const silent = (Date.now()-mountAtRef.current) < 4000;
+      if(!silent) setToasts(prev=>[...prev, {tid:uid(), weekly:weekly.chal.label}]);
+    } else if(!weekly.done && weekly.claimed){
+      // откат: испытание было засчитано, но задачи/дни откатили ниже цели — снимаем награду
+      const wc = {...(meta.weeklyClaimed||{})}; delete wc[weekly.period];
+      const nm = {...meta, weeklyClaimed:wc}; setMeta(nm); saveKey('lifeos:meta', nm);
+      addXp(-WEEKLY_XP);
+    }
   }, [weekly.done, weekly.claimed]); // eslint-disable-line
 
   // приватность финансов — флаги маскировки (объявлено ДО coachInsights: он читает finMask.ops). session 025 (был баг TDZ)
@@ -781,11 +802,15 @@ function App(){
     // Тостим только награды, открытые ДЕЙСТВИЯМИ в сессии. Первые секунды после загрузки
     // (первый заход, синк, рост каталога) — молча. Откаты/удаления тоже без тостов.
     const silent = (Date.now() - mountAtRef.current) < 4000;
-    if(silent || !fresh.length) return;
+    if(silent) return; // первичный seed/синк/рост каталога — без начисления и без отката (ретро-накрутки нет)
     // XP-бонус за новые достижения (взвешенно по «крутости»: обычная +5 … легендарная +50). session 020.
-    // Только за открытые ДЕЙСТВИЯМИ в сессии (silent-окно отсеивает первичный seed/синк — без ретро-накрутки).
-    const bonusXp = fresh.reduce((s,id)=>{ const a=ACHIEVEMENTS.find(x=>x.id===id); return s + (a?ACH_TIERS[a.tier].pts*5:0); }, 0);
+    // Обратимо (session 031): достижения не липкие (ADR-002) — при откате действия награда уходит из unlocked,
+    // а вместе с ней снимается и выданный XP. Иначе XP оставался «прилипшим» вопреки замыслу.
+    const xpOf = id => { const a=ACHIEVEMENTS.find(x=>x.id===id); return a?ACH_TIERS[a.tier].pts*5:0; };
+    const removed = Object.keys(cur).filter(id=>!earnedSet.has(id));
+    const bonusXp = fresh.reduce((s,id)=>s+xpOf(id),0) - removed.reduce((s,id)=>s+xpOf(id),0);
     if(bonusXp) addXp(bonusXp);
+    if(!fresh.length) return; // только откат — молча, без звука/тостов
     if(!settings.soundOff) playAchSound();
     if(fresh.length > 4) setToasts(prev => [...prev, {tid:uid(), summary:fresh.length}]);
     else setToasts(prev => [...prev, ...fresh.map(id=>({tid:uid(), id}))]);
