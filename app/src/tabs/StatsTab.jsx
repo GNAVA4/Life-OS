@@ -11,17 +11,26 @@ import { ChartCanvas } from '../ui/ChartCanvas.jsx';
 export function StatsTab({days, finance, budgets, incomePlans, habits=[], finMask={}, study=[], unlocked={}}){
   const mo = n => maskMoney(finMask.ops, n);   // приватность: скрытие сумм в статистике
   const [range,setRange] = useState('30');
+  const [selMonth,setSelMonth] = useState(todayStr().slice(0,7)); // конкретный месяц (режим range==='month'). session 032
   const [analysisTarget,setAnalysisTarget] = useState('rating'); // что анализируем: оценка/задачи/сон
   const [openDetail,setOpenDetail] = useState({}); // раскрытые детальные разделы (tags/habits/anti)
-  const rangeDays = range==='7'?7 : range==='30'?30 : range==='90'?90 : range==='year'?365 : 1000;
-  const rangeLabel = range==='7'?'7 дней' : range==='30'?'30 дней' : range==='90'?'90 дней' : range==='year'?'год' : 'всё время';
+  const isMonth = range==='month';
+  const monthDays = useMemo(()=>{ const [y,m]=selMonth.split('-').map(Number); return new Date(y,m,0).getDate(); }, [selMonth]);
+  const rangeDays = isMonth ? monthDays : (range==='7'?7 : range==='30'?30 : range==='90'?90 : range==='year'?365 : 1000);
+  const rangeLabel = isMonth ? monthLabelRu(selMonth) : (range==='7'?'7 дней' : range==='30'?'30 дней' : range==='90'?'90 дней' : range==='year'?'год' : 'всё время');
+  const rangeStart = daysAgoStr(rangeDays-1); // для НЕ-месячных диапазонов (rolling window)
+  const inPeriod = (ds)=> isMonth ? ds.slice(0,7)===selMonth : ds>=rangeStart; // единый предикат принадлежности периоду
+  // список дат периода, СВЕЖИЕ первыми (month — все дни месяца; иначе rolling). session 032
+  const periodDays = useMemo(()=>{ const arr=[];
+    if(isMonth){ for(let d=monthDays; d>=1; d--) arr.push(`${selMonth}-${String(d).padStart(2,'0')}`); }
+    else { for(let i=0;i<rangeDays;i++) arr.push(daysAgoStr(i)); }
+    return arr; }, [isMonth, selMonth, monthDays, rangeDays]);
 
   // 📊 Итоги за выбранный диапазон (session 025; объединено с бывшим «Обзором» — реагируют на верхний
   // селектор 7/30/90/год/всё). Авто-сводка достижений периода из ДАТИРОВАННЫХ данных. Видимость каждой
   // плитки настраивается в «Что показывать → Итоги» (модули recap.*).
   const recap = useMemo(()=>{
-    const start = daysAgoStr(rangeDays-1);
-    const inP = ds => ds>=start;
+    const inP = inPeriod;
     let tasksDone=0, perfect=0, activeDays=0, habitChecks=0, antiCount=0; const ratings=[], sleeps=[]; const wd=[0,0,0,0,0,0,0]; let bestDay={date:null,n:0};
     Object.entries(days).forEach(([ds,e])=>{ if(!inP(ds)) return;
       const done=(e.tasks||[]).filter(t=>t.done).length + Object.values(e.dailyCompletions||{}).filter(Boolean).length;
@@ -44,7 +53,7 @@ export function StatsTab({days, finance, budgets, incomePlans, habits=[], finMas
     const WD=['Вс','Пн','Вт','Ср','Чт','Пт','Сб'];
     return { tasksDone, perfect, activeDays, habitChecks, antiCount, avgRating:avg(ratings), avgSleep:avg(sleeps),
       exp, inc, topCat, studyDone, achCount, bestDay, bestWd: wd.some(x=>x>0)?WD[wd.indexOf(Math.max(...wd))]:null };
-  }, [days, finance, habits, study, unlocked, rangeDays]);
+  }, [days, finance, habits, study, unlocked, rangeDays, isMonth, selMonth]);
 
   // 🔬 Детальный анализ корреляций (session 020; расширен session 025): выбираем ЦЕЛЬ (оценка дня /
   // выполнено задач / сон) и смотрим, что с ней связано — агрегатные факторы + детальный разбор
@@ -56,14 +65,14 @@ export function StatsTab({days, finance, budgets, incomePlans, habits=[], finMas
   ];
   const analysisData = useMemo(()=>{
     const rows=[];
-    for(let i=0;i<rangeDays;i++){ const ds=daysAgoStr(i); const e=days[ds]; if(!e) continue;
+    periodDays.forEach(ds=>{ const e=days[ds]; if(!e) return;
       const tgt = (TARGETS.find(t=>t.key===analysisTarget)||TARGETS[0]).get(e);
-      if(tgt==null) continue;
+      if(tgt==null) return;
       rows.push({ target:tgt, sleep:e.sleepHours, tasksDone:(e.tasks||[]).filter(t=>t.done).length,
         tasksPlanned:(e.tasks||[]).length, habitsDone: habits.reduce((n,h)=> n + (h.log && h.log[ds]?1:0), 0),
         antiCount:(e.antiTags||[]).length, tagSet:new Set(e.tags||[]), antiSet:new Set(e.antiTags||[]),
         habitSet:new Set(habits.filter(h=>h.log && h.log[ds]).map(h=>h.id)) });
-    }
+    });
     const pearson = (getX) => {
       const xs=[], ys=[]; rows.forEach(r=>{ const x=getX(r); if(x!=null){ xs.push(x); ys.push(r.target); } });
       const n=xs.length; if(n<4) return {n, r:null};
@@ -95,30 +104,37 @@ export function StatsTab({days, finance, budgets, incomePlans, habits=[], finMas
       antiDetail: detail(allAnti, (r,t)=>r.antiSet.has(t)),
       habitsDetail: detail(habits.map(h=>h.id), (r,id)=>r.habitSet.has(id)).map(x=>({...x, name:habitById[x.name]||x.name})),
     };
-  }, [days, habits, rangeDays, analysisTarget]);
+  }, [days, habits, periodDays, analysisTarget]);
   const corrStrength = (r) => { const a=Math.abs(r); return a<0.2?'почти нет':a<0.4?'слабая':a<0.6?'заметная':a<0.8?'сильная':'очень сильная'; };
 
   const [pfMonth,setPfMonth] = useState(todayStr().slice(0,7));
 
   const heatWeeks = Math.min(52, Math.ceil(rangeDays/7));
 
-  const heatmapDays = useMemo(()=>{ const arr=[]; for(let i=heatWeeks*7-1;i>=0;i--){ const ds=daysAgoStr(i); const e=days[ds];
-    const c=(e?.tasks||[]).filter(t=>t.done).length + Object.values(e?.dailyCompletions||{}).filter(Boolean).length; arr.push({date:ds,doneCount:c}); } return arr; }, [days, heatWeeks]);
+  const heatmapDays = useMemo(()=>{ const arr=[]; const push=(ds)=>{ const e=days[ds];
+      arr.push({date:ds, doneCount:(e?.tasks||[]).filter(t=>t.done).length + Object.values(e?.dailyCompletions||{}).filter(Boolean).length}); };
+    if(isMonth){ for(let d=1; d<=monthDays; d++) push(`${selMonth}-${String(d).padStart(2,'0')}`); }
+    else { for(let i=heatWeeks*7-1;i>=0;i--) push(daysAgoStr(i)); }
+    return arr; }, [days, heatWeeks, isMonth, selMonth, monthDays]);
   const weeks = []; for(let i=0;i<heatmapDays.length;i+=7) weeks.push(heatmapDays.slice(i,i+7));
   const cellColor = n => n===0?C.panelAlt : n===1?'#5A4A26' : n===2?'#8A6B2C' : n===3?'#C68F2E' : C.amber;
 
-  const grouping = (range==='year'||range==='all') ? 'month' : (range==='90'?'week':'day');
+  const grouping = isMonth ? 'day' : (range==='year'||range==='all') ? 'month' : (range==='90'?'week':'day');
   const weeklyStats = useMemo(()=>{
     const map={};
     Object.entries(days).forEach(([ds,e])=>{
+      if(!inPeriod(ds)) return;
       const key = grouping==='month' ? ds.slice(0,7) : grouping==='week' ? isoWeek(ds) : ds;
       if(!map[key]) map[key]={key, planned:0, done:0};
       map[key].planned += (e.tasks||[]).length; map[key].done += (e.tasks||[]).filter(t=>t.done).length;
     });
-    return Object.values(map).sort((a,b)=>a.key>b.key?1:-1).slice(-16);
-  }, [days, grouping]);
+    return Object.values(map).sort((a,b)=>a.key>b.key?1:-1).slice(-31);
+  }, [days, grouping, isMonth, selMonth, rangeStart]);
 
-  const trend = (field, n=14) => { const arr=[]; for(let i=n-1;i>=0;i--){ const ds=daysAgoStr(i); const e=days[ds]; arr.push({date:ds.slice(5), v: e && e[field]!=null ? e[field] : null}); } return arr; };
+  const trend = (field, n=14) => {
+    const list = isMonth ? [...periodDays].reverse() : (()=>{ const a=[]; for(let i=n-1;i>=0;i--) a.push(daysAgoStr(i)); return a; })();
+    return list.map(ds=>{ const e=days[ds]; return {date:ds.slice(5), v: e && e[field]!=null ? e[field] : null}; });
+  };
   const sleepTrend = trend('sleepHours'); const ratingTrend = trend('rating');
 
   const monthlyFinance = useMemo(()=>{
@@ -128,26 +144,28 @@ export function StatsTab({days, finance, budgets, incomePlans, habits=[], finMas
     return Object.values(map).sort((a,b)=>a.key>b.key?1:-1).slice(-12);
   }, [finance.transactions]);
 
-  // накопительный баланс операций за выбранный период (перенесён из Финансы→Операции, session 015)
+  // накопительный баланс операций за выбранный период (перенесён из Финансы→Операции, session 015; помесячно session 032)
   const balanceTrend = useMemo(()=>{
     const sorted=[...finance.transactions].sort((a,b)=>a.date>b.date?1:-1); let running=0; const byDate={};
     sorted.forEach(t=>{ if(!t.exclude){ running += t.type==='income'?t.amount:-t.amount; byDate[t.date]=running; } });
-    const n = Math.min(rangeDays, 365); const labels=[], data=[]; let last=0;
-    for(let i=n-1;i>=0;i--){ const ds=daysAgoStr(i); if(byDate[ds]!==undefined) last=byDate[ds]; labels.push(ds.slice(5)); data.push(last); }
+    const list = isMonth ? [...periodDays].reverse() : (()=>{ const n=Math.min(rangeDays,365); const a=[]; for(let i=n-1;i>=0;i--) a.push(daysAgoStr(i)); return a; })();
+    // старт с баланса, накопленного ДО начала окна (иначе линия стартует с 0)
+    let last=0; const firstDay=list[0]; sorted.forEach(t=>{ if(!t.exclude && t.date<firstDay) last=byDate[t.date]; });
+    const labels=[], data=[];
+    list.forEach(ds=>{ if(byDate[ds]!==undefined) last=byDate[ds]; labels.push(ds.slice(5)); data.push(last); });
     return {labels, data};
-  }, [finance.transactions, rangeDays]);
+  }, [finance.transactions, rangeDays, isMonth, periodDays]);
 
-  const rangeStart = daysAgoStr(rangeDays-1);
   const catBreakdown = useMemo(()=>{
     const inc={}, exp={};
-    finance.transactions.forEach(t=>{ if(t.exclude || t.date<rangeStart) return;
+    finance.transactions.forEach(t=>{ if(t.exclude || !inPeriod(t.date)) return;
       if(t.type==='income') inc[t.category]=(inc[t.category]||0)+t.amount; else exp[t.category]=(exp[t.category]||0)+t.amount; });
     return {inc, exp};
-  }, [finance.transactions, rangeStart]);
-  const tagFreq = useMemo(()=>{ const map={}; Object.entries(days).forEach(([ds,e])=>{ if(ds<rangeStart) return; (e.tags||[]).forEach(tg=>{ map[tg]=(map[tg]||0)+1; }); });
-    return Object.entries(map).sort((a,b)=>b[1]-a[1]); }, [days, rangeStart]);
-  const antiTagFreq = useMemo(()=>{ const map={}; Object.entries(days).forEach(([ds,e])=>{ if(ds<rangeStart) return; (e.antiTags||[]).forEach(tg=>{ map[tg]=(map[tg]||0)+1; }); });
-    return Object.entries(map).sort((a,b)=>b[1]-a[1]); }, [days, rangeStart]);
+  }, [finance.transactions, isMonth, selMonth, rangeStart]);
+  const tagFreq = useMemo(()=>{ const map={}; Object.entries(days).forEach(([ds,e])=>{ if(!inPeriod(ds)) return; (e.tags||[]).forEach(tg=>{ map[tg]=(map[tg]||0)+1; }); });
+    return Object.entries(map).sort((a,b)=>b[1]-a[1]); }, [days, isMonth, selMonth, rangeStart]);
+  const antiTagFreq = useMemo(()=>{ const map={}; Object.entries(days).forEach(([ds,e])=>{ if(!inPeriod(ds)) return; (e.antiTags||[]).forEach(tg=>{ map[tg]=(map[tg]||0)+1; }); });
+    return Object.entries(map).sort((a,b)=>b[1]-a[1]); }, [days, isMonth, selMonth, rangeStart]);
 
   // план/факт по выбранному месяцу (история планов помесячная)
   const pfTx = finance.transactions.filter(t=>t.date.slice(0,7)===pfMonth && !t.exclude);
@@ -169,10 +187,17 @@ export function StatsTab({days, finance, budgets, incomePlans, habits=[], finMas
 
   return (
     <div>
-      <div style={{display:'flex',gap:6,marginBottom:14,flexWrap:'wrap'}}>
-        {[{id:'7',label:'7д'},{id:'30',label:'30д'},{id:'90',label:'90д'},{id:'year',label:'Год'},{id:'all',label:'Всё время'}].map(r=>(
+      <div style={{display:'flex',gap:6,marginBottom:14,flexWrap:'wrap',alignItems:'center'}}>
+        {[{id:'7',label:'7д'},{id:'30',label:'30д'},{id:'90',label:'90д'},{id:'year',label:'Год'},{id:'all',label:'Всё время'},{id:'month',label:'📅 Месяц'}].map(r=>(
           <div key={r.id} className="chip" onClick={()=>setRange(r.id)} style={{background:range===r.id?C.amber:C.panelAlt,color:range===r.id?'#1A1200':C.dim,borderColor:range===r.id?C.amber:C.border}}>{r.label}</div>
         ))}
+        {isMonth && (
+          <div style={{display:'flex',alignItems:'center',gap:8,marginLeft:4}}>
+            <button style={S.navArrow} onClick={()=>setSelMonth(shiftMonth(selMonth,-1))}>◀</button>
+            <span style={{fontSize:12,color:C.dim,minWidth:120,textAlign:'center',textTransform:'capitalize'}}>{monthLabelRu(selMonth)}</span>
+            <button style={S.navArrow} onClick={()=>setSelMonth(shiftMonth(selMonth,1))} disabled={selMonth>=todayStr().slice(0,7)}>▶</button>
+          </div>
+        )}
       </div>
 
       {vis('stats.recap') && (
@@ -324,7 +349,7 @@ export function StatsTab({days, finance, budgets, incomePlans, habits=[], finMas
 
       {vis('stats.balanceLine') && (
       <div style={S.panel}>
-        <div style={S.panelTitle}>Баланс операций во времени · период</div>
+        <div style={{...S.panelTitle,textTransform:'capitalize'}}>Баланс операций во времени · {rangeLabel}</div>
         <ChartCanvas type="line" data={{labels:balanceTrend.labels, datasets:[{data:balanceTrend.data, borderColor:C.amber, backgroundColor:'transparent', tension:.3}]}} options={baseChartOpts()} height={220} />
       </div>
       )}
@@ -332,14 +357,14 @@ export function StatsTab({days, finance, budgets, incomePlans, habits=[], finMas
       <div className="grid2" style={S.grid2}>
         {vis('stats.incomeCat') && (
         <div style={S.panel}>
-          <div style={S.panelTitle}>Доходы по категориям · период</div>
+          <div style={{...S.panelTitle,textTransform:'capitalize'}}>Доходы по категориям · {rangeLabel}</div>
           {Object.keys(catBreakdown.inc).length===0 ? <div style={S.emptyState}>Нет доходов за период</div> :
             <ChartCanvas type="pie" data={{labels:Object.keys(catBreakdown.inc), datasets:[{data:Object.values(catBreakdown.inc), backgroundColor:PIE_COLORS}]}} options={{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'right',labels:{color:C.dim,font:{size:11}}}}}} height={220}/>}
         </div>
         )}
         {vis('stats.expenseCat') && (
         <div style={S.panel}>
-          <div style={S.panelTitle}>Расходы по категориям · период</div>
+          <div style={{...S.panelTitle,textTransform:'capitalize'}}>Расходы по категориям · {rangeLabel}</div>
           {Object.keys(catBreakdown.exp).length===0 ? <div style={S.emptyState}>Нет расходов за период</div> :
             <ChartCanvas type="pie" data={{labels:Object.keys(catBreakdown.exp), datasets:[{data:Object.values(catBreakdown.exp), backgroundColor:PIE_COLORS}]}} options={{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'right',labels:{color:C.dim,font:{size:11}}}}}} height={220}/>}
         </div>
@@ -348,14 +373,14 @@ export function StatsTab({days, finance, budgets, incomePlans, habits=[], finMas
 
       {vis('stats.tagFreq') && tagFreq.length>0 && (
         <div style={S.panel}>
-          <div style={S.panelTitle}>Частота тегов · период</div>
+          <div style={{...S.panelTitle,textTransform:'capitalize'}}>Частота тегов · {rangeLabel}</div>
           <ChartCanvas type="bar" data={{labels:tagFreq.map(t=>t[0]), datasets:[{label:'дней', data:tagFreq.map(t=>t[1]), backgroundColor:C.cyan}]}} options={baseChartOpts()} />
         </div>
       )}
 
       {vis('stats.antiTagFreq') && antiTagFreq.length>0 && (
         <div style={S.panel}>
-          <div style={{...S.panelTitle,color:C.red}}>🚫 Частота анти-тегов · период</div>
+          <div style={{...S.panelTitle,color:C.red,textTransform:'capitalize'}}>🚫 Частота анти-тегов · {rangeLabel}</div>
           <ChartCanvas type="bar" data={{labels:antiTagFreq.map(t=>t[0]), datasets:[{label:'дней', data:antiTagFreq.map(t=>t[1]), backgroundColor:C.red}]}} options={baseChartOpts()} />
         </div>
       )}

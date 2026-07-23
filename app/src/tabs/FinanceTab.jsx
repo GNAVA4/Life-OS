@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { baseChartOpts } from '../lib/charts.js';
 import { DEFAULT_ACCOUNTS } from '../lib/constants.js';
-import { daysAgoStr, monthLabelRu, openDatePicker, shiftMonth, todayStr } from '../lib/dates.js';
+import { monthLabelRu, openDatePicker, shiftMonth, todayStr } from '../lib/dates.js';
 import { accountBalanceNow, accountBalanceOn, unassignedNetOn } from '../lib/finance.js';
 import { fmtMoney, maskMoney } from '../lib/format.js';
 import { vis } from '../lib/storage.js';
@@ -117,19 +117,24 @@ export function OpsSection({finance, categories, budgets, incomePlans, bills, mo
     addTransaction({type:txType, amount, category:txCat, note:txNote.trim(), exclude:txExclude, date:txDate, accountId:txAccountId||null});
     setTxAmount(''); setTxNote(''); setTxExclude(false); };
 
+  // Выбранный месяц просмотра (операции/графики/планы) — можно листать историю. session 032
+  const [viewMonth,setViewMonth] = useState(todayStr().slice(0,7));
+  const viewTx = useMemo(()=> finance.transactions.filter(t=>!t.debtFlow && t.date.slice(0,7)===viewMonth), [finance.transactions, viewMonth]);
+  // круговые диаграммы — по ВЫБРАННОМУ месяцу
+  const viewExpenseByCat = useMemo(()=>{ const m={}; viewTx.filter(t=>t.type==='expense'&&!t.exclude).forEach(t=>{ m[t.category]=(m[t.category]||0)+t.amount; }); return m; }, [viewTx]);
+  const viewIncomeByCat  = useMemo(()=>{ const m={}; viewTx.filter(t=>t.type==='income'&&!t.exclude).forEach(t=>{ m[t.category]=(m[t.category]||0)+t.amount; }); return m; }, [viewTx]);
+  const pieData = { labels:Object.keys(viewExpenseByCat), datasets:[{data:Object.values(viewExpenseByCat), backgroundColor:PIE_COLORS}] };
+  const incomePieData = { labels:Object.keys(viewIncomeByCat), datasets:[{data:Object.values(viewIncomeByCat), backgroundColor:PIE_COLORS}] };
+  // бюджет-алерты — по ТЕКУЩЕМУ месяцу (прогноз до конца месяца), не зависят от viewMonth
   const expenseByCat = useMemo(()=>{ const map={}; monthTx.filter(t=>t.type==='expense'&&!t.exclude).forEach(t=>{ map[t.category]=(map[t.category]||0)+t.amount; }); return map; }, [monthTx]);
   const expenseCountByCat = useMemo(()=>{ const m={}; monthTx.filter(t=>t.type==='expense'&&!t.exclude).forEach(t=>{ m[t.category]=(m[t.category]||0)+1; }); return m; }, [monthTx]);
-  const pieData = { labels:Object.keys(expenseByCat), datasets:[{data:Object.values(expenseByCat), backgroundColor:PIE_COLORS}] };
-  const incomeByCat = useMemo(()=>{ const map={}; monthTx.filter(t=>t.type==='income'&&!t.exclude).forEach(t=>{ map[t.category]=(map[t.category]||0)+t.amount; }); return map; }, [monthTx]);
-  const incomePieData = { labels:Object.keys(incomeByCat), datasets:[{data:Object.values(incomeByCat), backgroundColor:PIE_COLORS}] };
 
-  // помесячные планы: выбранный месяц + факт по нему (можно листать историю)
-  const [planMonth,setPlanMonth] = useState(todayStr().slice(0,7));
-  const planTx = useMemo(()=> finance.transactions.filter(t=>t.date.slice(0,7)===planMonth && !t.exclude), [finance.transactions, planMonth]);
+  // помесячные планы: план vs факт по ВЫБРАННОМУ месяцу
+  const planTx = useMemo(()=> viewTx.filter(t=>!t.exclude), [viewTx]);
   const planExpenseByCat = useMemo(()=>{ const m={}; planTx.filter(t=>t.type==='expense').forEach(t=>{ m[t.category]=(m[t.category]||0)+t.amount; }); return m; }, [planTx]);
   const planIncomeByCat  = useMemo(()=>{ const m={}; planTx.filter(t=>t.type==='income').forEach(t=>{ m[t.category]=(m[t.category]||0)+t.amount; }); return m; }, [planTx]);
-  const monthBudgets = budgets[planMonth]||{};
-  const monthIncomePlans = incomePlans[planMonth]||{};
+  const monthBudgets = budgets[viewMonth]||{};
+  const monthIncomePlans = incomePlans[viewMonth]||{};
   // 💸 «Свободно на сегодня»: (план месяца − потрачено) / оставшиеся дни. session 025.
   const safeToSpend = useMemo(()=>{
     const ym = todayStr().slice(0,7);
@@ -138,18 +143,18 @@ export function OpsSection({finance, categories, budgets, incomePlans, bills, mo
     const spent = monthTx.filter(t=>t.type==='expense'&&!t.exclude).reduce((s,t)=>s+t.amount,0);
     const [y,mm] = ym.split('-').map(Number);
     const daysInMonth = new Date(y,mm,0).getDate();
-    const dayNum = new Date().getDate();
+    const dayNum = Number(todayStr().slice(8,10)); // логический день (не new Date()) — иначе рассинхрон в окне до 9 утра. session 032
     const remainingDays = Math.max(1, daysInMonth - dayNum + 1);
     const remaining = plan - spent;
     const perDay = remaining/remainingDays;
     const spentToday = monthTx.filter(t=>t.type==='expense'&&!t.exclude&&t.date===todayStr()).reduce((s,t)=>s+t.amount,0);
     return {plan, spent, remaining, perDay:Math.round(perDay), remainingDays, spentToday, leftToday:Math.round(perDay-spentToday)};
   }, [budgets, monthTx]);
-  const planSwitcher = (
+  const monthSwitcher = (
     <div style={{display:'flex',alignItems:'center',gap:8}}>
-      <button style={S.navArrow} onClick={()=>setPlanMonth(shiftMonth(planMonth,-1))}>◀</button>
-      <span style={{fontSize:12,color:C.dim,minWidth:120,textAlign:'center',textTransform:'capitalize'}}>{monthLabelRu(planMonth)}</span>
-      <button style={S.navArrow} onClick={()=>setPlanMonth(shiftMonth(planMonth,1))} disabled={planMonth>=todayStr().slice(0,7)} title="следующий месяц">▶</button>
+      <button style={S.navArrow} onClick={()=>setViewMonth(shiftMonth(viewMonth,-1))}>◀</button>
+      <span style={{fontSize:12,color:C.dim,minWidth:120,textAlign:'center',textTransform:'capitalize'}}>{monthLabelRu(viewMonth)}</span>
+      <button style={S.navArrow} onClick={()=>setViewMonth(shiftMonth(viewMonth,1))} disabled={viewMonth>=todayStr().slice(0,7)} title="следующий месяц">▶</button>
     </div>
   );
 
@@ -180,19 +185,20 @@ export function OpsSection({finance, categories, budgets, incomePlans, bills, mo
     return rows.sort((a,b)=>b.ratio-a.ratio);
   }, [budgets, expenseByCat, expenseCountByCat]);
 
-  // расходы по каждому дню (гистограмма, НЕ накопительно) за 30 дней. session 015.
+  // расходы по каждому дню ВЫБРАННОГО месяца (гистограмма, НЕ накопительно). session 015; помесячно session 032.
   const dailyExpense = useMemo(()=>{
     const byDate={};
-    finance.transactions.forEach(t=>{ if(!t.exclude && t.type==='expense') byDate[t.date]=(byDate[t.date]||0)+t.amount; });
+    viewTx.forEach(t=>{ if(!t.exclude && t.type==='expense') byDate[t.date]=(byDate[t.date]||0)+t.amount; });
+    const [y,m]=viewMonth.split('-').map(Number); const dim=new Date(y,m,0).getDate();
     const labels=[], data=[];
-    for(let i=29;i>=0;i--){ const ds=daysAgoStr(i); labels.push(ds.slice(5)); data.push(byDate[ds]||0); }
+    for(let d=1; d<=dim; d++){ const ds=`${viewMonth}-${String(d).padStart(2,'0')}`; labels.push(String(d)); data.push(byDate[ds]||0); }
     return {labels, data};
-  }, [finance.transactions]);
+  }, [viewTx, viewMonth]);
 
   // список операций: фильтр по категории + опциональная группировка по дням (session: ops-filter-group)
   // debtFlow (движения долгов) не показываем среди операций — у них своя вкладка «Долги».
   const opsCats = useMemo(()=>{ const set=new Set(); finance.transactions.forEach(t=>{ if(!t.debtFlow) set.add(t.category); }); return [...set].sort(); }, [finance.transactions]);
-  const filteredTx = useMemo(()=> finance.transactions.filter(t=> !t.debtFlow && (!opsCat || t.category===opsCat) && (!opsExcludeOnly || t.exclude)), [finance.transactions, opsCat, opsExcludeOnly]);
+  const filteredTx = useMemo(()=> finance.transactions.filter(t=> !t.debtFlow && t.date.slice(0,7)===viewMonth && (!opsCat || t.category===opsCat) && (!opsExcludeOnly || t.exclude)), [finance.transactions, viewMonth, opsCat, opsExcludeOnly]);
   const groupedTx = useMemo(()=>{
     const map={}; filteredTx.slice(0,120).forEach(t=>{ (map[t.date]=map[t.date]||[]).push(t); });
     return Object.keys(map).sort((a,b)=>b<a?-1:1).map(date=>{ const rows=map[date];
@@ -212,6 +218,10 @@ export function OpsSection({finance, categories, budgets, incomePlans, bills, mo
 
   return (
     <div>
+      <div style={{...S.panel, display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:8}}>
+        <div style={{fontSize:12.5,color:C.dim}}>📅 Месяц просмотра (операции, графики, планы){viewMonth!==todayStr().slice(0,7) && <span style={{color:C.amber}}> · не текущий</span>}</div>
+        {monthSwitcher}
+      </div>
       <div style={S.panel}>
         <div style={S.panelTitle}>Новая операция</div>
         <div style={S.inputRow}>
@@ -314,12 +324,12 @@ export function OpsSection({finance, categories, budgets, incomePlans, bills, mo
           </div>
         );
         return (
-          <PlanPanel title="Планируемые" kindToggle={kindToggle} open={planOpen} setOpen={setPlanOpen} planSwitcher={planSwitcher} resetKey={planMonth+'_'+effKind} mask={finMask.ops}
+          <PlanPanel title="Планируемые" kindToggle={kindToggle} open={planOpen} setOpen={setPlanOpen} planSwitcher={monthSwitcher} resetKey={viewMonth+'_'+effKind} mask={finMask.ops}
             categories={isExp?categories.expense:categories.income}
             actualByCat={isExp?planExpenseByCat:planIncomeByCat}
             plans={isExp?monthBudgets:monthIncomePlans}
-            onSaveBatch={patch=> isExp?setBudgetsBatch(planMonth,patch):setIncomePlansBatch(planMonth,patch)}
-            onRemove={c=> isExp?removeBudget(planMonth,c):removeIncomePlan(planMonth,c)}
+            onSaveBatch={patch=> isExp?setBudgetsBatch(viewMonth,patch):setIncomePlansBatch(viewMonth,patch)}
+            onRemove={c=> isExp?removeBudget(viewMonth,c):removeIncomePlan(viewMonth,c)}
             barColor={isExp?C.green:C.cyan} spentWord={isExp?'потрачено':'получено'} />
         );
       })()}
@@ -349,29 +359,29 @@ export function OpsSection({finance, categories, budgets, incomePlans, bills, mo
       <div className="grid2" style={S.grid2}>
         {vis('ops.expensePie') && (
         <div style={S.panel}>
-          <div style={S.panelTitle}>Расходы по категориям · месяц</div>
-          {Object.keys(expenseByCat).length===0 ? <div style={S.emptyState}>Пока нет расходов</div> :
+          <div style={{...S.panelTitle,textTransform:'capitalize'}}>Расходы по категориям · {monthLabelRu(viewMonth)}</div>
+          {Object.keys(viewExpenseByCat).length===0 ? <div style={S.emptyState}>Нет расходов за месяц</div> :
             <ChartCanvas type="pie" data={pieData} options={{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'right',labels:{color:C.dim,font:{size:11}}}}}} height={220} />}
         </div>
         )}
         {vis('ops.incomePie') && (
         <div style={S.panel}>
-          <div style={S.panelTitle}>Доходы по категориям · месяц</div>
-          {Object.keys(incomeByCat).length===0 ? <div style={S.emptyState}>Пока нет доходов</div> :
+          <div style={{...S.panelTitle,textTransform:'capitalize'}}>Доходы по категориям · {monthLabelRu(viewMonth)}</div>
+          {Object.keys(viewIncomeByCat).length===0 ? <div style={S.emptyState}>Нет доходов за месяц</div> :
             <ChartCanvas type="pie" data={incomePieData} options={{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'right',labels:{color:C.dim,font:{size:11}}}}}} height={220} />}
         </div>
         )}
       </div>
       {vis('ops.expenseDaily') && (
       <div style={S.panel}>
-        <div style={S.panelTitle}>Расходы по дням · 30 дней</div>
+        <div style={{...S.panelTitle,textTransform:'capitalize'}}>Расходы по дням · {monthLabelRu(viewMonth)}</div>
         <ChartCanvas type="bar" data={{labels:dailyExpense.labels, datasets:[{label:'Расход', data:dailyExpense.data, backgroundColor:C.red, borderRadius:3, maxBarThickness:14}]}} options={baseChartOpts()} height={220} />
       </div>
       )}
 
       <div style={S.panel}>
         <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8,flexWrap:'wrap',marginBottom:10}}>
-          <div style={{...S.panelTitle,marginBottom:0}}>Последние операции</div>
+          <div style={{...S.panelTitle,marginBottom:0,textTransform:'capitalize'}}>Операции · {monthLabelRu(viewMonth)}</div>
           <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
             <Select small style={{minWidth:150}} value={opsCat} onChange={setOpsCat}
               options={[{value:'',label:'все категории'}, ...opsCats.map(c=>({value:c,label:c}))]} />
@@ -382,8 +392,8 @@ export function OpsSection({finance, categories, budgets, incomePlans, bills, mo
           </div>
         </div>
         {finance.transactions.length===0 && <div style={S.emptyState}>Операций пока нет</div>}
-        {finance.transactions.length>0 && filteredTx.length===0 && <div style={S.emptyState}>Нет операций по этому фильтру</div>}
-        {!opsGroup && filteredTx.slice(0,25).map(txRow)}
+        {finance.transactions.length>0 && filteredTx.length===0 && <div style={S.emptyState}>Нет операций за выбранный месяц</div>}
+        {!opsGroup && filteredTx.slice(0,200).map(txRow)}
         {opsGroup && groupedTx.map(({date,rows,inc,exp})=>(
           <div key={date} style={{marginBottom:12}}>
             <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8,padding:'4px 0',borderBottom:`1px solid ${C.border}`,marginBottom:2}}>
