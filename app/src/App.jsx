@@ -673,10 +673,12 @@ function App(){
       if(dn>0 || (e.tags||[]).length>0 || e.rating!=null || (e.note&&e.note.trim()) || e.sleepHours!=null) activeDays++;
       if(e.rating!=null) ratedDays++;
     });
-    const studyDone = study.filter(x=>x.status==='Выполнено' && x.completedAt && periodOf('week',x.completedAt)===period).length;
+    // Дела считаем ВМЕСТЕ с архивом: иначе архивация закрытого дела роняла прогресс испытания ниже target
+    // и ветка отката (session 031) снимала уже выданные +50 XP. Тот же класс, что bug_2026-07-22_archive-resets-achievement. session 033
+    const studyDone = [...study, ...studyArchive].filter(x=>x.status==='Выполнено' && x.completedAt && periodOf('week',x.completedAt)===period).length;
     const cur = chal.val({tasksDone,perfectDays,activeDays,ratedDays,studyDone});
     return { period, chal, cur, target:chal.target, done:cur>=chal.target, claimed:!!((meta.weeklyClaimed||{})[period]) };
-  }, [days, study, meta]);
+  }, [days, study, studyArchive, meta]);
 
   // Начисление: комбо-бонус (раз в день при первой активности) + бонусы за выполненные задания дня.
   // Один общий patch дня, чтобы эффекты не затирали друг друга. Гейт mount-окном — на загрузке молча. session 024
