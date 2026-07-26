@@ -122,6 +122,7 @@ function App(){
     const loadedDays = loadKey('lifeos:days', {});
     const loadedHabits = loadKey('lifeos:habits', []);
     const loadedStudy = loadKey('lifeos:study', []);
+    const loadedDailies = loadKey('lifeos:dailyTasks', []);
     const gcfg = gamifyCfg(loadKey('lifeos:settings', {}));
     let m = loadKey('lifeos:meta', {xp:0, health:100, lastHealthCheck: todayStr()});
     let cursor = m.lastHealthCheck || todayStr();
@@ -133,8 +134,14 @@ function App(){
       const hasActivity = (dayE.tasks||[]).some(x=>x.done) ||
         Object.values(dayE.dailyCompletions||{}).some(Boolean) ||
         loadedHabits.some(h => h.log && h.log[cursor]);
-      const hadTasks = (dayE.tasks||[]).length>0; // были одноразовые задачи на этот день
-      const missedHabits = loadedHabits.filter(h => isHabitScheduled(h,cursor) && !(h.log && h.log[cursor])).length;
+      // «было что делать» = одноразовые задачи на этот день ИЛИ активные «Ежедневные». Раньше учитывались
+      // только одноразовые → кто живёт на ежедневных, штраф за пустой день не получал никогда. session 033
+      const hadTasks = (dayE.tasks||[]).length>0
+        || loadedDailies.some(d => d.active!==false && (!d.createdAt || d.createdAt<=cursor));
+      // Гейт createdAt: без него привычка, созданная сегодня, ретроактивно штрафует за дни, когда её
+      // ещё не было (habitCurrentStreak/habitBestStreak такой гейт имеют, здоровье — нет). session 033
+      const missedHabits = loadedHabits.filter(h => (!h.createdAt || h.createdAt<=cursor)
+        && isHabitScheduled(h,cursor) && !(h.log && h.log[cursor])).length;
       let delta = 0;
       if(hasActivity) delta += 5;
       else if(hadTasks) delta -= 10;            // задачи были, а день пуст → штраф
@@ -150,7 +157,9 @@ function App(){
       cursor = addDays(cursor, 1);
       steps++;
     }
-    m = {...m, health, lastHealthCheck: t};
+    // lastHealthCheck = докуда РЕАЛЬНО дошёл цикл, а не «сегодня»: при упоре в кэп steps<60 (не заходил
+    // долго) остаток дней раньше молча терялся навсегда — теперь досчитается при следующем запуске. session 033
+    m = {...m, health, lastHealthCheck: cursor};
     setMeta(m); saveKey('lifeos:meta', m);
   }, []);
 
@@ -301,7 +310,8 @@ function App(){
     updateEntry({dailyCompletions:{...cur,[dailyId]:!was}}); addXp(was?-10:10);
     const d = dailyTasks.find(x=>x.id===dailyId); if(d) contributeToGoals(goalLinksOf(d), was?-1:1);
   };
-  const addDailyTask = (text, goalLinks) => persist.dailyTasks([...dailyTasks, {id:uid(), text, active:true, ...(goalLinks&&goalLinks.length?{goalLinks}:{})}]);
+  // createdAt — чтобы пересчёт здоровья не штрафовал за «пустой день» задним числом, до создания ежедневной. session 033
+  const addDailyTask = (text, goalLinks) => persist.dailyTasks([...dailyTasks, {id:uid(), text, active:true, createdAt:todayStr(), ...(goalLinks&&goalLinks.length?{goalLinks}:{})}]);
   const deleteDailyTask = (id) => persist.dailyTasks(dailyTasks.filter(d=>d.id!==id));
 
   const addOngoing = (item) => persist.ongoing([{id:uid(), done:false, ...item}, ...ongoing]);
