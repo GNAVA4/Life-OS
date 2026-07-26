@@ -8,8 +8,12 @@ import { S } from '../lib/styles.js';
 import { C, PIE_COLORS } from '../lib/theme.js';
 import { ChartCanvas } from '../ui/ChartCanvas.jsx';
 
-export function StatsTab({days, finance, budgets, incomePlans, habits=[], finMask={}, study=[], unlocked={}}){
+export function StatsTab({days, finance, budgets, incomePlans, habits=[], finMask={}, study=[], studyArchive=[], habitsArchive=[], unlocked={}}){
   const mo = n => maskMoney(finMask.ops, n);   // приватность: скрытие сумм в статистике
+  // Архив входит в историю: архивация закрытого дела/привычки не должна ронять уже случившиеся Итоги
+  // (как в достижениях, session 028). Архив-снимок хранит log, поэтому отметки восстанавливаются. session 033
+  const allStudy = useMemo(()=>[...study, ...studyArchive], [study, studyArchive]);
+  const allHabits = useMemo(()=>[...habits, ...habitsArchive], [habits, habitsArchive]);
   const [range,setRange] = useState('30');
   const [selMonth,setSelMonth] = useState(todayStr().slice(0,7)); // конкретный месяц (режим range==='month'). session 032
   const [analysisTarget,setAnalysisTarget] = useState('rating'); // что анализируем: оценка/задачи/сон
@@ -43,17 +47,17 @@ export function StatsTab({days, finance, budgets, incomePlans, habits=[], finMas
       wd[new Date(ds+'T00:00:00').getDay()] += done;
       if(done>bestDay.n) bestDay={date:ds,n:done};
     });
-    habits.forEach(h=>{ Object.keys(h.log||{}).forEach(ds=>{ if(inP(ds)) habitChecks++; }); });
+    allHabits.forEach(h=>{ Object.keys(h.log||{}).forEach(ds=>{ if(inP(ds)) habitChecks++; }); });
     let exp=0, inc=0; const catExp={};
     finance.transactions.forEach(t=>{ if(t.exclude || !inP(t.date)) return; if(t.type==='expense'){ exp+=t.amount; catExp[t.category]=(catExp[t.category]||0)+t.amount; } else inc+=t.amount; });
     const topCat=Object.entries(catExp).sort((a,b)=>b[1]-a[1])[0]||null;
-    const studyDone=study.filter(s=>s.status==='Выполнено' && s.completedAt && inP(s.completedAt)).length;
+    const studyDone=allStudy.filter(s=>s.status==='Выполнено' && s.completedAt && inP(s.completedAt)).length;
     const achCount=Object.values(unlocked).filter(d=>inP(d)).length;
     const avg=a=>a.length?Math.round(a.reduce((s,x)=>s+x,0)/a.length*10)/10:null;
     const WD=['Вс','Пн','Вт','Ср','Чт','Пт','Сб'];
     return { tasksDone, perfect, activeDays, habitChecks, antiCount, avgRating:avg(ratings), avgSleep:avg(sleeps),
       exp, inc, topCat, studyDone, achCount, bestDay, bestWd: wd.some(x=>x>0)?WD[wd.indexOf(Math.max(...wd))]:null };
-  }, [days, finance, habits, study, unlocked, rangeDays, isMonth, selMonth]);
+  }, [days, finance, allHabits, allStudy, unlocked, rangeDays, isMonth, selMonth]);
 
   // 🔬 Детальный анализ корреляций (session 020; расширен session 025): выбираем ЦЕЛЬ (оценка дня /
   // выполнено задач / сон) и смотрим, что с ней связано — агрегатные факторы + детальный разбор

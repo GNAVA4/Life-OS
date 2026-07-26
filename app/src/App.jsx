@@ -1075,7 +1075,8 @@ function App(){
         addBill={addBill} deleteBill={deleteBill} updateBill={updateBill}
         addAccount={addAccount} deleteAccount={deleteAccount} addSnapshot={addSnapshot} deleteSnapshot={deleteSnapshot}
         addDebt={addDebt} updateDebt={updateDebt} deleteDebt={deleteDebt} debtMovement={debtMovement} />}
-      {tab==='stats' && <StatsTab days={days} finance={finance} budgets={budgets} incomePlans={incomePlans} habits={habits} finMask={finMask} study={study} unlocked={achievements.unlocked||{}} />}
+      {tab==='stats' && <StatsTab days={days} finance={finance} budgets={budgets} incomePlans={incomePlans} habits={habits} finMask={finMask} study={study}
+        studyArchive={studyArchive} habitsArchive={habitsArchive} unlocked={achievements.unlocked||{}} />}
       {tab==='achievements' && <AchievementsTab stats={achStats} unlocked={achievements.unlocked||{}} />}
       {tab==='settings' && <SettingsTab hidden={settings.hidden||{}} toggleModule={toggleModule}
         defaults={settings.defaults||{}} setDefault={setDefault} categories={categories} accounts={finance.accounts}
