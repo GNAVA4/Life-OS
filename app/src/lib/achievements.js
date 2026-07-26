@@ -32,6 +32,13 @@ export function computeAchStats({days, goals, study, notes, finance, meta, ongoi
   let questsDone=0, cleanDays=0; // геймификация (session 024): выполнено квестов, активных дней без анти-тегов
   const doneDates=[], ratingHighDates=[], sleepDates=[], activeDates=[], perfectDates=[];
   const tagSet=new Set(), monthSet=new Set();
+  // «Чистый день» — отрицательное «весь день» условие (анти-тегов НЕТ), а значит истинное по умолчанию:
+  // без гейтов оно дарит чистые дни за (а) незаконченный день — анти-тег ставится вечером, и (б) всю
+  // историю ДО того, как пользователь начал отмечать анти-теги (поля просто нет ≠ день был чистым).
+  // Эпоха берётся из ДАННЫХ (первый день с отметкой), а не жёсткой датой релиза фичи. session 033.
+  // Тот же класс, что q_clean deferred (session 032) — см. insight_2026-07-23_reversible-reward-latches.
+  const tdyStr = todayStr();
+  const antiEpoch = Object.keys(days).filter(ds=>((days[ds].antiTags)||[]).length>0).sort()[0] || null;
   Object.entries(days).forEach(([ds,e])=>{
     const oneOff=(e.tasks||[]).filter(t=>t.done).length;
     const daily=Object.values(e.dailyCompletions||{}).filter(Boolean).length;
@@ -49,7 +56,7 @@ export function computeAchStats({days, goals, study, notes, finance, meta, ongoi
     if(active){ daysLogged++; activeDates.push(ds); monthSet.add(ds.slice(0,7)); }
     if(done>0) doneDates.push(ds);
     questsDone += (e.questsClaimed||[]).length;
-    if(active && (e.antiTags||[]).length===0) cleanDays++;
+    if(active && (e.antiTags||[]).length===0 && antiEpoch && ds>=antiEpoch && ds<tdyStr) cleanDays++;
   });
   doneDates.sort(); ratingHighDates.sort(); sleepDates.sort(); activeDates.sort(); perfectDates.sort();
   s.tasksDone=tasksDone; s.perfectDays=perfectDays; s.noteDays=noteDays; s.rating10count=rating10count;
