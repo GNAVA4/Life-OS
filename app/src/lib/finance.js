@@ -10,7 +10,10 @@ export const accountBalanceOn = (account, transactions, date) => {
   const base = anchor ? snapshotValueRub(anchor) : 0;
   const countsAfterAnchor = (t) => {
     if(t.date!==anchor.date) return t.date>anchor.date;
-    if(t.ts==null || anchor.ts==null) return true;
+    // Операция В ДЕНЬ замера, но время (ts) неизвестно у неё или у замера (легаси-данные до session 002):
+    // порядок не восстановить. Замер — ИЗМЕРЕННЫЙ факт и уже включает всё, что произошло до него, поэтому
+    // считаем операцию УЧТЁННОЙ в замере, а не «после». Раньше return true → сумма учитывалась дважды. session 033
+    if(t.ts==null || anchor.ts==null) return false;
     return t.ts>=anchor.ts;
   };
   // debtFlow-операции (возврат/взятие долга) НЕ считаются доходом/расходом (exclude:true → выпадают из
