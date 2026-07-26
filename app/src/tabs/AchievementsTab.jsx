@@ -8,18 +8,29 @@ import { C } from '../lib/theme.js';
 export function AchievementsTab({stats, unlocked}){
   const [filter,setFilter] = useState('all'); // all | done | todo
   const [byDay,setByDay] = useState(false);   // просмотр по дням открытия vs каталог по группам
+  const [query,setQuery] = useState('');      // поиск по названию/описанию/группе. session 033
   const total = ACHIEVEMENTS.length;
   const doneCount = ACHIEVEMENTS.filter(a=>unlocked[a.id]).length;
   const points = ACHIEVEMENTS.reduce((p,a)=> p + (unlocked[a.id]?ACH_TIERS[a.tier].pts:0), 0);
   const maxPoints = ACHIEVEMENTS.reduce((p,a)=> p+ACH_TIERS[a.tier].pts, 0);
   const pct = total? Math.round(doneCount/total*100) : 0;
 
+  // Поиск по названию/описанию/группе. Секретные НЕполученные из поиска исключены — иначе
+  // запрос выдал бы их настоящее название и заспойлерил. session 033.
+  const q = query.trim().toLowerCase();
+  const matchesQuery = (a) => {
+    if(!q) return true;
+    if(a.secret && !unlocked[a.id]) return false;
+    return a.title.toLowerCase().includes(q) || a.desc.toLowerCase().includes(q) || a.g.toLowerCase().includes(q);
+  };
+  const foundCount = useMemo(()=> q ? ACHIEVEMENTS.filter(matchesQuery).length : 0, [q, unlocked]);
+
   // Хронология: полученные достижения, сгруппированные по дате открытия (новые сверху). session: ach-by-day.
   const timeline = useMemo(()=>{
     const byDate = {};
-    ACHIEVEMENTS.forEach(a=>{ const d=unlocked[a.id]; if(!d) return; (byDate[d]=byDate[d]||[]).push(a); });
+    ACHIEVEMENTS.forEach(a=>{ const d=unlocked[a.id]; if(!d || !matchesQuery(a)) return; (byDate[d]=byDate[d]||[]).push(a); });
     return Object.keys(byDate).sort((a,b)=>b<a?-1:1).map(date=>({date, list:byDate[date]}));
-  }, [unlocked]);
+  }, [unlocked, q]);
 
   return (
     <div>
@@ -29,6 +40,14 @@ export function AchievementsTab({stats, unlocked}){
           <div style={{height:'100%', width:`${pct}%`, background:C.amber}}/>
         </div>
         <div style={S.dimSpan}>Очки славы: {points} / {maxPoints} · открыто {pct}%</div>
+        <div style={{display:'flex', gap:6, marginTop:12, alignItems:'center'}}>
+          <input style={S.input} value={query} onChange={e=>setQuery(e.target.value)} placeholder="🔍 Найти достижение — название, описание, группа…"/>
+          {query && <div className="chip" onClick={()=>setQuery('')} title="сбросить поиск"
+            style={{background:C.panelAlt, color:C.dim, borderColor:C.border}}>✕</div>}
+        </div>
+        {q && <div style={{fontSize:11.5, color:foundCount?C.dim:C.red, marginTop:6}}>
+          {foundCount ? `найдено: ${foundCount}` : 'ничего не найдено'}
+        </div>}
         <div style={{display:'flex', gap:6, marginTop:12, flexWrap:'wrap', alignItems:'center'}}>
           {!byDay && [{id:'all',label:'Все'},{id:'done',label:'Полученные'},{id:'todo',label:'В процессе'}].map(f=>(
             <div key={f.id} className="chip" onClick={()=>setFilter(f.id)} style={{background:filter===f.id?C.amber:C.panelAlt, color:filter===f.id?'#1A1200':C.dim, borderColor:filter===f.id?C.amber:C.border}}>{f.label}</div>
@@ -63,7 +82,7 @@ export function AchievementsTab({stats, unlocked}){
       )}
 
       {!byDay && ACH_GROUPS.map(group=>{
-        const list = ACHIEVEMENTS.filter(a=>a.g===group).filter(a=>{
+        const list = ACHIEVEMENTS.filter(a=>a.g===group).filter(matchesQuery).filter(a=>{
           const done=!!unlocked[a.id];
           return filter==='all' || (filter==='done'&&done) || (filter==='todo'&&!done);
         });
