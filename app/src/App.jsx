@@ -449,6 +449,9 @@ function App(){
     persist.goals({...goals,[scope]:list});
   };
   const deleteGoal = (scope,id) => persist.goals({...goals,[scope]:goals[scope].filter(g=>g.id!==id)});
+  // переименование цели — только title, прогресс/режим/привязки не трогаем (как updateDebt у долгов)
+  const renameGoal = (scope,id,title) => { const t=(title||'').trim(); if(!t) return;
+    persist.goals({...goals,[scope]:(goals[scope]||[]).map(g=> g.id===id ? {...g, title:t} : g)}); };
 
   const addStudyTask = (item) => persist.study([{id:uid(), createdAt:todayStr(), ...item}, ...study]);
   const updateStudyTask = (id,patch) => {
@@ -1077,7 +1080,7 @@ function App(){
       {tab==='habits' && <HabitsTab habits={habits} addHabit={addHabit} toggleHabitDay={toggleHabitDay} deleteHabit={deleteHabit} updateHabit={updateHabit} archiveHabit={archiveHabit} abandonHabit={abandonHabit} archive={habitsArchive} deleteArchivedHabit={deleteArchivedHabit} restoreHabit={restoreHabit} goals={goals} notifsOn={!settings.notifOff} />}
       {tab==='goals' && <GoalsTab goals={goals} addGoal={addGoal} setGoalProgress={setGoalProgress}
         addGoalSubtask={addGoalSubtask} toggleGoalSubtask={toggleGoalSubtask}
-        deleteGoalSubtask={deleteGoalSubtask} deleteGoal={deleteGoal}
+        deleteGoalSubtask={deleteGoalSubtask} deleteGoal={deleteGoal} renameGoal={renameGoal}
         setGoalMode={setGoalMode} setGoalCounter={setGoalCounter} setGoalDeadline={setGoalDeadline} archiveGoal={archiveGoal}
         showGoalDeadline={!!settings.showGoalDeadline}
         collapsed={collapseState.goals||{}} onToggleCollapse={(sc)=>toggleCollapse('goals',sc)}

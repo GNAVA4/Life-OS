@@ -7,10 +7,13 @@ import { C } from '../lib/theme.js';
 import { goalMode as modeOf } from '../lib/goals.js';
 import { ConfirmIconBtn, Select } from '../ui/primitives.jsx';
 
-export function GoalsTab({goals, addGoal, setGoalProgress, addGoalSubtask, toggleGoalSubtask, deleteGoalSubtask, deleteGoal, setGoalMode, setGoalCounter, setGoalDeadline, archiveGoal, archive=[], restoreGoal, deleteArchivedGoal, showGoalDeadline=false, collapsed={}, onToggleCollapse}){
+export function GoalsTab({goals, addGoal, setGoalProgress, addGoalSubtask, toggleGoalSubtask, deleteGoalSubtask, deleteGoal, renameGoal, setGoalMode, setGoalCounter, setGoalDeadline, archiveGoal, archive=[], restoreGoal, deleteArchivedGoal, showGoalDeadline=false, collapsed={}, onToggleCollapse}){
   const [text,setText] = useState(''); const [scope,setScope] = useState('week');
   const [subtaskInputs,setSubtaskInputs] = useState({});
   const [archiveShow,setArchiveShow] = useState(false);
+  // переименование цели (id редактируемой + черновик названия) — как ✏ у долгов
+  const [editId,setEditId] = useState(null); const [editText,setEditText] = useState('');
+  const saveRename = (sc,gid) => { if(editText.trim() && renameGoal) renameGoal(sc,gid,editText.trim()); setEditId(null); };
   const scopes = [{id:'year',label:'Год'},{id:'month',label:'Месяц'},{id:'week',label:'Неделя'},{id:'day',label:'День'}];
   const addFromForm = () => { if(text.trim()){ addGoal(scope,text.trim()); setText(''); } };
   // modeOf импортирован из lib/goals (goalMode) — единый источник, чтобы привязка/вклад и UI совпадали
@@ -63,11 +66,23 @@ export function GoalsTab({goals, addGoal, setGoalProgress, addGoalSubtask, toggl
               {!isC && list.map(g=>{ const mode=modeOf(g); const done=(g.progress||0)>=100;
                 return (
                 <div key={g.id} style={{marginBottom:14, paddingBottom:10, borderBottom:`1px solid ${C.border}`}}>
+                  {editId===g.id ? (
+                    <div style={{display:'flex',alignItems:'center',gap:6}}>
+                      <input style={{...S.input,flex:1,minWidth:0}} value={editText} autoFocus
+                        onChange={e=>setEditText(e.target.value)}
+                        onKeyDown={e=>{ if(e.key==='Enter') saveRename(id,g.id); if(e.key==='Escape') setEditId(null); }} />
+                      <button style={{...S.iconBtnAmber,width:34,height:34,fontSize:14,flex:'none'}} title="сохранить название"
+                        onClick={()=>saveRename(id,g.id)}>💾</button>
+                      <button className="icon-btn" title="отмена" onClick={()=>setEditId(null)}>✕</button>
+                    </div>
+                  ) : (
                   <div style={{display:'flex',alignItems:'flex-start',gap:8}}>
                     <div style={{flex:1,minWidth:0,fontSize:13.5,color:done?C.dim:C.text,textDecoration:done?'line-through':'none',overflowWrap:'anywhere',wordBreak:'break-word'}}>{g.title}</div>
+                    <button className="icon-btn" title="переименовать" onClick={()=>{ setEditText(g.title||''); setEditId(g.id); }}>✏</button>
                     <ConfirmIconBtn onConfirm={()=>archiveGoal(id,g.id)} icon="🏁" confirmLabel="в архив?" title="в архив (сохранить)" />
                     <ConfirmIconBtn onConfirm={()=>deleteGoal(id,g.id)} confirmLabel="удалить?" title="удалить безвозвратно" />
                   </div>
+                  )}
 
                   {mode==='none' && (
                     <div style={{marginTop:6}}>
