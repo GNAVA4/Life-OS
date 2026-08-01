@@ -9,11 +9,12 @@ import { syncNotifications, requestNotif, testNotification, notifDiagnostics } f
 // ---------- декомпозиция: чистые константы/хелперы/стили вынесены в ./lib (session: decompose) ----------
 import { C, PIE_COLORS } from './lib/theme.js';
 import { S } from './lib/styles.js';
-import { BUILD_ID, EXPENSE_DEFAULT, INCOME_DEFAULT, TAGS_DEFAULT, ANTITAGS_DEFAULT, DEFAULT_ACCOUNTS, STUDY_PRIORITIES, STUDY_STATUSES, STUDY_IMPORTANCE, STUDY_URGENCY, IMPORTANCE_COLOR, URGENCY_COLOR, STATUS_COLOR, NOTE_TYPES, NOTE_REPEATS, NOTE_TYPE_COLOR, WEEKDAY_OPTS, weekdayLabel, BASE_EPICS, PERIOD_SCOPES, PERIOD_LABEL, DIFF_XP, GL_SCOPE } from './lib/constants.js';
+import { BUILD_ID, DAY_CHECK_MS, NOTIF_SOFT_LIMIT, EXPENSE_DEFAULT, INCOME_DEFAULT, TAGS_DEFAULT, ANTITAGS_DEFAULT, DEFAULT_ACCOUNTS, STUDY_PRIORITIES, STUDY_STATUSES, STUDY_IMPORTANCE, STUDY_URGENCY, IMPORTANCE_COLOR, URGENCY_COLOR, STATUS_COLOR, NOTE_TYPES, NOTE_REPEATS, NOTE_TYPE_COLOR, WEEKDAY_OPTS, weekdayLabel, BASE_EPICS, PERIOD_SCOPES, PERIOD_LABEL, DIFF_XP, GL_SCOPE } from './lib/constants.js';
 import { toLocalISODate, todayStr, addDays, daysAgoStr, isoWeek, daysBetween, formatDateRu, formatDateShort, openDatePicker, shiftMonth, monthLabelRu, periodOf } from './lib/dates.js';
+import { missedStudyDeadlineOn } from './lib/deadlines.js';
 import { fmtMoney, maskMoney, uid, compactNum } from './lib/format.js';
 import { loadKey, saveKey, setPushHook, setHiddenModules, vis, MODULE_GROUPS } from './lib/storage.js';
-import { GAMIFY_DEFAULT, IMPULSE_DECAY_DAYS, healthDayDelta, COMBO_CAP_DAYS, WEEKLY_XP, LEVEL_CAP, LEVEL_CUM, QUEST_POOL, WEEKLY_POOL, RANKS, gamifyCfg, pickSeeded, questsForDate, weeklyForPeriod, levelForXp, rankForLevel, nextRank, playLevelUpSound, playAchSound, impulsePenaltyRemaining } from './lib/gamify.js';
+import { GAMIFY_DEFAULT, IMPULSE_DECAY_DAYS, healthDayBreakdown, HEALTH_LOG_DAYS, COMBO_CAP_DAYS, WEEKLY_XP, LEVEL_CAP, LEVEL_CUM, QUEST_POOL, WEEKLY_POOL, RANKS, gamifyCfg, pickSeeded, questsForDate, weeklyForPeriod, levelForXp, rankForLevel, nextRank, playLevelUpSound, playAchSound, impulsePenaltyRemaining } from './lib/gamify.js';
 import { HABIT_WD, isHabitScheduled, habitDoneOn, habitCompletedCount, habitScheduleLabel, habitCurrentStreak, habitBestStreak, habitChallengeDone } from './lib/habits.js';
 import { snapshotValueRub, accountBalanceOn, accountBalanceNow, unassignedNetOn, migratePlans } from './lib/finance.js';
 import { isLegacyNote, migrateNotes, mergeStudyById, noteTitleOf, notePreviewOf, repeatLabel, reminderWhenLabel, hasReminderWhen } from './lib/notes.js';
@@ -145,6 +146,8 @@ function App(){
     const t = todayStr();
     let steps = 0;
     let health = m.health ?? 100;
+    const log = {...(m.healthLog||{})};   // {дата: значение ❤ ПОСЛЕ этого дня} — витрина для графика
+    let lastDay = m.healthLastDay || null; // расшифровка последнего посчитанного дня («за что»)
     while (cursor < t && steps < 60){
       const dayE = loadedDays[cursor] || {};
       const hasActivity = (dayE.tasks||[]).some(x=>x.done) ||
@@ -160,10 +163,11 @@ function App(){
         && isHabitScheduled(h,cursor));
       const missedHabits = scheduledHabits.filter(h => !(h.log && h.log[cursor])).length;
       const dayTasks = dayE.tasks||[];
-      // просроченный дедлайн дела: разово, на следующий день после дедлайна
-      const overdueDeadlines = loadedStudy.filter(x => x.deadline && cursor===addDays(x.deadline,1)
-        && ((x.status!=='Выполнено') || (x.completedAt && x.completedAt>x.deadline))).length;
-      const delta = healthDayDelta({
+      // Дедлайн ПРОВАЛЕН в этот день — разовый штраф на следующий день после срока. Это ДРУГОЙ вопрос,
+      // чем «просрочено прямо сейчас» (уведомления): дело, закрытое позже срока, дедлайн провалило, но
+      // просроченным уже не является. Оба правила теперь живут в lib/deadlines.js и не разъезжаются.
+      const overdueDeadlines = loadedStudy.filter(x => missedStudyDeadlineOn(x, cursor)).length;
+      const br = healthDayBreakdown({
         hasActivity, hadTasks,
         allTasksDone: dayTasks.length>0 && dayTasks.every(x=>x.done),
         cleanDay: (dayE.antiTags||[]).length===0 && (!antiEpoch || cursor>=antiEpoch),
@@ -172,14 +176,41 @@ function App(){
         antiCount: (dayE.antiTags||[]).length,
         missedHabits, overdueDeadlines,
       }, gcfg);
-      health = Math.max(0, Math.min(100, health + delta));
+      health = Math.max(0, Math.min(100, health + br.total));
+      // История ❤ по дням: сама шкала — свёрнутое число, по нему нельзя построить график и нельзя
+      // объяснить, «за что». Пишем значение ПОСЛЕ дня (для графика) и расшифровку последнего дня.
+      log[cursor] = health;
+      lastDay = { date: cursor, total: br.total, parts: br.parts };
       cursor = addDays(cursor, 1);
       steps++;
     }
     // lastHealthCheck = докуда РЕАЛЬНО дошёл цикл, а не «сегодня»: при упоре в кэп steps<60 (не заходил
     // долго) остаток дней раньше молча терялся навсегда — теперь досчитается при следующем запуске. session 033
-    m = {...m, health, lastHealthCheck: cursor};
+    // Лог подрезаем: это витрина для графика, а не источник правды — здоровье живёт в m.health.
+    const logKeys = Object.keys(log).sort();
+    const trimmed = logKeys.length>HEALTH_LOG_DAYS
+      ? Object.fromEntries(logKeys.slice(-HEALTH_LOG_DAYS).map(k=>[k, log[k]])) : log;
+    m = {...m, health, lastHealthCheck: cursor, healthLog: trimmed, healthLastDay: lastDay};
     setMeta(m); saveKey('lifeos:meta', m);
+  }, []);
+
+  // ⏰ Смена ЛОГИЧЕСКОГО дня, пока приложение живёт. Весь пересчёт (здоровье, задания дня, стрик,
+  // rollover целей, «сегодня» в шапке, виджет) висит на mount-эффекте выше, а на Android приложение
+  // обычно ВОЗОБНОВЛЯЕТСЯ, а не перезапускается: свернул вечером, открыл утром — день бы так и остался
+  // вчерашним, и ADR-003 (rollover в 9:00) был бы не виден. Ловим оба случая: возврат из фона
+  // (visibilitychange/focus) и переход через 9:00 при ОТКРЫТОМ приложении (тик раз в минуту).
+  // Перезагрузка — самый надёжный способ переинициализировать все производные от todayStr() (их десятки,
+  // деп-массивы на них не завязаны). Данные не теряются: всё пишется в localStorage сразу.
+  // Срабатывает не чаще раза в сутки; после reload dayRef берёт уже новый день, цикла нет.
+  const dayRef = useRef(todayStr());
+  useEffect(() => {
+    const check = () => { if(todayStr() !== dayRef.current) location.reload(); };
+    const onVis = () => { if(document.visibilityState === 'visible') check(); };
+    document.addEventListener('visibilitychange', onVis);
+    window.addEventListener('focus', check);
+    const t = setInterval(check, DAY_CHECK_MS);
+    return () => { document.removeEventListener('visibilitychange', onVis);
+      window.removeEventListener('focus', check); clearInterval(t); };
   }, []);
 
   // ---------- Phase B: Firestore sync ----------
@@ -505,8 +536,11 @@ function App(){
       if(r.reason==='web'){ setNotifMsg('⚠️ Только в приложении на телефоне (в браузере не работает).'); return; }
       if(r.reason==='not-implemented'){ setNotifMsg('⚠️ Плагин уведомлений не найден — на телефоне СТАРЫЙ APK. Переустанови свежий.'); return; }
       if(r.ok){ setSettingFlag('notifOff', false);
-        const n = await syncNotifications({habits: habitsForNotif(), notes, study, bills, deadlineCfg: settings.deadlineNotif, morningCfg: settings.morningSummary, billsCfg: settings.billsNotif, morningBody: computeMorningBody(), enabled:true});
-        setNotifMsg(`✅ Разрешение выдано. Запланировано уведомлений: ${n}.`); }
+        const n = await syncNotifications({habits: habitsForNotif(), notes, study, goals, ongoing, bills, deadlineCfg: settings.deadlineNotif, morningCfg: settings.morningSummary, billsCfg: settings.billsNotif, morningBody: computeMorningBody(), enabled:true});
+        // У Android есть потолок запланированных уведомлений (~500 на приложение): молча упереться в
+        // него = часть напоминаний просто не встанет. Предупреждаем заранее.
+        setNotifMsg(`✅ Разрешение выдано. Запланировано уведомлений: ${n}.`
+          + (n >= NOTIF_SOFT_LIMIT ? `\n⚠️ Близко к потолку Android (~500). Уменьши число слотов просрочки / «за N дней» или отключи напоминания для целей.` : '')); }
       else setNotifMsg('❌ Разрешение не выдано: '+(r.display||r.reason||'')+(r.message?` — ${r.message}`:''));
     } catch(e){ setNotifMsg('💥 Ошибка при запросе: '+((e&&e.message)||String(e))); }
   };
@@ -886,7 +920,7 @@ function App(){
     const parts=[]; if(habitsToday) parts.push(`${habitsToday} привыч.`); if(dl) parts.push(`${dl} дедлайн.`); if(remToday) parts.push(`${remToday} напомин.`);
     return parts.length ? `Сегодня: ${parts.join(' · ')}` : 'На сегодня ничего не запланировано — начни что-то новое!';
   };
-  useEffect(() => { syncNotifications({ habits: habitsForNotif(), notes, study, bills, deadlineCfg: settings.deadlineNotif, morningCfg: settings.morningSummary, billsCfg: settings.billsNotif, morningBody: computeMorningBody(), enabled: !settings.notifOff }); }, [habits, notes, study, bills, settings.notifOff, settings.deadlineNotif, settings.morningSummary, settings.billsNotif]);
+  useEffect(() => { syncNotifications({ habits: habitsForNotif(), notes, study, goals, ongoing, bills, deadlineCfg: settings.deadlineNotif, morningCfg: settings.morningSummary, billsCfg: settings.billsNotif, morningBody: computeMorningBody(), enabled: !settings.notifOff }); }, [habits, notes, study, goals, ongoing, bills, settings.notifOff, settings.deadlineNotif, settings.morningSummary, settings.billsNotif]);
   // Android-виджет «Задачи на сегодня»: пишем прогресс по одноразовым задачам СЕГОДНЯ (session 023).
   useEffect(() => { const t = todayStr(); const e = days[t] || {}; const tasks = e.tasks || [];
     updateTodayWidget(tasks.filter(x=>x.done).length, tasks.length, t); }, [days]);
@@ -1033,6 +1067,24 @@ function App(){
             <div style={S.profTile}><span style={{fontSize:20}}>🔗</span><div style={{flex:1}}><div style={S.gaugeVal}>×{combo.mult.toFixed(1)}</div><div style={S.gaugeBarWrap}><div style={{...S.gaugeBarFill, background:C.cyan, width:`${Math.min(100,combo.streak/COMBO_CAP_DAYS*100)}%`}}/></div><div style={S.gaugeLabel}>комбо · {combo.streak} дн.</div></div></div>
             <div style={{...S.profTile, gridColumn:'1 / -1'}}><span style={{fontSize:20}}>🏆</span><div style={{flex:1}}><div style={S.gaugeVal}>Ур. {level}{levelMax?' · МАКС':''}</div><div style={S.gaugeBarWrap}><div style={{...S.gaugeBarFill, width:`${levelMax?100:(into/needed)*100}%`}}/></div><div style={S.gaugeLabel}>{levelMax?'максимальный уровень':`${into}/${needed} XP`}</div></div></div>
           </div>
+          {/* Расшифровка ❤ за последний ПОСЧИТАННЫЙ день: без неё шкала выглядит числом, которое само
+              куда-то ползёт, и непонятно, что на неё влияет. Считается за завершённые дни → это «вчера». */}
+          {meta.healthLastDay && (meta.healthLastDay.parts||[]).length>0 && (
+            <div style={{marginTop:10,padding:'9px 11px',background:C.panelAlt,border:`1px solid ${C.border}`,borderRadius:8}}>
+              <div style={{fontSize:11.5,color:C.dim,marginBottom:6}}>
+                ❤ за {formatDateShort(meta.healthLastDay.date)}:{' '}
+                <b style={{color:meta.healthLastDay.total>=0?C.green:C.red}}>
+                  {meta.healthLastDay.total>0?'+':''}{meta.healthLastDay.total}
+                </b>
+              </div>
+              {meta.healthLastDay.parts.map(([label,v],i)=>(
+                <div key={i} style={{display:'flex',fontSize:12,padding:'2px 0'}}>
+                  <span style={{flex:1,color:C.text}}>{label}</span>
+                  <span style={{fontFamily:"'JetBrains Mono',monospace",color:v>=0?C.green:C.red}}>{v>0?'+':''}{v}</span>
+                </div>
+              ))}
+            </div>
+          )}
           {vis('tab.achievements') && <button style={{...S.sheetRow,marginTop:12}} onClick={()=>{ setTab('achievements'); setProfileOpen(false); }}>🏅 Награды · {achUnlockedCount}</button>}
           <div style={S.sheetSection}>Аккаунт · синхронизация</div>
           {user
@@ -1098,7 +1150,7 @@ function App(){
         addAccount={addAccount} deleteAccount={deleteAccount} addSnapshot={addSnapshot} deleteSnapshot={deleteSnapshot}
         addDebt={addDebt} updateDebt={updateDebt} deleteDebt={deleteDebt} debtMovement={debtMovement} />}
       {tab==='stats' && <StatsTab days={days} finance={finance} budgets={budgets} incomePlans={incomePlans} habits={habits} finMask={finMask} study={study}
-        studyArchive={studyArchive} habitsArchive={habitsArchive} unlocked={achievements.unlocked||{}} />}
+        studyArchive={studyArchive} habitsArchive={habitsArchive} unlocked={achievements.unlocked||{}} healthLog={meta.healthLog||{}} />}
       {tab==='achievements' && <AchievementsTab stats={achStats} unlocked={achievements.unlocked||{}} />}
       {tab==='settings' && <SettingsTab hidden={settings.hidden||{}} toggleModule={toggleModule}
         defaults={settings.defaults||{}} setDefault={setDefault} categories={categories} accounts={finance.accounts}
