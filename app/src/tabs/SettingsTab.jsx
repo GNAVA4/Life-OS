@@ -1,6 +1,6 @@
 // Вкладка/раздел: SettingsTab (вынесено из App.jsx, session: decompose phase 3)
 import { useState } from 'react';
-import { ALL_MOBILE_TAB_IDS, BUILD_ID, TAB_META } from '../lib/constants.js';
+import { ALL_MOBILE_TAB_IDS, BUILD_ID, OVERDUE_TIMES_DEFAULT, OVERDUE_TIMES_MAX, TAB_META } from '../lib/constants.js';
 import { GAMIFY_DEFAULT, LEVEL_CAP, WEEKLY_XP } from '../lib/gamify.js';
 import { MODULE_GROUPS } from '../lib/storage.js';
 import { S } from '../lib/styles.js';
@@ -19,6 +19,12 @@ export function SettingsTab({hidden, toggleModule, defaults, setDefault, categor
   const setBills = (patch) => setSettingFlag('billsNotif', {off:false, time:billsTime, leadDays:billsLead, ...(billsNotif||{}), ...patch});
   const setDl = (patch) => setSettingFlag('deadlineNotif', {off:false, days:dlDays, time:dlTime, ...(deadlineCfg||{}), ...patch});
   const toggleDlDay = (d) => { const has=dlDays.includes(d); const next=has?dlDays.filter(x=>x!==d):[...dlDays,d].sort((a,b)=>a-b); setDl({days:next}); };
+  // Просроченные дела: несколько напоминаний в день по слотам времени (иначе о просрочке не напоминалось вовсе).
+  const ovOn = !(deadlineCfg && deadlineCfg.overdueOff);
+  const ovTimes = (deadlineCfg && deadlineCfg.overdueTimes && deadlineCfg.overdueTimes.length) ? deadlineCfg.overdueTimes : OVERDUE_TIMES_DEFAULT;
+  const setOvTime = (i,v) => setDl({overdueTimes: ovTimes.map((t,k)=>k===i?v:t)});
+  const addOvTime = () => { if(ovTimes.length>=OVERDUE_TIMES_MAX) return; setDl({overdueTimes:[...ovTimes,'12:00']}); };
+  const delOvTime = (i) => { if(ovTimes.length<=1) return; setDl({overdueTimes: ovTimes.filter((_,k)=>k!==i)}); };
   // «Что показывать» — раздел большой, поэтому каждая группа модулей сворачивается (по умолчанию свёрнута)
   const [openGroups,setOpenGroups] = useState({});
   const toggleGroup = (name) => setOpenGroups(s=>({...s,[name]:!s[name]}));
@@ -72,6 +78,27 @@ export function SettingsTab({hidden, toggleModule, defaults, setDefault, categor
               <span style={{fontSize:12,color:C.dim,marginLeft:8}}>время:</span>
               <input style={{...S.input,maxWidth:120}} type="time" value={dlTime} onChange={e=>setDl({time:e.target.value})} />
             </div>
+
+            <label className="row-hover" style={{...S.taskRow, cursor:'pointer', marginTop:12}}>
+              <input type="checkbox" checked={ovOn} onChange={()=>setDl({overdueOff: ovOn})} />
+              <div style={{flex:1}}>Напоминать о ПРОСРОЧЕННЫХ несколько раз в день</div>
+              <span style={{fontSize:11,color:C.dim}}>{ovOn?'вкл':'выкл'}</span>
+            </label>
+            <div style={{...S.dimSpan,marginLeft:0,marginTop:6,display:'block'}}>
+              Пока дело с истёкшим дедлайном не закрыто, напоминание приходит в каждое из указанных времён — с числом дней просрочки. Все просроченные дела собираются в одно уведомление на слот.
+            </div>
+            {ovOn && (
+              <div style={{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center',marginTop:8}}>
+                {ovTimes.map((t,i)=>(
+                  <div key={i} style={{display:'flex',alignItems:'center',gap:2}}>
+                    <input style={{...S.input,maxWidth:110}} type="time" value={t} onChange={e=>setOvTime(i,e.target.value)} />
+                    {ovTimes.length>1 && <button className="icon-btn" title="убрать время" onClick={()=>delOvTime(i)}>✕</button>}
+                  </div>
+                ))}
+                {ovTimes.length<OVERDUE_TIMES_MAX &&
+                  <div className="chip" onClick={addOvTime} style={{borderColor:C.amber,color:C.amber}}>+ время</div>}
+              </div>
+            )}
           </div>
         )}
 

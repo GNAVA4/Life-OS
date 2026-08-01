@@ -42,3 +42,10 @@ export const TAB_META = {
 };
 export const ALL_MOBILE_TAB_IDS = ['today','habits','goals','study','notes','finance','stats','achievements'];
 export const DEFAULT_MOBILE_TABS = ['today','habits','goals','finance']; // нижняя навбар по умолчанию; настраивается в Настройках
+
+// Напоминания о ПРОСРОЧЕННЫХ делах (session: overdue-notifs-health-rewards): слоты времени в течение дня.
+// Значения согласованы с пользователем (3 раза в день по умолчанию, список настраивается в Настройках).
+export const OVERDUE_TIMES_DEFAULT = ['09:00','14:00','20:00'];
+// Потолок слотов: у Android лимит запланированных уведомлений (~500 на приложение), и больше 6
+// напоминаний в день об одном и том же — уже шум, а не мотивация.
+export const OVERDUE_TIMES_MAX = 6;

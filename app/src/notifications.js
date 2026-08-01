@@ -4,6 +4,11 @@ import { Capacitor } from '@capacitor/core';
 // и мог вечно зависать; session 013→014 симптом «плашка висит на ⏳»).
 // На вебе импорт безопасен: методы плагина просто бросают "not implemented" (мы это ловим).
 import { LocalNotifications } from '@capacitor/local-notifications';
+// «Сегодня» для сравнения дат (просрочен ли дедлайн) — логический день проекта, а не new Date().
+// Реальный new Date() здесь остаётся только для РАСЧЁТА ВРЕМЕНИ срабатывания (nextDaily и пр.).
+import { OVERDUE_TIMES_DEFAULT, OVERDUE_TIMES_MAX } from './lib/constants.js';
+import { todayStr } from './lib/dates.js';
+import { overdueBody, overdueOf } from './lib/deadlines.js';
 
 // синхронный доступ к плагину: сам плагин на нативе, иначе null
 function ln(){ return Capacitor.isNativePlatform() ? LocalNotifications : null; }
@@ -133,6 +138,11 @@ function noteNotifs(notes){
 }
 
 // Дедлайны дел: за N дней до + в день дедлайна, в указанное время. Одноразовые at (прошедшие — скип).
+// ⚠️ ПРОСРОЧЕННЫЕ дела раньше не получали НИЧЕГО: их единственный `at` оказывался в прошлом и отбрасывался
+// строкой `at <= Date.now()` → напоминания замолкали ровно тогда, когда нужны сильнее всего. Теперь
+// просрочка напоминает о себе НЕСКОЛЬКО РАЗ В ДЕНЬ (cfg.overdueTimes) ежедневно повторяющимися
+// уведомлениями. Все просроченные дела собраны в ОДНО уведомление на слот: их количество ничем не
+// ограничено, а лимит запланированных у Android — ограничен; плюс 20 отдельных пушек подряд = шум.
 function deadlineNotifs(study, cfg){
   if(!cfg || cfg.off) return [];
   const hm = HM(cfg.time || '09:00'); if(!hm) return [];
@@ -140,7 +150,8 @@ function deadlineNotifs(study, cfg){
   const days = (cfg.days && cfg.days.length) ? cfg.days : [3,1];
   const offsets = Array.from(new Set([0, ...days])).sort((a,b)=>a-b); // 0 = день дедлайна
   const out = [];
-  study.filter(s => s.deadline && s.status!=='Выполнено').forEach((s, si) => {
+  const pending = study.filter(s => s.deadline && s.status!=='Выполнено');
+  pending.forEach((s, si) => {
     offsets.forEach((off, oi) => {
       const at = new Date(s.deadline+'T00:00:00'); at.setHours(hh,mm,0,0); at.setDate(at.getDate()-off);
       if(at.getTime() <= Date.now()) return;
@@ -148,6 +159,19 @@ function deadlineNotifs(study, cfg){
       out.push({ id: 300000 + si*10 + oi, title:'Дедлайн ⏰', body:`${s.task} — ${when}`, channelId:CHANNEL_ID,
         schedule:{ at, allowWhileIdle:true } });
     });
+  });
+  if(cfg.overdueOff) return out;
+  const today = todayStr();
+  const overdue = overdueOf(pending, today);
+  if(!overdue.length) return out;
+  const slots = (cfg.overdueTimes && cfg.overdueTimes.length) ? cfg.overdueTimes : OVERDUE_TIMES_DEFAULT;
+  // Тело фиксируется на момент планирования и обновляется при следующем запуске приложения —
+  // тот же приём, что у утренней сводки (список просроченного между запусками может устареть).
+  const body = overdueBody(overdue, today);
+  slots.slice(0, OVERDUE_TIMES_MAX).forEach((tm, ti) => {
+    const s = HM(tm); if(!s) return;
+    out.push({ id: 350000 + ti, title:'🔴 Просрочено!', body, channelId:CHANNEL_ID,
+      schedule:{ at: nextDaily(s[0], s[1]), every:'day', allowWhileIdle:true } });
   });
   return out;
 }
