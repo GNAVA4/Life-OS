@@ -8,7 +8,7 @@ import { LocalNotifications } from '@capacitor/local-notifications';
 // Реальный new Date() здесь остаётся только для РАСЧЁТА ВРЕМЕНИ срабатывания (nextDaily и пр.).
 import { OVERDUE_TIMES_DEFAULT, OVERDUE_TIMES_MAX } from './lib/constants.js';
 import { todayStr } from './lib/dates.js';
-import { overdueBody, overdueOf } from './lib/deadlines.js';
+import { KIND_META, deadlineItems, overdueBody, overdueOf } from './lib/deadlines.js';
 
 // синхронный доступ к плагину: сам плагин на нативе, иначе null
 function ln(){ return Capacitor.isNativePlatform() ? LocalNotifications : null; }
@@ -137,34 +137,38 @@ function noteNotifs(notes){
   return out;
 }
 
-// Дедлайны дел: за N дней до + в день дедлайна, в указанное время. Одноразовые at (прошедшие — скип).
-// ⚠️ ПРОСРОЧЕННЫЕ дела раньше не получали НИЧЕГО: их единственный `at` оказывался в прошлом и отбрасывался
+// Дедлайны ДЕЛ, ЦЕЛЕЙ и ДЛИТЕЛЬНЫХ ЗАДАЧ: за N дней до + в день срока, в указанное время.
+// Одноразовые at (прошедшие — скип). Цели/задачи можно отключить отдельно (cfg.goalsOff/ongoingOff).
+// ⚠️ ПРОСРОЧЕННОЕ раньше не получало НИЧЕГО: единственный `at` оказывался в прошлом и отбрасывался
 // строкой `at <= Date.now()` → напоминания замолкали ровно тогда, когда нужны сильнее всего. Теперь
 // просрочка напоминает о себе НЕСКОЛЬКО РАЗ В ДЕНЬ (cfg.overdueTimes) ежедневно повторяющимися
-// уведомлениями. Все просроченные дела собраны в ОДНО уведомление на слот: их количество ничем не
-// ограничено, а лимит запланированных у Android — ограничен; плюс 20 отдельных пушек подряд = шум.
-function deadlineNotifs(study, cfg){
+// уведомлениями. Всё просроченное собрано в ОДНО уведомление на слот: количество ничем не ограничено,
+// а лимит запланированных у Android — ограничен; плюс 20 отдельных пушек подряд = шум.
+function deadlineNotifs(sources, cfg){
   if(!cfg || cfg.off) return [];
   const hm = HM(cfg.time || '09:00'); if(!hm) return [];
   const [hh,mm] = hm;
   const days = (cfg.days && cfg.days.length) ? cfg.days : [3,1];
   const offsets = Array.from(new Set([0, ...days])).sort((a,b)=>a-b); // 0 = день дедлайна
   const out = [];
-  const pending = study.filter(s => s.deadline && s.status!=='Выполнено');
-  pending.forEach((s, si) => {
+  const pending = deadlineItems(sources, { goalsOff:cfg.goalsOff, ongoingOff:cfg.ongoingOff });
+  pending.forEach((it, si) => {
+    const meta = KIND_META[it.kind] || {};
     offsets.forEach((off, oi) => {
-      const at = new Date(s.deadline+'T00:00:00'); at.setHours(hh,mm,0,0); at.setDate(at.getDate()-off);
+      const at = new Date(it.deadline+'T00:00:00'); at.setHours(hh,mm,0,0); at.setDate(at.getDate()-off);
       if(at.getTime() <= Date.now()) return;
-      const when = off===0 ? 'сегодня дедлайн' : `дедлайн через ${off} дн.`;
-      out.push({ id: 300000 + si*10 + oi, title:'Дедлайн ⏰', body:`${s.task} — ${when}`, channelId:CHANNEL_ID,
-        schedule:{ at, allowWhileIdle:true } });
+      const when = off===0 ? 'сегодня срок' : `срок через ${off} дн.`;
+      out.push({ id: 300000 + si*10 + oi, title:`${meta.icon||'⏰'} ${meta.word||'Дедлайн'}`,
+        body:`${it.label} — ${when}`, channelId:CHANNEL_ID, schedule:{ at, allowWhileIdle:true } });
     });
   });
   if(cfg.overdueOff) return out;
   const today = todayStr();
   const overdue = overdueOf(pending, today);
   if(!overdue.length) return out;
-  const slots = (cfg.overdueTimes && cfg.overdueTimes.length) ? cfg.overdueTimes : OVERDUE_TIMES_DEFAULT;
+  // Дедуп времён: два одинаковых слота дали бы два одинаковых уведомления подряд.
+  const slots = Array.from(new Set((cfg.overdueTimes && cfg.overdueTimes.length)
+    ? cfg.overdueTimes : OVERDUE_TIMES_DEFAULT)).sort();
   // Тело фиксируется на момент планирования и обновляется при следующем запуске приложения —
   // тот же приём, что у утренней сводки (список просроченного между запусками может устареть).
   const body = overdueBody(overdue, today);
@@ -207,12 +211,12 @@ function morningSummaryNotif(cfg, body){
 }
 
 // пересобрать ВСЕ уведомления (снять запланированные, потом запланировать заново). Возвращает число запланированных (-1 при ошибке планирования).
-export async function syncNotifications({ habits=[], notes=[], study=[], bills=[], deadlineCfg=null, morningCfg=null, billsCfg=null, morningBody='', enabled=true }){
+export async function syncNotifications({ habits=[], notes=[], study=[], goals={}, ongoing=[], bills=[], deadlineCfg=null, morningCfg=null, billsCfg=null, morningBody='', enabled=true }){
   const l = ln(); if(!l) return 0;
   await ensureChannel(l);
   try{ const pend = await withTimeout(l.getPending(), 4000, 'getPending'); if(pend.notifications && pend.notifications.length) await withTimeout(l.cancel({ notifications: pend.notifications.map(n=>({id:n.id})) }), 4000, 'cancel'); }catch(e){}
   if(!enabled) return 0;
-  const list = [...habitNotifs(habits), ...noteNotifs(notes), ...deadlineNotifs(study, deadlineCfg), ...billNotifs(bills, billsCfg), ...morningSummaryNotif(morningCfg, morningBody)];
+  const list = [...habitNotifs(habits), ...noteNotifs(notes), ...deadlineNotifs({study, goals, ongoing}, deadlineCfg), ...billNotifs(bills, billsCfg), ...morningSummaryNotif(morningCfg, morningBody)];
   if(list.length){ try{ await withTimeout(l.schedule({ notifications: list }), 4000, 'schedule'); }catch(e){ return -1; } }
   return list.length;
 }

@@ -66,7 +66,17 @@ export function SettingsTab({hidden, toggleModule, defaults, setDefault, categor
           <div style={{flex:1}}>Напоминать о делах с дедлайном</div>
           <span style={{fontSize:11,color:C.dim}}>{dlOn?'вкл':'выкл'}</span>
         </label>
-        <div style={{...S.dimSpan,marginLeft:0,marginTop:6,display:'block'}}>Для невыполненных дел (вкладка «Дела»), у которых задан дедлайн. Уведомление приходит в день дедлайна и заранее.</div>
+        <div style={{...S.dimSpan,marginLeft:0,marginTop:6,display:'block'}}>Для незакрытых дел, целей и длительных задач, у которых задан срок. Уведомление приходит в день срока и заранее.</div>
+        {dlOn && (
+          <div style={{display:'flex',gap:6,flexWrap:'wrap',marginTop:8}}>
+            {[{k:'goalsOff', label:'🎯 цели'}, {k:'ongoingOff', label:'📌 длительные задачи'}].map(x=>{
+              const on = !(deadlineCfg && deadlineCfg[x.k]);
+              return <div key={x.k} className="chip" onClick={()=>setDl({[x.k]: on})}
+                style={{background:on?C.amber:C.panelAlt,color:on?'#1A1200':C.dim,borderColor:on?C.amber:C.border}}>{x.label}</div>;
+            })}
+            <span style={{fontSize:11,color:C.dim,alignSelf:'center'}}>дела — всегда</span>
+          </div>
+        )}
         {dlOn && (
           <div style={{marginTop:10}}>
             <div style={{fontSize:12,color:C.dim,marginBottom:6}}>Напоминать заранее (дней до дедлайна) + в сам день:</div>
