@@ -8,7 +8,7 @@ import { S } from '../lib/styles.js';
 import { C, PIE_COLORS } from '../lib/theme.js';
 import { ChartCanvas } from '../ui/ChartCanvas.jsx';
 
-export function StatsTab({days, finance, budgets, incomePlans, habits=[], finMask={}, study=[], studyArchive=[], habitsArchive=[], unlocked={}}){
+export function StatsTab({days, finance, budgets, incomePlans, habits=[], finMask={}, study=[], studyArchive=[], habitsArchive=[], unlocked={}, healthLog={}}){
   const mo = n => maskMoney(finMask.ops, n);   // приватность: скрытие сумм в статистике
   // Архив входит в историю: архивация закрытого дела/привычки не должна ронять уже случившиеся Итоги
   // (как в достижениях, session 028). Архив-снимок хранит log, поэтому отметки восстанавливаются. session 033
@@ -159,6 +159,22 @@ export function StatsTab({days, finance, budgets, incomePlans, habits=[], finMas
     list.forEach(ds=>{ if(byDate[ds]!==undefined) last=byDate[ds]; labels.push(ds.slice(5)); data.push(last); });
     return {labels, data};
   }, [finance.transactions, rangeDays, isMonth, periodDays]);
+
+  // ❤ Здоровье по дням за период. Шкала — свёрнутое число, историю по ней не восстановить, поэтому
+  // значение каждого завершённого дня пишется в meta.healthLog при пересчёте (App.jsx). Дни, которых
+  // в логе нет (до появления лога / не заходил), тянем последним известным значением — иначе линия
+  // рвётся и выглядит как «здоровье падало в ноль».
+  const healthTrend = useMemo(()=>{
+    const log = healthLog || {};
+    const list = isMonth ? [...periodDays].reverse()
+      : (()=>{ const n=Math.min(rangeDays,365); const a=[]; for(let i=n-1;i>=0;i--) a.push(daysAgoStr(i)); return a; })();
+    const known = Object.keys(log).sort();
+    let last = null;
+    const before = known.filter(k=>k<list[0]); if(before.length) last = log[before[before.length-1]];
+    const labels=[], data=[];
+    list.forEach(ds=>{ if(log[ds]!==undefined) last=log[ds]; labels.push(ds.slice(5)); data.push(last); });
+    return { labels, data, empty: data.every(v=>v==null) };
+  }, [healthLog, rangeDays, isMonth, periodDays]);
 
   const catBreakdown = useMemo(()=>{
     const inc={}, exp={};
@@ -350,6 +366,16 @@ export function StatsTab({days, finance, budgets, incomePlans, habits=[], finMas
         </div>
         )}
       </div>
+
+      {vis('stats.healthLine') && (
+      <div style={S.panel}>
+        <div style={{...S.panelTitle,textTransform:'capitalize'}}>❤ Здоровье · {rangeLabel}</div>
+        {healthTrend.empty
+          ? <div style={S.emptyState}>История здоровья копится с этой версии — загляни через пару дней.</div>
+          : <ChartCanvas type="line" data={{labels:healthTrend.labels, datasets:[{data:healthTrend.data, borderColor:C.red, backgroundColor:'transparent', tension:.3, spanGaps:true}]}}
+              options={{...baseChartOpts(), scales:{...(baseChartOpts().scales||{}), y:{...((baseChartOpts().scales||{}).y||{}), min:0, max:100}}}} height={200} />}
+      </div>
+      )}
 
       {vis('stats.balanceLine') && (
       <div style={S.panel}>

@@ -63,6 +63,7 @@ export const MODULE_GROUPS = [
     {id:'stats.monthly', label:'Доход/расход по месяцам'},
     {id:'stats.net', label:'Чистый доход по месяцам'},
     {id:'stats.savings', label:'Норма сбережений'},
+    {id:'stats.healthLine', label:'❤ Здоровье во времени'},
     {id:'stats.balanceLine', label:'Баланс операций во времени'},
     {id:'stats.incomeCat', label:'Доходы по категориям (период)'},
     {id:'stats.expenseCat', label:'Расходы по категориям (период)'},

@@ -29,7 +29,9 @@ export const HEALTH_DONE_CAP = 9;
 // ❤ Дельта здоровья за ОДИН завершённый день. Чистая функция — вся «правда» о том, за что здоровье
 // растёт и падает, в одном месте и под node-тестом (внутри App.jsx это было замыкание внутри эффекта).
 // Вызывающий обязан передать уже отфильтрованные по createdAt/эпохе входы — см. комментарии полей.
-export const healthDayDelta = ({
+// Возвращает {total, parts:[[подпись, значение],…]} — parts нужны, чтобы показать пользователю
+// РАСШИФРОВКУ «за что вчера +13 / −7»: без неё шкала выглядит как число, которое само куда-то ползёт.
+export const healthDayBreakdown = ({
   hasActivity = false,   // была ли активность (задачи/ежедневные/привычки)
   hadTasks = false,      // было ли ЧТО делать (одноразовые задачи или активные «Ежедневные»)
   allTasksDone = false,  // все одноразовые задачи дня закрыты (и их было ≥1)
@@ -38,25 +40,28 @@ export const healthDayDelta = ({
   closedCount = 0,       // закрытых в этот день дел/целей (active+archive)
   antiCount = 0,         // анти-тегов на дне
   missedHabits = 0,      // пропущено запланированных привычек
-  overdueDeadlines = 0,  // дедлайнов дел, просроченных именно в этот день (разовый штраф)
+  overdueDeadlines = 0,  // дедлайнов дел, ПРОВАЛЕННЫХ именно в этот день (разовый штраф)
 }, g = GAMIFY_DEFAULT) => {
-  let d = 0;
-  if(hasActivity) d += g.hpActive;
-  else if(hadTasks) d -= 10;              // задачи были, а день пуст → штраф
+  const parts = [];
+  const add = (label, v) => { if(v) parts.push([label, v]); };
+  if(hasActivity) add('Активный день', g.hpActive);
+  else if(hadTasks) add('Пустой день с задачами', -10);
   // else: день отдыха (делать было нечего) → ни штрафа, ни наград
   // Награды за качество дня — только в активные дни: иначе пустой день «без анти-тегов»
   // лечил бы здоровье сам по себе, за бездействие.
   if(hasActivity){
-    if(allTasksDone) d += g.hpPerfect;
-    if(cleanDay) d += g.hpClean;
-    if(habitsAllDone) d += g.hpHabitsAll;
+    if(allTasksDone) add('Все задачи закрыты', g.hpPerfect);
+    if(cleanDay) add('Без анти-тегов', g.hpClean);
+    if(habitsAllDone) add('Все привычки отмечены', g.hpHabitsAll);
   }
-  if(closedCount>0) d += Math.min(HEALTH_DONE_CAP, g.hpDone * closedCount);
-  d -= g.hpAnti * antiCount;
-  d -= Math.min(HEALTH_MISSED_HABIT_CAP, g.hpHabit * missedHabits);
-  d -= g.hpDeadline * overdueDeadlines;
-  return d;
+  if(closedCount>0) add(`Закрыто дел/целей: ${closedCount}`, Math.min(HEALTH_DONE_CAP, g.hpDone*closedCount));
+  add(`Анти-теги: ${antiCount}`, -g.hpAnti * antiCount);
+  add(`Пропуск привычек: ${missedHabits}`, -Math.min(HEALTH_MISSED_HABIT_CAP, g.hpHabit*missedHabits));
+  add(`Провален дедлайн: ${overdueDeadlines}`, -g.hpDeadline * overdueDeadlines);
+  return { total: parts.reduce((s,[,v])=>s+v, 0), parts };
 };
+
+export const healthDayDelta = (input, g = GAMIFY_DEFAULT) => healthDayBreakdown(input, g).total;
 
 export const COMBO_CAP_DAYS = 10;      // на скольких днях подряд комбо-бонус максимален
 export const WEEKLY_XP = 50;           // награда за испытание недели
@@ -152,3 +157,7 @@ export const impulsePenaltyRemaining = (pen, today=todayStr()) => {
   const frac = Math.max(0, (IMPULSE_DECAY_DAYS - daysBetween(pen.date, today)) / IMPULSE_DECAY_DAYS);
   return pen.amt * frac;
 };
+
+// Сколько дней истории ❤ храним в meta.healthLog. ~полгода: достаточно для любого периода Статистики
+// (максимум там — год, но график здоровья за год нечитаем), а localStorage это почти не занимает.
+export const HEALTH_LOG_DAYS = 180;
