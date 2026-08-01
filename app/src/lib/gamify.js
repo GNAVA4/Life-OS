@@ -11,10 +11,53 @@ export const GAMIFY_DEFAULT = {
   comboBonus: 5,   // XP-бонус за каждый день комбо (× streak, cap COMBO_CAP_DAYS)
   hpSurrender: 10, // здоровья за «сдаться» у привычки (разово)
   impSurrender: 15,// импульса за «сдаться» (затухает за 7 дней, т.к. импульс вычисляемый)
+  // ❤ НАГРАДЫ здоровья. До этого единственным источником восстановления был hpActive(+5), и его
+  // перекрывал почти любой штраф (анти-тег −5, пропуск привычки −3…−9) → здоровье только падало.
+  // Значения согласованы с пользователем (вариант «награды за качество дня»).
+  hpActive: 5,     // здоровья за активный день (было захардкожено 5 в App.jsx)
+  hpPerfect: 3,    // + все одноразовые задачи дня закрыты
+  hpClean: 2,      // + день без анти-тегов (только начиная с эпохи анти-тегов, см. ниже)
+  hpHabitsAll: 3,  // + все запланированные на день привычки отмечены
+  hpDone: 3,       // + за каждое закрытое в этот день дело/цель (cap ниже)
 };
 export const IMPULSE_DECAY_DAYS = 7; // за сколько дней штраф импульса от «сдаться» сходит на нет
 export const gamifyCfg = (settings) => ({...GAMIFY_DEFAULT, ...((settings&&settings.gamify)||{})});
 export const HEALTH_MISSED_HABIT_CAP = 9;
+// Зеркало HEALTH_MISSED_HABIT_CAP: разбор завалов (закрыл 10 дел за день) не должен разом заливать
+// шкалу здоровья до 100 — иначе штрафы предыдущих дней обнуляются одним махом.
+export const HEALTH_DONE_CAP = 9;
+// ❤ Дельта здоровья за ОДИН завершённый день. Чистая функция — вся «правда» о том, за что здоровье
+// растёт и падает, в одном месте и под node-тестом (внутри App.jsx это было замыкание внутри эффекта).
+// Вызывающий обязан передать уже отфильтрованные по createdAt/эпохе входы — см. комментарии полей.
+export const healthDayDelta = ({
+  hasActivity = false,   // была ли активность (задачи/ежедневные/привычки)
+  hadTasks = false,      // было ли ЧТО делать (одноразовые задачи или активные «Ежедневные»)
+  allTasksDone = false,  // все одноразовые задачи дня закрыты (и их было ≥1)
+  cleanDay = false,      // анти-тегов нет И день не раньше эпохи анти-тегов
+  habitsAllDone = false, // были запланированные привычки и ни одна не пропущена
+  closedCount = 0,       // закрытых в этот день дел/целей (active+archive)
+  antiCount = 0,         // анти-тегов на дне
+  missedHabits = 0,      // пропущено запланированных привычек
+  overdueDeadlines = 0,  // дедлайнов дел, просроченных именно в этот день (разовый штраф)
+}, g = GAMIFY_DEFAULT) => {
+  let d = 0;
+  if(hasActivity) d += g.hpActive;
+  else if(hadTasks) d -= 10;              // задачи были, а день пуст → штраф
+  // else: день отдыха (делать было нечего) → ни штрафа, ни наград
+  // Награды за качество дня — только в активные дни: иначе пустой день «без анти-тегов»
+  // лечил бы здоровье сам по себе, за бездействие.
+  if(hasActivity){
+    if(allTasksDone) d += g.hpPerfect;
+    if(cleanDay) d += g.hpClean;
+    if(habitsAllDone) d += g.hpHabitsAll;
+  }
+  if(closedCount>0) d += Math.min(HEALTH_DONE_CAP, g.hpDone * closedCount);
+  d -= g.hpAnti * antiCount;
+  d -= Math.min(HEALTH_MISSED_HABIT_CAP, g.hpHabit * missedHabits);
+  d -= g.hpDeadline * overdueDeadlines;
+  return d;
+};
+
 export const COMBO_CAP_DAYS = 10;      // на скольких днях подряд комбо-бонус максимален
 export const WEEKLY_XP = 50;           // награда за испытание недели
 

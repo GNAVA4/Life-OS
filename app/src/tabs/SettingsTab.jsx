@@ -140,23 +140,40 @@ export function SettingsTab({hidden, toggleModule, defaults, setDefault, categor
         <div style={{...S.dimSpan,marginLeft:0,marginBottom:10,display:'block'}}>
           Насколько сильно наказывают «провалы» и сколько даёт комбо. Показ квестов, испытания недели и анти-тегов включается в разделе «Что показывать» ниже.
         </div>
-        {[
-          {k:'antiXp',     label:'Анти-тег: снять XP',                 min:0, max:100},
-          {k:'hpAnti',     label:'Анти-тег: снять здоровья (в день)',  min:0, max:50},
-          {k:'hpHabit',    label:'Пропуск привычки: снять здоровья',   min:0, max:50},
-          {k:'hpDeadline', label:'Просроченный дедлайн: снять здоровья',min:0, max:50},
-          {k:'hpSurrender',label:'«Сдаться» привычкой: снять здоровья', min:0, max:50},
-          {k:'impSurrender',label:'«Сдаться» привычкой: снять импульса',min:0, max:100},
-          {k:'comboBonus', label:'Комбо: XP за день серии (× дни)',    min:0, max:50},
-        ].map(row=>(
-          <div key={row.k} className="row-hover" style={{...S.taskRow,alignItems:'center'}}>
-            <div style={{flex:1,fontSize:13}}>{row.label}</div>
-            <input style={{...S.input,width:74,minWidth:0,textAlign:'center',flex:'none'}} type="number" min={row.min} max={row.max}
-              value={gamify[row.k]} onChange={e=>{ let v=parseInt(e.target.value,10); if(isNaN(v)) v=0; v=Math.max(row.min,Math.min(row.max,v)); setGamify && setGamify({[row.k]:v}); }} />
-          </div>
-        ))}
+        {(() => {
+          const numRow = (row) => (
+            <div key={row.k} className="row-hover" style={{...S.taskRow,alignItems:'center'}}>
+              <div style={{flex:1,fontSize:13}}>{row.label}</div>
+              <input style={{...S.input,width:74,minWidth:0,textAlign:'center',flex:'none'}} type="number" min={row.min} max={row.max}
+                value={gamify[row.k]} onChange={e=>{ let v=parseInt(e.target.value,10); if(isNaN(v)) v=0; v=Math.max(row.min,Math.min(row.max,v)); setGamify && setGamify({[row.k]:v}); }} />
+            </div>
+          );
+          return (<>
+            <SubHead>Штрафы</SubHead>
+            {[
+              {k:'antiXp',     label:'Анти-тег: снять XP',                 min:0, max:100},
+              {k:'hpAnti',     label:'Анти-тег: снять здоровья (в день)',  min:0, max:50},
+              {k:'hpHabit',    label:'Пропуск привычки: снять здоровья',   min:0, max:50},
+              {k:'hpDeadline', label:'Просроченный дедлайн: снять здоровья',min:0, max:50},
+              {k:'hpSurrender',label:'«Сдаться» привычкой: снять здоровья', min:0, max:50},
+              {k:'impSurrender',label:'«Сдаться» привычкой: снять импульса',min:0, max:100},
+            ].map(numRow)}
+            <SettingsDivider/>
+            <SubHead>Награды здоровья ❤</SubHead>
+            {[
+              {k:'hpActive',   label:'Активный день: +здоровья',            min:0, max:50},
+              {k:'hpPerfect',  label:'Все задачи дня закрыты: +здоровья',   min:0, max:50},
+              {k:'hpClean',    label:'День без анти-тегов: +здоровья',      min:0, max:50},
+              {k:'hpHabitsAll',label:'Все привычки дня отмечены: +здоровья',min:0, max:50},
+              {k:'hpDone',     label:'Закрытое дело/цель: +здоровья (за шт.)',min:0, max:50},
+            ].map(numRow)}
+            <SettingsDivider/>
+            <SubHead>Прочее</SubHead>
+            {[{k:'comboBonus', label:'Комбо: XP за день серии (× дни)', min:0, max:50}].map(numRow)}
+          </>);
+        })()}
         <div style={{...S.dimSpan,marginLeft:0,marginTop:8,display:'block'}}>
-          Здоровье пересчитывается при заходе: активный день +5, пустой день с невыполненными задачами −10, день отдыха (без задач) — без штрафа. Штрафы за анти-теги/привычки/дедлайны применяются на следующий день. Комбо-бонус — раз в день при первой активности.
+          Здоровье пересчитывается при заходе — за ЗАВЕРШЁННЫЕ дни, поэтому награды и штрафы за сегодня появятся завтра. Пустой день с невыполненными задачами −10; день отдыха (задач не было) — без штрафа и без наград. Награды за качество дня начисляются только в активные дни; за закрытые дела и цели — в день закрытия. Комбо-бонус — раз в день при первой активности.
         </div>
         <div style={{marginTop:10}}>
           <button style={S.exportBtn} onClick={()=>setGamify && setGamify({...GAMIFY_DEFAULT})}>Сбросить к значениям по умолчанию</button>

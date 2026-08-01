@@ -13,7 +13,7 @@ import { BUILD_ID, EXPENSE_DEFAULT, INCOME_DEFAULT, TAGS_DEFAULT, ANTITAGS_DEFAU
 import { toLocalISODate, todayStr, addDays, daysAgoStr, isoWeek, daysBetween, formatDateRu, formatDateShort, openDatePicker, shiftMonth, monthLabelRu, periodOf } from './lib/dates.js';
 import { fmtMoney, maskMoney, uid, compactNum } from './lib/format.js';
 import { loadKey, saveKey, setPushHook, setHiddenModules, vis, MODULE_GROUPS } from './lib/storage.js';
-import { GAMIFY_DEFAULT, IMPULSE_DECAY_DAYS, HEALTH_MISSED_HABIT_CAP, COMBO_CAP_DAYS, WEEKLY_XP, LEVEL_CAP, LEVEL_CUM, QUEST_POOL, WEEKLY_POOL, RANKS, gamifyCfg, pickSeeded, questsForDate, weeklyForPeriod, levelForXp, rankForLevel, nextRank, playLevelUpSound, playAchSound, impulsePenaltyRemaining } from './lib/gamify.js';
+import { GAMIFY_DEFAULT, IMPULSE_DECAY_DAYS, healthDayDelta, COMBO_CAP_DAYS, WEEKLY_XP, LEVEL_CAP, LEVEL_CUM, QUEST_POOL, WEEKLY_POOL, RANKS, gamifyCfg, pickSeeded, questsForDate, weeklyForPeriod, levelForXp, rankForLevel, nextRank, playLevelUpSound, playAchSound, impulsePenaltyRemaining } from './lib/gamify.js';
 import { HABIT_WD, isHabitScheduled, habitDoneOn, habitCompletedCount, habitScheduleLabel, habitCurrentStreak, habitBestStreak, habitChallengeDone } from './lib/habits.js';
 import { snapshotValueRub, accountBalanceOn, accountBalanceNow, unassignedNetOn, migratePlans } from './lib/finance.js';
 import { isLegacyNote, migrateNotes, mergeStudyById, noteTitleOf, notePreviewOf, repeatLabel, reminderWhenLabel, hasReminderWhen } from './lib/notes.js';
@@ -117,12 +117,28 @@ function App(){
     setFinance({transactions:f.transactions||[], accounts:f.accounts||[], debtors:f.debtors||[]});
 
     // health recompute (session 024): день отдыха (не было задач/привычек) — НЕ штрафуем.
-    // −10 только если задачи были и ничего не сделано. Плюс штрафы: анти-теги, пропущенные
-    // запланированные привычки, просроченные дедлайны дел. +5 за активный день (cap 100).
+    // −10 только если задачи были и ничего не сделано. Штрафы: анти-теги, пропущенные запланированные
+    // привычки, просроченные дедлайны дел. НАГРАДЫ: активный день, идеальный день, день без анти-тегов,
+    // все привычки отмечены, закрытые дела/цели — раньше плюс был ровно один (+5) и любой штраф его
+    // перекрывал, здоровье могло только падать.
     const loadedDays = loadKey('lifeos:days', {});
     const loadedHabits = loadKey('lifeos:habits', []);
     const loadedStudy = loadKey('lifeos:study', []);
+    const loadedStudyArch = loadKey('lifeos:studyArchive', []);
     const loadedDailies = loadKey('lifeos:dailyTasks', []);
+    const loadedGoalsArch = loadKey('lifeos:goalsArchive', []); // loadedGoals уже загружен выше в этом же эффекте
+    // Закрытые сущности считаем по active+archive: иначе архивация задним числом меняла бы награду
+    // (правило «множество», session 033).
+    const closableAll = [
+      ...loadedStudy.filter(x=>x.status==='Выполнено'), ...loadedStudyArch,
+      ...(loadedGoals.year||[]), ...(loadedGoals.month||[]), ...(loadedGoals.week||[]), ...loadedGoalsArch,
+    ];
+    // Эпоха анти-тегов = первая дата, где анти-тег вообще отмечался. Награда «день без анти-тегов» —
+    // это награда за ОТСУТСТВИЕ признака: без эпохи вся история до появления фичи выглядит идеальной
+    // (тот же класс бага, что cleanDays, session 033). Если анти-теги не использовались НИ РАЗУ, эпохи
+    // нет и делить историю не на что — награду даём (фича просто не используется).
+    const antiEpoch = Object.keys(loadedDays)
+      .filter(d => ((loadedDays[d]||{}).antiTags||[]).length>0).sort()[0] || null;
     const gcfg = gamifyCfg(loadKey('lifeos:settings', {}));
     let m = loadKey('lifeos:meta', {xp:0, health:100, lastHealthCheck: todayStr()});
     let cursor = m.lastHealthCheck || todayStr();
@@ -140,19 +156,22 @@ function App(){
         || loadedDailies.some(d => d.active!==false && (!d.createdAt || d.createdAt<=cursor));
       // Гейт createdAt: без него привычка, созданная сегодня, ретроактивно штрафует за дни, когда её
       // ещё не было (habitCurrentStreak/habitBestStreak такой гейт имеют, здоровье — нет). session 033
-      const missedHabits = loadedHabits.filter(h => (!h.createdAt || h.createdAt<=cursor)
-        && isHabitScheduled(h,cursor) && !(h.log && h.log[cursor])).length;
-      let delta = 0;
-      if(hasActivity) delta += 5;
-      else if(hadTasks) delta -= 10;            // задачи были, а день пуст → штраф
-      // else: день отдыха (нет задач и активности) → 0
-      delta -= gcfg.hpAnti * (dayE.antiTags||[]).length;                       // анти-теги
-      delta -= Math.min(HEALTH_MISSED_HABIT_CAP, gcfg.hpHabit * missedHabits);  // провал привычки
+      const scheduledHabits = loadedHabits.filter(h => (!h.createdAt || h.createdAt<=cursor)
+        && isHabitScheduled(h,cursor));
+      const missedHabits = scheduledHabits.filter(h => !(h.log && h.log[cursor])).length;
+      const dayTasks = dayE.tasks||[];
       // просроченный дедлайн дела: разово, на следующий день после дедлайна
-      loadedStudy.forEach(x=>{ if(!x.deadline) return;
-        const overdue = (x.status!=='Выполнено') || (x.completedAt && x.completedAt> x.deadline);
-        if(overdue && cursor === addDays(x.deadline,1)) delta -= gcfg.hpDeadline;
-      });
+      const overdueDeadlines = loadedStudy.filter(x => x.deadline && cursor===addDays(x.deadline,1)
+        && ((x.status!=='Выполнено') || (x.completedAt && x.completedAt>x.deadline))).length;
+      const delta = healthDayDelta({
+        hasActivity, hadTasks,
+        allTasksDone: dayTasks.length>0 && dayTasks.every(x=>x.done),
+        cleanDay: (dayE.antiTags||[]).length===0 && (!antiEpoch || cursor>=antiEpoch),
+        habitsAllDone: scheduledHabits.length>0 && missedHabits===0,
+        closedCount: closableAll.filter(x => x.completedAt===cursor).length,
+        antiCount: (dayE.antiTags||[]).length,
+        missedHabits, overdueDeadlines,
+      }, gcfg);
       health = Math.max(0, Math.min(100, health + delta));
       cursor = addDays(cursor, 1);
       steps++;
