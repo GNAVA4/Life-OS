@@ -7,24 +7,26 @@ import { updateTodayWidget } from './widget.js';
 import { syncNotifications, requestNotif, testNotification, notifDiagnostics } from './notifications.js';
 
 // ---------- декомпозиция: чистые константы/хелперы/стили вынесены в ./lib (session: decompose) ----------
-import { C, PIE_COLORS } from './lib/theme.js';
+import { C } from './lib/theme.js';
 import { S } from './lib/styles.js';
-import { BUILD_ID, DAY_CHECK_MS, NOTIF_SOFT_LIMIT, EXPENSE_DEFAULT, INCOME_DEFAULT, TAGS_DEFAULT, ANTITAGS_DEFAULT, DEFAULT_ACCOUNTS, STUDY_PRIORITIES, STUDY_STATUSES, STUDY_IMPORTANCE, STUDY_URGENCY, IMPORTANCE_COLOR, URGENCY_COLOR, STATUS_COLOR, NOTE_TYPES, NOTE_REPEATS, NOTE_TYPE_COLOR, WEEKDAY_OPTS, weekdayLabel, BASE_EPICS, PERIOD_SCOPES, PERIOD_LABEL, DIFF_XP, GL_SCOPE } from './lib/constants.js';
-import { toLocalISODate, todayStr, addDays, daysAgoStr, isoWeek, daysBetween, formatDateRu, formatDateShort, openDatePicker, shiftMonth, monthLabelRu, periodOf } from './lib/dates.js';
+import { DAY_CHECK_MS, NOTIF_SOFT_LIMIT, EXPENSE_DEFAULT, INCOME_DEFAULT, TAGS_DEFAULT, ANTITAGS_DEFAULT, PERIOD_SCOPES, DIFF_XP, GL_SCOPE } from './lib/constants.js';
+import { todayStr, addDays, daysAgoStr, formatDateShort, periodOf } from './lib/dates.js';
 import { missedStudyDeadlineOn } from './lib/deadlines.js';
-import { fmtMoney, maskMoney, uid, compactNum } from './lib/format.js';
-import { loadKey, saveKey, setPushHook, setHiddenModules, vis, MODULE_GROUPS } from './lib/storage.js';
-import { GAMIFY_DEFAULT, IMPULSE_DECAY_DAYS, healthDayBreakdown, HEALTH_LOG_DAYS, COMBO_CAP_DAYS, WEEKLY_XP, LEVEL_CAP, LEVEL_CUM, QUEST_POOL, WEEKLY_POOL, RANKS, gamifyCfg, pickSeeded, questsForDate, weeklyForPeriod, levelForXp, rankForLevel, nextRank, playLevelUpSound, playAchSound, impulsePenaltyRemaining } from './lib/gamify.js';
-import { HABIT_WD, isHabitScheduled, habitDoneOn, habitCompletedCount, habitScheduleLabel, habitCurrentStreak, habitBestStreak, habitChallengeDone } from './lib/habits.js';
-import { snapshotValueRub, accountBalanceOn, accountBalanceNow, unassignedNetOn, migratePlans } from './lib/finance.js';
-import { isLegacyNote, migrateNotes, mergeStudyById, noteTitleOf, notePreviewOf, repeatLabel, reminderWhenLabel, hasReminderWhen } from './lib/notes.js';
-import { goalLinkOptions, goalByKey, goalLinksOf, goalMode } from './lib/goals.js';
-import { ACH_TIERS, ACHIEVEMENTS, ACH_GROUPS, computeAchStats, achValDisplay, longestRun } from './lib/achievements.js';
-import { axisColor, gridColor, baseChartOpts } from './lib/charts.js';
-import { Select, Modal, ConfirmIconBtn, SettingsSection, SubHead, SettingsDivider, StatusSeg } from './ui/primitives.jsx';
-import { GoalLinkPicker } from './ui/GoalLinkPicker.jsx';
+import { maskMoney, uid } from './lib/format.js';
+import { loadKey, saveKey, setPushHook, setHiddenModules, vis } from './lib/storage.js';
+import { healthDayBreakdown, HEALTH_LOG_DAYS, COMBO_CAP_DAYS, WEEKLY_XP, gamifyCfg, questsForDate, weeklyForPeriod, levelForXp, rankForLevel, nextRank, playLevelUpSound, playAchSound, impulsePenaltyRemaining } from './lib/gamify.js';
+import { isHabitScheduled, habitDoneOn, habitCompletedCount, habitCurrentStreak, habitBestStreak, habitChallengeDone } from './lib/habits.js';
+import { migratePlans } from './lib/finance.js';
+import { migrateNotes, mergeStudyById } from './lib/notes.js';
+import { goalLinksOf, goalMode } from './lib/goals.js';
+import { ACH_TIERS, ACHIEVEMENTS, computeAchStats } from './lib/achievements.js';
+import { Modal } from './ui/primitives.jsx';
 import { RolloverModal } from './ui/RolloverModal.jsx';
-import { ChartCanvas } from './ui/ChartCanvas.jsx';
+import { ToastStack } from './ui/ToastStack.jsx';
+import { LevelUpBanner } from './ui/LevelUpBanner.jsx';
+import { ProfileModal } from './ui/ProfileModal.jsx';
+import { SearchModal, SEARCH_MIN_CHARS } from './ui/SearchModal.jsx';
+import { MobileBottomNav, MobileSheet } from './ui/MobileNav.jsx';
 import { useIsMobile } from './ui/useIsMobile.js';
 import { TodayTab } from './tabs/TodayTab.jsx';
 import { HabitsTab } from './tabs/HabitsTab.jsx';
@@ -35,7 +37,7 @@ import { FinanceTab } from './tabs/FinanceTab.jsx';
 import { StatsTab } from './tabs/StatsTab.jsx';
 import { AchievementsTab } from './tabs/AchievementsTab.jsx';
 import { SettingsTab } from './tabs/SettingsTab.jsx';
-import { TAB_META, ALL_MOBILE_TAB_IDS, DEFAULT_MOBILE_TABS } from './lib/constants.js';
+import { ALL_MOBILE_TAB_IDS, DEFAULT_MOBILE_TABS } from './lib/constants.js';
 
 Chart.register(...registerables);
 
@@ -855,7 +857,8 @@ function App(){
 
   // 🔍 глобальный поиск по задачам/делам/заметкам/целям/привычкам. session 015.
   const searchResults = useMemo(() => {
-    const q = searchQ.trim().toLowerCase(); if(q.length<2) return [];
+    // Порог — ОДИН на поиск и на подсказку в модалке (SEARCH_MIN_CHARS), иначе разъедутся.
+    const q = searchQ.trim().toLowerCase(); if(q.length<SEARCH_MIN_CHARS) return [];
     const out=[]; const push=(o)=>{ if(out.length<50) out.push(o); };
     const hit=(s)=> s && String(s).toLowerCase().includes(q);
     Object.entries(days).forEach(([ds,e])=>{ (e.tasks||[]).forEach(t=>{ if(hit(t.text)) push({type:'Задача',label:t.text,sub:ds,go:()=>{ setSelectedDate(ds); setTab('today'); }}); }); });
@@ -1020,19 +1023,8 @@ function App(){
       </div>
 
       {searchOpen && (
-        <Modal onClose={()=>{ setSearchOpen(false); setSearchQ(''); }} title="🔍 Поиск">
-          <input autoFocus style={S.input} placeholder="Задачи, дела, заметки, цели, привычки…" value={searchQ} onChange={e=>setSearchQ(e.target.value)} />
-          <div style={{marginTop:12}}>
-            {searchQ.trim().length<2 && <div style={S.emptyState}>Введи хотя бы 2 символа</div>}
-            {searchQ.trim().length>=2 && searchResults.length===0 && <div style={S.emptyState}>Ничего не найдено</div>}
-            {searchResults.map((r,i)=>(
-              <div key={i} className="row-hover" style={{padding:'9px 6px',borderBottom:`1px solid ${C.border}`,cursor:'pointer'}} onClick={()=>runSearchGo(r.go)}>
-                <div style={{fontSize:13.5,color:C.text,overflowWrap:'anywhere'}}>{r.label}</div>
-                <div style={{fontSize:10.5,color:C.dim}}>{r.type}{r.sub?` · ${r.sub}`:''}</div>
-              </div>
-            ))}
-          </div>
-        </Modal>
+        <SearchModal query={searchQ} setQuery={setSearchQ} results={searchResults}
+          onClose={()=>{ setSearchOpen(false); setSearchQ(''); }} onGo={runSearchGo} />
       )}
 
       {importPending && (
@@ -1052,51 +1044,15 @@ function App(){
       )}
 
       {profileOpen && (
-        <Modal onClose={()=>setProfileOpen(false)} title={formatDateRu(todayStr())}>
-          <div style={{display:'flex',alignItems:'center',gap:12,background:C.panelAlt,border:`1px solid ${rank.color}`,borderRadius:12,padding:'14px 16px',marginBottom:12}}>
-            <span style={{fontSize:34,lineHeight:1}}>{rank.icon}</span>
-            <div style={{flex:1,minWidth:0}}>
-              <div style={{fontSize:17,fontWeight:800,color:rank.color}}>{rank.name}</div>
-              <div style={{fontSize:11.5,color:C.dim}}>Ур. {level}{levelMax?' · МАКС':''}{nextRank(level)?` · до «${nextRank(level).name}» ${nextRank(level).min-level} ур.`:''}</div>
-            </div>
-          </div>
-          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
-            <div style={S.profTile}><span style={{fontSize:20}}>🔥</span><div><div style={S.gaugeVal}>{streak}</div><div style={S.gaugeLabel}>дней подряд</div></div></div>
-            <div style={S.profTile}><span style={{fontSize:20}}>❤</span><div style={{flex:1}}><div style={S.gaugeVal}>{meta.health ?? 100}</div><div style={S.gaugeBarWrap}><div style={{...S.gaugeBarFill, background:C.red, width:`${meta.health ?? 100}%`}}/></div></div></div>
-            <div style={S.profTile}><span style={{fontSize:20}}>⚡</span><div style={{flex:1}}><div style={S.gaugeVal}>{impulse}</div><div style={S.gaugeBarWrap}><div style={{...S.gaugeBarFill, background:C.purple, width:`${impulse}%`}}/></div><div style={S.gaugeLabel}>импульс · 7 дней</div></div></div>
-            <div style={S.profTile}><span style={{fontSize:20}}>🔗</span><div style={{flex:1}}><div style={S.gaugeVal}>×{combo.mult.toFixed(1)}</div><div style={S.gaugeBarWrap}><div style={{...S.gaugeBarFill, background:C.cyan, width:`${Math.min(100,combo.streak/COMBO_CAP_DAYS*100)}%`}}/></div><div style={S.gaugeLabel}>комбо · {combo.streak} дн.</div></div></div>
-            <div style={{...S.profTile, gridColumn:'1 / -1'}}><span style={{fontSize:20}}>🏆</span><div style={{flex:1}}><div style={S.gaugeVal}>Ур. {level}{levelMax?' · МАКС':''}</div><div style={S.gaugeBarWrap}><div style={{...S.gaugeBarFill, width:`${levelMax?100:(into/needed)*100}%`}}/></div><div style={S.gaugeLabel}>{levelMax?'максимальный уровень':`${into}/${needed} XP`}</div></div></div>
-          </div>
-          {/* Расшифровка ❤ за последний ПОСЧИТАННЫЙ день: без неё шкала выглядит числом, которое само
-              куда-то ползёт, и непонятно, что на неё влияет. Считается за завершённые дни → это «вчера». */}
-          {meta.healthLastDay && (meta.healthLastDay.parts||[]).length>0 && (
-            <div style={{marginTop:10,padding:'9px 11px',background:C.panelAlt,border:`1px solid ${C.border}`,borderRadius:8}}>
-              <div style={{fontSize:11.5,color:C.dim,marginBottom:6}}>
-                ❤ за {formatDateShort(meta.healthLastDay.date)}:{' '}
-                <b style={{color:meta.healthLastDay.total>=0?C.green:C.red}}>
-                  {meta.healthLastDay.total>0?'+':''}{meta.healthLastDay.total}
-                </b>
-              </div>
-              {meta.healthLastDay.parts.map(([label,v],i)=>(
-                <div key={i} style={{display:'flex',fontSize:12,padding:'2px 0'}}>
-                  <span style={{flex:1,color:C.text}}>{label}</span>
-                  <span style={{fontFamily:"'JetBrains Mono',monospace",color:v>=0?C.green:C.red}}>{v>0?'+':''}{v}</span>
-                </div>
-              ))}
-            </div>
-          )}
-          {vis('tab.achievements') && <button style={{...S.sheetRow,marginTop:12}} onClick={()=>{ setTab('achievements'); setProfileOpen(false); }}>🏅 Награды · {achUnlockedCount}</button>}
-          <div style={S.sheetSection}>Аккаунт · синхронизация</div>
-          {user
-            ? <button style={{...S.sheetRow, borderColor:C.green, color:C.green}} onClick={()=>{ logout(); setProfileOpen(false); }}>☁ Выйти{user.email?` · ${user.email}`:''}</button>
-            : <button style={S.sheetRow} onClick={()=>{ login().catch(err=>alert('Вход не удался: '+err.message)); setProfileOpen(false); }}>☁ Войти через Google</button>}
-          <div style={S.sheetSection}>Данные</div>
-          <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-            <button style={S.sheetBtn} onClick={()=>{ exportExcel(); }}>⬇ Excel</button>
-            <button style={S.sheetBtn} onClick={()=>{ exportJson(); }}>⬇ JSON</button>
-            <button style={S.sheetBtn} onClick={()=>{ fileInputRef.current && fileInputRef.current.click(); setProfileOpen(false); }}>⬆ Импорт</button>
-          </div>
-        </Modal>
+        <ProfileModal onClose={()=>setProfileOpen(false)}
+          rank={rank} level={level} levelMax={levelMax} into={into} needed={needed}
+          streak={streak} health={meta.health ?? 100} impulse={impulse} combo={combo}
+          healthLastDay={meta.healthLastDay} achUnlockedCount={achUnlockedCount} user={user}
+          onOpenAchievements={()=>{ setTab('achievements'); setProfileOpen(false); }}
+          onLogin={()=>{ login().catch(err=>setImportMsg('Вход не удался: '+err.message)); setProfileOpen(false); }}
+          onLogout={()=>{ logout(); setProfileOpen(false); }}
+          onExportExcel={()=>exportExcel()} onExportJson={()=>exportJson()}
+          onImport={()=>{ fileInputRef.current && fileInputRef.current.click(); setProfileOpen(false); }} />
       )}
 
       {lsPct>=80 && !lsWarnDismissed && (
@@ -1164,50 +1120,18 @@ function App(){
       </div>
 
       {isMobile && (
-        <div style={S.bottomNav}>
-          {mobileTabIds.map(id => {
-            const active = tab===id; const m=TAB_META[id]||{label:id,icon:'•'};
-            return (
-              <button key={id} onClick={()=>{ setTab(id); setSheetOpen(false); }} style={{...S.bottomItem, color:active?C.amber:C.dim}}>
-                <span style={{fontSize:20, filter:active?'none':'grayscale(.4)'}}>{m.icon}</span>
-                <span style={{fontSize:10}}>{m.label}</span>
-              </button>
-            );
-          })}
-          <button onClick={()=>setSheetOpen(true)} style={{...S.bottomItem, color: (!mobileTabIds.includes(tab))?C.amber:C.dim}}>
-            <span style={{fontSize:20}}>☰</span><span style={{fontSize:10}}>Ещё</span>
-          </button>
-        </div>
+        <MobileBottomNav tabIds={mobileTabIds} tab={tab}
+          onPick={(id)=>{ setTab(id); setSheetOpen(false); }} onOpenSheet={()=>setSheetOpen(true)} />
       )}
 
       {isMobile && sheetOpen && (
-        <div className="anim-fade" style={S.sheetOverlay} onClick={()=>setSheetOpen(false)}>
-          <div className="anim-sheet" style={S.sheet} onClick={e=>e.stopPropagation()}>
-            <div style={S.sheetGrab} />
-            <div style={S.sheetSection}>Разделы</div>
-            <div style={S.sheetGrid}>
-              {sheetTabIds.map(id=>{ const m=TAB_META[id]; return (
-                <button key={id} onClick={()=>{ setTab(id); setSheetOpen(false); }} style={{...S.sheetTile, ...(tab===id?{borderColor:C.amber,color:C.amber}:{})}}>
-                  <span style={{fontSize:22}}>{m.icon}</span><span style={{fontSize:12}}>{m.label}</span>
-                </button>
-              );})}
-              <button onClick={()=>{ setTab('settings'); setSheetOpen(false); }} style={{...S.sheetTile, ...(tab==='settings'?{borderColor:C.amber,color:C.amber}:{})}}>
-                <span style={{fontSize:22}}>⚙</span><span style={{fontSize:12}}>Настройки</span>
-              </button>
-            </div>
-            <div style={S.sheetSection}>Аккаунт · синхронизация</div>
-            {user
-              ? <button style={{...S.sheetRow, borderColor:C.green, color:C.green}} onClick={()=>{ logout(); setSheetOpen(false); }}>☁ Выйти{user.email?` · ${user.email}`:''}</button>
-              : <button style={S.sheetRow} onClick={()=>{ login().catch(err=>alert('Вход не удался: '+err.message)); setSheetOpen(false); }}>☁ Войти через Google</button>}
-            <div style={S.sheetSection}>Данные</div>
-            <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-              <button style={S.sheetBtn} onClick={()=>{ exportExcel(); setSheetOpen(false); }}>⬇ Excel</button>
-              <button style={S.sheetBtn} onClick={()=>{ exportJson(); setSheetOpen(false); }}>⬇ JSON</button>
-              <button style={S.sheetBtn} onClick={()=>{ fileInputRef.current && fileInputRef.current.click(); setSheetOpen(false); }}>⬆ Импорт</button>
-            </div>
-            <button style={{...S.sheetRow, marginTop:14, textAlign:'center', color:C.dim}} onClick={()=>setSheetOpen(false)}>Закрыть</button>
-          </div>
-        </div>
+        <MobileSheet tabIds={sheetTabIds} tab={tab} user={user}
+          onPick={(id)=>{ setTab(id); setSheetOpen(false); }} onClose={()=>setSheetOpen(false)}
+          onLogin={()=>{ login().catch(err=>setImportMsg('Вход не удался: '+err.message)); setSheetOpen(false); }}
+          onLogout={()=>{ logout(); setSheetOpen(false); }}
+          onExportExcel={()=>{ exportExcel(); setSheetOpen(false); }}
+          onExportJson={()=>{ exportJson(); setSheetOpen(false); }}
+          onImport={()=>{ fileInputRef.current && fileInputRef.current.click(); setSheetOpen(false); }} />
       )}
 
       {rollover && (
@@ -1224,89 +1148,9 @@ function App(){
         </Modal>
       )}
 
-      {toasts.length>0 && (
-        <div style={{...S.toastWrap, bottom: isMobile?86:16}}>
-          {toasts.map(t=>{
-            if(t.summary){
-              return (
-                <div key={t.tid} className="anim-toast" style={{...S.toast, borderColor:C.amber, cursor:'pointer'}} onClick={()=>setTab('achievements')}>
-                  <span style={{fontSize:26}}>🏅</span>
-                  <div>
-                    <div style={{fontSize:10.5, color:C.amber, letterSpacing:'.08em'}}>ДОСТИЖЕНИЯ</div>
-                    <div style={{fontSize:14, fontWeight:700}}>Открыто сразу {t.summary}</div>
-                    <div style={{fontSize:11, color:C.dim}}>Загляни во вкладку 🏅 Награды</div>
-                  </div>
-                </div>
-              );
-            }
-            if(t.combo){
-              return (
-                <div key={t.tid} className="anim-toast" style={{...S.toast, borderColor:C.cyan}}>
-                  <span style={{fontSize:26}}>🔗</span>
-                  <div>
-                    <div style={{fontSize:10.5, color:C.cyan, letterSpacing:'.08em'}}>КОМБО · {t.streak} ДН.</div>
-                    <div style={{fontSize:14, fontWeight:700}}>+{t.combo} XP</div>
-                    <div style={{fontSize:11, color:C.dim}}>серия активных дней</div>
-                  </div>
-                </div>
-              );
-            }
-            if(t.quest){
-              return (
-                <div key={t.tid} className="anim-toast" style={{...S.toast, borderColor:C.green}}>
-                  <span style={{fontSize:26}}>🎯</span>
-                  <div>
-                    <div style={{fontSize:10.5, color:C.green, letterSpacing:'.08em'}}>ЗАДАНИЕ ДНЯ · +{t.xp} XP</div>
-                    <div style={{fontSize:14, fontWeight:700}}>{t.quest}</div>
-                  </div>
-                </div>
-              );
-            }
-            if(t.weekly){
-              return (
-                <div key={t.tid} className="anim-toast" style={{...S.toast, borderColor:C.amber}}>
-                  <span style={{fontSize:26}}>🏆</span>
-                  <div>
-                    <div style={{fontSize:10.5, color:C.amber, letterSpacing:'.08em'}}>ИСПЫТАНИЕ НЕДЕЛИ · +{WEEKLY_XP} XP</div>
-                    <div style={{fontSize:14, fontWeight:700}}>{t.weekly}</div>
-                  </div>
-                </div>
-              );
-            }
-            const a=ACHIEVEMENTS.find(x=>x.id===t.id); if(!a) return null; const tier=ACH_TIERS[a.tier];
-            return (
-              <div key={t.tid} className="anim-toast" style={{...S.toast, borderColor:tier.c}}>
-                <span style={{fontSize:26}}>{a.icon}</span>
-                <div>
-                  <div style={{fontSize:10.5, color:tier.c, letterSpacing:'.08em'}}>ДОСТИЖЕНИЕ ПОЛУЧЕНО</div>
-                  <div style={{fontSize:14, fontWeight:700}}>{a.title}</div>
-                  <div style={{fontSize:11, color:C.dim}}>{a.desc}</div>
-                </div>
-              </div>
-            ); })}
-        </div>
-      )}
+      <ToastStack toasts={toasts} isMobile={isMobile} onOpenAchievements={()=>setTab('achievements')} />
 
-      {levelUp && (
-        <div style={S.levelUpOverlay} onClick={()=>setLevelUp(null)}>
-          <div className="lo-confetti">
-            {Array.from({length:36}).map((_,i)=>{
-              const cols=[C.amber,C.cyan,C.green,C.purple,C.red,'#6FA8DC','#E0C36B'];
-              return <span key={i} className="lo-confetti-piece" style={{ left:`${(i*2.8+3)%100}%`, background:cols[i%cols.length],
-                animationDelay:`${(i%12)*0.12}s`, animationDuration:`${2.2+(i%5)*0.35}s`,
-                transform:`rotate(${i*40}deg)`, width:i%3===0?9:6, height:i%3===0?14:9 }} />;
-            })}
-          </div>
-          <div className="anim-levelup" style={S.levelUpCard}>
-            <div style={{fontSize:12,letterSpacing:'.18em',color:C.amber,fontWeight:700}}>НОВЫЙ УРОВЕНЬ</div>
-            <div style={{fontSize:72,fontWeight:900,lineHeight:1,margin:'6px 0',color:C.text,textShadow:`0 0 26px ${C.amber}`}}>{levelUp.level}</div>
-            <div style={{fontSize:26}}>{levelUp.rank.icon}</div>
-            <div style={{fontSize:16,fontWeight:800,color:levelUp.rank.color,marginTop:2}}>{levelUp.rank.name}</div>
-            {levelMax && <div style={{fontSize:12,color:C.dim,marginTop:6}}>Максимальный уровень достигнут 👑</div>}
-            <div style={{fontSize:11,color:C.dim,marginTop:10}}>нажми, чтобы закрыть</div>
-          </div>
-        </div>
-      )}
+      <LevelUpBanner levelUp={levelUp} levelMax={levelMax} onClose={()=>setLevelUp(null)} />
     </div>
   );
 }
