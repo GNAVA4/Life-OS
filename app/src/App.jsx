@@ -11,10 +11,9 @@ import { C } from './lib/theme.js';
 import { S } from './lib/styles.js';
 import { DAY_CHECK_MS, NOTIF_SOFT_LIMIT, EXPENSE_DEFAULT, INCOME_DEFAULT, TAGS_DEFAULT, ANTITAGS_DEFAULT, PERIOD_SCOPES, DIFF_XP, GL_SCOPE } from './lib/constants.js';
 import { todayStr, addDays, daysAgoStr, formatDateShort, periodOf } from './lib/dates.js';
-import { missedStudyDeadlineOn } from './lib/deadlines.js';
 import { maskMoney, uid } from './lib/format.js';
 import { loadKey, saveKey, setPushHook, setHiddenModules, vis } from './lib/storage.js';
-import { healthDayBreakdown, HEALTH_LOG_DAYS, COMBO_CAP_DAYS, WEEKLY_XP, gamifyCfg, questsForDate, weeklyForPeriod, levelForXp, rankForLevel, nextRank, playLevelUpSound, playAchSound, impulsePenaltyRemaining } from './lib/gamify.js';
+import { replayHealth, mergeMetaHealth, COMBO_CAP_DAYS, WEEKLY_XP, gamifyCfg, questsForDate, weeklyForPeriod, levelForXp, rankForLevel, nextRank, playLevelUpSound, playAchSound, impulsePenaltyRemaining } from './lib/gamify.js';
 import { isHabitScheduled, habitDoneOn, habitCompletedCount, habitCurrentStreak, habitBestStreak, habitChallengeDone } from './lib/habits.js';
 import { migratePlans } from './lib/finance.js';
 import { migrateNotes, mergeStudyById } from './lib/notes.js';
@@ -81,6 +80,29 @@ function App(){
   const [confirmDialog,setConfirmDialog] = useState(null); // {message, onYes} — WebView-safe подтверждение вместо window.confirm
   const [lsWarnDismissed,setLsWarnDismissed] = useState(false); // предупреждение о квоте localStorage закрыто в этой сессии
 
+  // ❤ Пересчёт здоровья по ЗАВЕРШЁННЫМ дням (день отдыха не штрафуется, награды за качество дня —
+  // см. replayHealth в lib/gamify.js). Читает ИЗ localStorage, а не из React-стейта: вызывается и на
+  // старте (стейт ещё не разложен), и сразу после адопции облака (в localStorage к тому моменту уже
+  // облачные данные).
+  //
+  // 🔴 Второй вызов ОБЯЗАТЕЛЕН (session 037): раньше реплей жил только в mount-эффекте, а облако
+  // приходит позже и затирало его результат целиком — здоровье на секунду показывалось правильным и
+  // откатывалось к облачному, вместе с курсором lastHealthCheck. И так каждый запуск, вечно.
+  const recomputeHealth = useCallback(() => {
+    const m = replayHealth({
+      meta: loadKey('lifeos:meta', {xp:0, health:100, lastHealthCheck: todayStr()}),
+      days: loadKey('lifeos:days', {}),
+      habits: loadKey('lifeos:habits', []),
+      dailies: loadKey('lifeos:dailyTasks', []),
+      study: loadKey('lifeos:study', []),
+      studyArchive: loadKey('lifeos:studyArchive', []),
+      goals: loadKey('lifeos:goals', {}),
+      goalsArchive: loadKey('lifeos:goalsArchive', []),
+      settings: loadKey('lifeos:settings', {}),
+    });
+    setMeta(m); saveKey('lifeos:meta', m); // saveKey зеркалит в облако, если синк уже поднят
+  }, []);
+
   useEffect(() => {
     setDays(loadKey('lifeos:days', {}));
     setDailyTasks(loadKey('lifeos:dailyTasks', []));
@@ -119,81 +141,7 @@ function App(){
     const f = loadKey('lifeos:finance', {transactions:[],accounts:[],debtors:[]});
     setFinance({transactions:f.transactions||[], accounts:f.accounts||[], debtors:f.debtors||[]});
 
-    // health recompute (session 024): день отдыха (не было задач/привычек) — НЕ штрафуем.
-    // −10 только если задачи были и ничего не сделано. Штрафы: анти-теги, пропущенные запланированные
-    // привычки, просроченные дедлайны дел. НАГРАДЫ: активный день, идеальный день, день без анти-тегов,
-    // все привычки отмечены, закрытые дела/цели — раньше плюс был ровно один (+5) и любой штраф его
-    // перекрывал, здоровье могло только падать.
-    const loadedDays = loadKey('lifeos:days', {});
-    const loadedHabits = loadKey('lifeos:habits', []);
-    const loadedStudy = loadKey('lifeos:study', []);
-    const loadedStudyArch = loadKey('lifeos:studyArchive', []);
-    const loadedDailies = loadKey('lifeos:dailyTasks', []);
-    const loadedGoalsArch = loadKey('lifeos:goalsArchive', []); // loadedGoals уже загружен выше в этом же эффекте
-    // Закрытые сущности считаем по active+archive: иначе архивация задним числом меняла бы награду
-    // (правило «множество», session 033).
-    const closableAll = [
-      ...loadedStudy.filter(x=>x.status==='Выполнено'), ...loadedStudyArch,
-      ...(loadedGoals.year||[]), ...(loadedGoals.month||[]), ...(loadedGoals.week||[]), ...loadedGoalsArch,
-    ];
-    // Эпоха анти-тегов = первая дата, где анти-тег вообще отмечался. Награда «день без анти-тегов» —
-    // это награда за ОТСУТСТВИЕ признака: без эпохи вся история до появления фичи выглядит идеальной
-    // (тот же класс бага, что cleanDays, session 033). Если анти-теги не использовались НИ РАЗУ, эпохи
-    // нет и делить историю не на что — награду даём (фича просто не используется).
-    const antiEpoch = Object.keys(loadedDays)
-      .filter(d => ((loadedDays[d]||{}).antiTags||[]).length>0).sort()[0] || null;
-    const gcfg = gamifyCfg(loadKey('lifeos:settings', {}));
-    let m = loadKey('lifeos:meta', {xp:0, health:100, lastHealthCheck: todayStr()});
-    let cursor = m.lastHealthCheck || todayStr();
-    const t = todayStr();
-    let steps = 0;
-    let health = m.health ?? 100;
-    const log = {...(m.healthLog||{})};   // {дата: значение ❤ ПОСЛЕ этого дня} — витрина для графика
-    let lastDay = m.healthLastDay || null; // расшифровка последнего посчитанного дня («за что»)
-    while (cursor < t && steps < 60){
-      const dayE = loadedDays[cursor] || {};
-      const hasActivity = (dayE.tasks||[]).some(x=>x.done) ||
-        Object.values(dayE.dailyCompletions||{}).some(Boolean) ||
-        loadedHabits.some(h => h.log && h.log[cursor]);
-      // «было что делать» = одноразовые задачи на этот день ИЛИ активные «Ежедневные». Раньше учитывались
-      // только одноразовые → кто живёт на ежедневных, штраф за пустой день не получал никогда. session 033
-      const hadTasks = (dayE.tasks||[]).length>0
-        || loadedDailies.some(d => d.active!==false && (!d.createdAt || d.createdAt<=cursor));
-      // Гейт createdAt: без него привычка, созданная сегодня, ретроактивно штрафует за дни, когда её
-      // ещё не было (habitCurrentStreak/habitBestStreak такой гейт имеют, здоровье — нет). session 033
-      const scheduledHabits = loadedHabits.filter(h => (!h.createdAt || h.createdAt<=cursor)
-        && isHabitScheduled(h,cursor));
-      const missedHabits = scheduledHabits.filter(h => !(h.log && h.log[cursor])).length;
-      const dayTasks = dayE.tasks||[];
-      // Дедлайн ПРОВАЛЕН в этот день — разовый штраф на следующий день после срока. Это ДРУГОЙ вопрос,
-      // чем «просрочено прямо сейчас» (уведомления): дело, закрытое позже срока, дедлайн провалило, но
-      // просроченным уже не является. Оба правила теперь живут в lib/deadlines.js и не разъезжаются.
-      const overdueDeadlines = loadedStudy.filter(x => missedStudyDeadlineOn(x, cursor)).length;
-      const br = healthDayBreakdown({
-        hasActivity, hadTasks,
-        allTasksDone: dayTasks.length>0 && dayTasks.every(x=>x.done),
-        cleanDay: (dayE.antiTags||[]).length===0 && (!antiEpoch || cursor>=antiEpoch),
-        habitsAllDone: scheduledHabits.length>0 && missedHabits===0,
-        closedCount: closableAll.filter(x => x.completedAt===cursor).length,
-        antiCount: (dayE.antiTags||[]).length,
-        missedHabits, overdueDeadlines,
-      }, gcfg);
-      health = Math.max(0, Math.min(100, health + br.total));
-      // История ❤ по дням: сама шкала — свёрнутое число, по нему нельзя построить график и нельзя
-      // объяснить, «за что». Пишем значение ПОСЛЕ дня (для графика) и расшифровку последнего дня.
-      log[cursor] = health;
-      lastDay = { date: cursor, total: br.total, parts: br.parts };
-      cursor = addDays(cursor, 1);
-      steps++;
-    }
-    // lastHealthCheck = докуда РЕАЛЬНО дошёл цикл, а не «сегодня»: при упоре в кэп steps<60 (не заходил
-    // долго) остаток дней раньше молча терялся навсегда — теперь досчитается при следующем запуске. session 033
-    // Лог подрезаем: это витрина для графика, а не источник правды — здоровье живёт в m.health.
-    const logKeys = Object.keys(log).sort();
-    const trimmed = logKeys.length>HEALTH_LOG_DAYS
-      ? Object.fromEntries(logKeys.slice(-HEALTH_LOG_DAYS).map(k=>[k, log[k]])) : log;
-    m = {...m, health, lastHealthCheck: cursor, healthLog: trimmed, healthLastDay: lastDay};
-    setMeta(m); saveKey('lifeos:meta', m);
+    recomputeHealth();
   }, []);
 
   // ⏰ Смена ЛОГИЧЕСКОГО дня, пока приложение живёт. Весь пересчёт (здоровье, задания дня, стрик,
@@ -222,8 +170,16 @@ function App(){
   // uses raw localStorage.setItem (NOT saveKey) so it does not echo back up to the cloud.
   const applyRemote = useCallback((key, valueString) => {
     try {
-      localStorage.setItem(key, valueString);
-      const v = JSON.parse(valueString);
+      let v = JSON.parse(valueString);
+      let raw = valueString;
+      // 🔴 meta — единственный ключ, который НЕЛЬЗЯ принимать целиком: пара {health,lastHealthCheck}
+      // монотонна по курсору, и облако с более ранним курсором откатывает уже учтённые дни.
+      // Остальные поля meta (xp, weeklyClaimed…) по-прежнему last-write-wins. session 037.
+      if(key === 'lifeos:meta'){
+        const merged = mergeMetaHealth(loadKey('lifeos:meta', null), v);
+        if(merged !== v){ v = merged; raw = JSON.stringify(merged); }
+      }
+      localStorage.setItem(key, raw);
       switch(key){
         case 'lifeos:days': setDays(v); break;
         case 'lifeos:dailyTasks': setDailyTasks(v); break;
@@ -272,6 +228,11 @@ function App(){
       if(cancelled) return;
       // cloud wins for keys it already has (this device adopts the shared state)
       Object.entries(cloud).forEach(([key, valStr]) => applyRemote(key, valStr));
+      // ❤ Здоровье считается по данным, а данные только что приехали из облака: пересчитываем ПОСЛЕ
+      // адопции. Иначе стартовый реплей был холостым — облако приходит позже и всё равно его затирало
+      // (session 037). Идемпотентно: если курсор уже на сегодня, ничего не меняется и в облако не
+      // пишется лишнего; а к этому моменту pushHook уже поднят, поэтому результат наконец доезжает.
+      recomputeHealth();
       // seed gaps: push local keys the cloud doesn't have yet (first device seeds the cloud)
       for(const key of LIFEOS_KEYS){
         if(!(key in cloud)){ const raw = localStorage.getItem(key); if(raw!=null){ try{ await pushKey(uid, key, raw); }catch(e){} } }
@@ -280,7 +241,7 @@ function App(){
       unsub = subscribe(uid, applyRemote); // live updates from other devices
     })();
     return () => { cancelled = true; unsub(); };
-  }, [user, applyRemote]);
+  }, [user, applyRemote, recomputeHealth]);
 
   const persist = {
     days: (n)=>{setDays(n); saveKey('lifeos:days',n);},

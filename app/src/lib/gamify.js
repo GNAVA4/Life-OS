@@ -1,6 +1,8 @@
 // Геймификация: настраиваемые штрафы/бонусы, уровни с потолком, ранги, звуки, квесты, испытания.
 import { C } from './theme.js';
-import { todayStr, daysBetween } from './dates.js';
+import { todayStr, daysBetween, addDays } from './dates.js';
+import { isHabitScheduled } from './habits.js';
+import { missedStudyDeadlineOn } from './deadlines.js';
 
 // Настраиваемые значения (Настройки→Геймификация). settings.gamify перекрывает дефолты.
 export const GAMIFY_DEFAULT = {
@@ -62,6 +64,105 @@ export const healthDayBreakdown = ({
 };
 
 export const healthDayDelta = (input, g = GAMIFY_DEFAULT) => healthDayBreakdown(input, g).total;
+
+// Сколько ЗАВЕРШЁННЫХ дней максимум доигрываем за один запуск (не заходил месяц — не считаем вечность).
+// Курсор сохраняется докуда реально дошли, остаток доигрывается в следующий запуск (session 033).
+export const HEALTH_REPLAY_CAP = 60;
+
+// ❤ Реплей здоровья по завершённым дням: от meta.lastHealthCheck до «сегодня» (не включая — сегодня
+// ещё не закончился). Возвращает НОВУЮ meta, ничего не пишет: и вызов на старте, и вызов после
+// адопции облака должны получать один и тот же результат из одних и тех же данных.
+// Идемпотентна по курсору: повторный вызов на уже посчитанном интервале ничего не меняет.
+export function replayHealth(store, today = todayStr()){
+  const meta = store.meta || {};
+  const days = store.days || {};
+  const habits = store.habits || [];
+  const dailies = store.dailies || [];
+  const study = store.study || [];
+  const studyArchive = store.studyArchive || [];
+  const goals = store.goals || {};
+  const goalsArchive = store.goalsArchive || [];
+  const g = gamifyCfg(store.settings || {});
+  // Закрытые сущности считаем по active+archive: иначе архивация задним числом меняла бы награду
+  // (правило «множество», session 033).
+  const closableAll = [
+    ...study.filter(x=>x.status==='Выполнено'), ...studyArchive,
+    ...(goals.year||[]), ...(goals.month||[]), ...(goals.week||[]), ...goalsArchive,
+  ];
+  // Эпоха анти-тегов = первая дата, где анти-тег вообще отмечался. Награда «день без анти-тегов» —
+  // это награда за ОТСУТСТВИЕ признака: без эпохи вся история до появления фичи выглядит идеальной
+  // (тот же класс бага, что cleanDays, session 033). Если анти-теги не использовались НИ РАЗУ, эпохи
+  // нет и делить историю не на что — награду даём (фича просто не используется).
+  const antiEpoch = Object.keys(days).filter(d => ((days[d]||{}).antiTags||[]).length>0).sort()[0] || null;
+
+  let cursor = meta.lastHealthCheck || today;
+  let health = meta.health ?? 100;
+  const log = {...(meta.healthLog||{})};   // {дата: значение ❤ ПОСЛЕ этого дня} — витрина для графика
+  let lastDay = meta.healthLastDay || null; // расшифровка последнего посчитанного дня («за что»)
+  let steps = 0;
+  while(cursor < today && steps < HEALTH_REPLAY_CAP){
+    const dayE = days[cursor] || {};
+    const hasActivity = (dayE.tasks||[]).some(x=>x.done) ||
+      Object.values(dayE.dailyCompletions||{}).some(Boolean) ||
+      habits.some(h => h.log && h.log[cursor]);
+    // «было что делать» = одноразовые задачи на этот день ИЛИ активные «Ежедневные». Раньше учитывались
+    // только одноразовые → кто живёт на ежедневных, штраф за пустой день не получал никогда. session 033
+    const hadTasks = (dayE.tasks||[]).length>0
+      || dailies.some(d => d.active!==false && (!d.createdAt || d.createdAt<=cursor));
+    // Гейт createdAt: без него привычка, созданная сегодня, ретроактивно штрафует за дни, когда её
+    // ещё не было (habitCurrentStreak/habitBestStreak такой гейт имеют, здоровье — нет). session 033
+    const scheduledHabits = habits.filter(h => (!h.createdAt || h.createdAt<=cursor)
+      && isHabitScheduled(h,cursor));
+    const missedHabits = scheduledHabits.filter(h => !(h.log && h.log[cursor])).length;
+    const dayTasks = dayE.tasks||[];
+    // Дедлайн ПРОВАЛЕН в этот день — разовый штраф на следующий день после срока. Это ДРУГОЙ вопрос,
+    // чем «просрочено прямо сейчас» (уведомления): дело, закрытое позже срока, дедлайн провалило, но
+    // просроченным уже не является. Оба правила живут в lib/deadlines.js и не разъезжаются.
+    const overdueDeadlines = study.filter(x => missedStudyDeadlineOn(x, cursor)).length;
+    const br = healthDayBreakdown({
+      hasActivity, hadTasks,
+      allTasksDone: dayTasks.length>0 && dayTasks.every(x=>x.done),
+      cleanDay: (dayE.antiTags||[]).length===0 && (!antiEpoch || cursor>=antiEpoch),
+      habitsAllDone: scheduledHabits.length>0 && missedHabits===0,
+      closedCount: closableAll.filter(x => x.completedAt===cursor).length,
+      antiCount: (dayE.antiTags||[]).length,
+      missedHabits, overdueDeadlines,
+    }, g);
+    health = Math.max(0, Math.min(100, health + br.total));
+    // История ❤ по дням: сама шкала — свёрнутое число, по нему нельзя построить график и нельзя
+    // объяснить, «за что». Пишем значение ПОСЛЕ дня (для графика) и расшифровку последнего дня.
+    log[cursor] = health;
+    lastDay = { date: cursor, total: br.total, parts: br.parts };
+    cursor = addDays(cursor, 1);
+    steps++;
+  }
+  // lastHealthCheck = докуда РЕАЛЬНО дошёл цикл, а не «сегодня»: при упоре в кэп (не заходил долго)
+  // остаток дней раньше молча терялся навсегда — теперь досчитается при следующем запуске. session 033
+  // Лог подрезаем: это витрина для графика, а не источник правды — здоровье живёт в meta.health.
+  const logKeys = Object.keys(log).sort();
+  const trimmed = logKeys.length>HEALTH_LOG_DAYS
+    ? Object.fromEntries(logKeys.slice(-HEALTH_LOG_DAYS).map(k=>[k, log[k]])) : log;
+  return {...meta, health, lastHealthCheck: cursor, healthLog: trimmed, healthLastDay: lastDay};
+}
+
+// 🔴 Слияние meta, пришедшей ИЗ ОБЛАКА, с локальной. Все поля — last-write-wins (облако новее), КРОМЕ
+// пары {health, lastHealthCheck}: она МОНОТОННА по курсору — кто дальше прошёл по дням, тот уже учёл
+// их вклад в шкалу. Принять пару с более РАННИМ курсором = откатить учтённые дни: здоровье падает
+// обратно, а те же дни доигрываются заново при каждом запуске (и никогда не доезжают до облака,
+// потому что реплей на старте случается ДО того, как поднимется синк). Это и есть баг
+// «здоровье на секунду правильное, потом минимальное». session 037.
+export function mergeMetaHealth(local, remote){
+  if(!local || !remote) return remote;
+  const lc = local.lastHealthCheck, rc = remote.lastHealthCheck;
+  if(!lc || (rc && rc >= lc)) return remote;   // облако не отстаёт — берём его целиком, как раньше
+  return {
+    ...remote,
+    health: local.health, lastHealthCheck: lc,
+    // Лог — витрина: склеиваем оба, локальные значения главнее (они соответствуют оставленной шкале).
+    healthLog: {...(remote.healthLog||{}), ...(local.healthLog||{})},
+    healthLastDay: local.healthLastDay || remote.healthLastDay,
+  };
+}
 
 export const COMBO_CAP_DAYS = 10;      // на скольких днях подряд комбо-бонус максимален
 export const WEEKLY_XP = 50;           // награда за испытание недели
