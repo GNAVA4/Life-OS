@@ -1,10 +1,9 @@
 // Вкладка/раздел: GoalsTab (вынесено из App.jsx, session: decompose phase 3)
 import { useState } from 'react';
 import { PERIOD_LABEL } from '../lib/constants.js';
-import { daysBetween, toLocalISODate, todayStr } from '../lib/dates.js';
 import { S } from '../lib/styles.js';
 import { C } from '../lib/theme.js';
-import { goalMode as modeOf } from '../lib/goals.js';
+import { goalMode as modeOf, paceInfo } from '../lib/goals.js';
 import { ConfirmIconBtn, Select } from '../ui/primitives.jsx';
 
 export function GoalsTab({goals, addGoal, setGoalProgress, addGoalSubtask, toggleGoalSubtask, deleteGoalSubtask, deleteGoal, renameGoal, setGoalMode, setGoalCounter, setGoalDeadline, archiveGoal, archive=[], restoreGoal, deleteArchivedGoal, showGoalDeadline=false, collapsed={}, onToggleCollapse}){
@@ -17,29 +16,8 @@ export function GoalsTab({goals, addGoal, setGoalProgress, addGoalSubtask, toggl
   const scopes = [{id:'year',label:'Год'},{id:'month',label:'Месяц'},{id:'week',label:'Неделя'},{id:'day',label:'День'}];
   const addFromForm = () => { if(text.trim()){ addGoal(scope,text.trim()); setText(''); } };
   // modeOf импортирован из lib/goals (goalMode) — единый источник, чтобы привязка/вклад и UI совпадали
-  // последний день текущего периода скоупа — неявный дедлайн, если явный не задан (session: goal-deadline-hide)
-  const endOfScope = (scope) => {
-    const t = todayStr(); const d = new Date(t+'T00:00:00');
-    if(scope==='day') return t;
-    if(scope==='week'){ const wd=(d.getDay()+6)%7; const end=new Date(d); end.setDate(d.getDate()+(6-wd)); return toLocalISODate(end); } // Пн=0 → до Вс
-    if(scope==='month') return toLocalISODate(new Date(d.getFullYear(), d.getMonth()+1, 0));
-    if(scope==='year')  return `${d.getFullYear()}-12-31`;
-    return null;
-  };
-  // 🎯 темп к дедлайну (session 025): сколько нужно в день, чтобы успеть; или ✓/просрочено.
-  // Дедлайн — явный (g.deadline) ИЛИ неявный = последний день недели/месяца/года скоупа. session: goal-deadline-hide.
-  const paceInfo = (g, scope) => {
-    const deadline = g.deadline || endOfScope(scope);
-    if(!deadline) return null;
-    const today = todayStr(); const done=(g.progress||0)>=100;
-    if(done) return {done:true, explicit:!!g.deadline};
-    if(deadline < today) return {overdue:true, explicit:!!g.deadline};
-    const daysLeft = daysBetween(today, deadline) + 1;
-    let rem, unit;
-    if(modeOf(g)==='counter' && g.counter){ rem=Math.max(0,g.counter.target-(g.counter.current||0)); unit=' шт'; }
-    else { rem=Math.max(0,100-(g.progress||0)); unit='%'; }
-    return {daysLeft, need: Math.round(rem/Math.max(1,daysLeft)*10)/10, unit, explicit:!!g.deadline};
-  };
+  // endOfScope/paceInfo переехали в lib/goals.js: тем же расчётом пользуются уведомления о темпе целей,
+  // а две копии одной формулы разъезжаются (session: goal-pace-notif). Поведение не менялось.
 
   return (
     <div>

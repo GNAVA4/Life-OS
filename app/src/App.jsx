@@ -9,7 +9,7 @@ import { syncNotifications, requestNotif, testNotification, notifDiagnostics } f
 // ---------- декомпозиция: чистые константы/хелперы/стили вынесены в ./lib (session: decompose) ----------
 import { C } from './lib/theme.js';
 import { S } from './lib/styles.js';
-import { DAY_CHECK_MS, NOTIF_SOFT_LIMIT, EXPENSE_DEFAULT, INCOME_DEFAULT, TAGS_DEFAULT, ANTITAGS_DEFAULT, PERIOD_SCOPES, DIFF_XP, GL_SCOPE } from './lib/constants.js';
+import { DAY_CHECK_MS, NOTIF_SOFT_LIMIT, GOAL_DONE_XP, EXPENSE_DEFAULT, INCOME_DEFAULT, TAGS_DEFAULT, ANTITAGS_DEFAULT, PERIOD_SCOPES, DIFF_XP, GL_SCOPE } from './lib/constants.js';
 import { todayStr, addDays, daysAgoStr, formatDateShort, periodOf } from './lib/dates.js';
 import { maskMoney, uid } from './lib/format.js';
 import { loadKey, saveKey, setPushHook, setHiddenModules, vis } from './lib/storage.js';
@@ -17,7 +17,7 @@ import { replayHealth, mergeMetaHealth, COMBO_CAP_DAYS, WEEKLY_XP, gamifyCfg, qu
 import { isHabitScheduled, habitDoneOn, habitCompletedCount, habitCurrentStreak, habitBestStreak, habitChallengeDone } from './lib/habits.js';
 import { migratePlans } from './lib/finance.js';
 import { migrateNotes, mergeStudyById } from './lib/notes.js';
-import { goalLinksOf, goalMode } from './lib/goals.js';
+import { goalLinksOf, goalMode, liveGoalLinks, applyGoalLinks } from './lib/goals.js';
 import { ACH_TIERS, ACHIEVEMENTS, computeAchStats } from './lib/achievements.js';
 import { Modal } from './ui/primitives.jsx';
 import { RolloverModal } from './ui/RolloverModal.jsx';
@@ -280,20 +280,18 @@ function App(){
   // счётчиковая цель — прибавляем к counter.current (штуки); обычная — к progress (проценты).
   // Различаем по АКТИВНОМУ режиму (goalMode), а не по наличию g.counter: %-цель может хранить старый
   // counter (session 026 не стирает его при смене типа) — тогда вклад должен идти в проценты. session: goal-link-mode-fix.
-  const contributeToGoal = (link, sign) => {
-    if(!link || !link.goalId || !link.amount) return;
-    setGoals(prev => {
-      const list = (prev[link.scope]||[]).map(g=>{
-        if(g.id!==link.goalId) return g;
-        if(goalMode(g)==='counter' && g.counter){ const cur=Math.max(0,(g.counter.current||0)+sign*link.amount);
-          return {...g, counter:{...g.counter, current:cur}, progress: g.counter.target>0? Math.min(100,Math.round(cur/g.counter.target*100)) : g.progress}; }
-        return {...g, progress: Math.max(0,Math.min(100,(g.progress||0)+sign*link.amount))};
-      });
-      const next = {...prev, [link.scope]:list}; saveKey('lifeos:goals', next); return next;
-    });
+  // Мульти-привязка: вклад во ВСЕ привязанные цели ОДНОЙ записью (раньше каждая привязка делала свой
+  // setGoals). Мёртвые привязки (цели уже нет) отбрасываются — иначе шаблон задач тянул бы ссылки на
+  // закрытые цели. Цель, дошедшая до 100% через привязку, теперь награждается так же, как при ручном
+  // выставлении ползунком: +GOAL_DONE_XP, дата выполнения, тост. Откат симметричен (ADR-002).
+  const contributeToGoals = (links, sign) => {
+    const res = applyGoalLinks(goals, links, sign, todayStr());
+    if(res.goals === goals) return;
+    persist.goals(res.goals);
+    const delta = (res.crossedUp.length - res.crossedDown.length) * GOAL_DONE_XP;
+    if(delta) addXp(delta);
+    if(res.crossedUp.length) setToasts(prev => [...prev, ...res.crossedUp.map(g=>({tid:uid(), goalDone:g.title}))]);
   };
-  // мульти-привязка: вклад во ВСЕ привязанные цели. session 015.
-  const contributeToGoals = (links, sign) => { (links||[]).forEach(l=>contributeToGoal(l, sign)); };
   const addTask = (text, difficulty, goalLinks) => updateEntry({ tasks:[...entry.tasks, {id:uid(),text,done:false,difficulty, ...(goalLinks&&goalLinks.length?{goalLinks}:{})}] });
   const toggleTask = (id) => {
     let delta=0, links=[], nowDone=false;
@@ -376,7 +374,7 @@ function App(){
     const g = (goals[scope]||[]).find(x=>x.id===id); if(!g) return;
     const doApply = () => {
       const list = goals[scope].map(x=>{ if(x.id!==id) return x; const was=x.progress>=100, now=progress>=100;
-        if(!was&&now) addXp(20); if(was&&!now) addXp(-20);
+        if(!was&&now) addXp(GOAL_DONE_XP); if(was&&!now) addXp(-GOAL_DONE_XP);
         return {...x,progress, completedAt: now ? (x.completedAt||todayStr()) : undefined}; });
       persist.goals({...goals,[scope]:list});
     };
@@ -406,7 +404,7 @@ function App(){
     const doApply = () => {
       const list = goals[scope].map(x=>{ if(x.id!==id||!x.counter) return x;
         const counter={current, target}; const progress=Math.min(100,Math.round(current/target*100));
-        const was=(x.progress||0)>=100, now=progress>=100; if(!was&&now) addXp(20); if(was&&!now) addXp(-20);
+        const was=(x.progress||0)>=100, now=progress>=100; if(!was&&now) addXp(GOAL_DONE_XP); if(was&&!now) addXp(-GOAL_DONE_XP);
         return {...x, counter, progress, completedAt: now ? (x.completedAt||todayStr()) : undefined}; });
       persist.goals({...goals,[scope]:list});
     };
@@ -428,7 +426,7 @@ function App(){
     const doApply = () => {
       const list = goals[scope].map(x=>{ if(x.id!==gid) return x; const sub=x.subtasks.map(s=>s.id===sid?{...s,done:!s.done}:s);
         const progress = sub.length? Math.round(sub.filter(s=>s.done).length/sub.length*100) : 0;
-        const was=(x.progress||0)>=100, now=progress>=100; if(!was&&now) addXp(20); if(was&&!now) addXp(-20);
+        const was=(x.progress||0)>=100, now=progress>=100; if(!was&&now) addXp(GOAL_DONE_XP); if(was&&!now) addXp(-GOAL_DONE_XP);
         return {...x,subtasks:sub,progress, completedAt: now ? (x.completedAt||todayStr()) : undefined}; });
       persist.goals({...goals,[scope]:list});
     };
@@ -499,7 +497,10 @@ function App(){
       if(r.reason==='web'){ setNotifMsg('⚠️ Только в приложении на телефоне (в браузере не работает).'); return; }
       if(r.reason==='not-implemented'){ setNotifMsg('⚠️ Плагин уведомлений не найден — на телефоне СТАРЫЙ APK. Переустанови свежий.'); return; }
       if(r.ok){ setSettingFlag('notifOff', false);
-        const n = await syncNotifications({habits: habitsForNotif(), notes, study, goals, ongoing, bills, deadlineCfg: settings.deadlineNotif, morningCfg: settings.morningSummary, billsCfg: settings.billsNotif, morningBody: computeMorningBody(), enabled:true});
+        const n = await syncNotifications({habits: habitsForNotif(), notes, study, goals, ongoing, bills,
+          deadlineCfg: settings.deadlineNotif, morningCfg: settings.morningSummary, billsCfg: settings.billsNotif,
+          noteCfg: settings.noteNotif, goalPaceCfg: settings.goalPace,
+          activity: activityState(), activitySettings: settings, morningBody: computeMorningBody(), enabled:true});
         // У Android есть потолок запланированных уведомлений (~500 на приложение): молча упереться в
         // него = часть напоминаний просто не встанет. Предупреждаем заранее.
         setNotifMsg(`✅ Разрешение выдано. Запланировано уведомлений: ${n}.`
@@ -573,11 +574,17 @@ function App(){
   };
 
   // ⚡ Шаблоны задач: сохранить набор задач и добавлять одним тапом. session 015.
+  // Привязки к целям сохраняются вместе с задачей. При применении шаблона мёртвые привязки
+  // отбрасываются (цель закрыта/в архиве/удалена) — строго по id, см. liveGoalLinks.
   const saveTaskTemplate = (name, items) => { if(!name.trim()||!items.length) return;
-    persist.taskTemplates([...taskTemplates, {id:uid(), name:name.trim(), tasks:items.map(t=>({text:t.text, difficulty:t.difficulty||'medium'}))}]); };
+    persist.taskTemplates([...taskTemplates, {id:uid(), name:name.trim(), tasks:items.map(t=>{
+      const links = goalLinksOf(t);
+      return {text:t.text, difficulty:t.difficulty||'medium', ...(links.length?{goalLinks:links}:{})};
+    })}]); };
   const deleteTaskTemplate = (id) => persist.taskTemplates(taskTemplates.filter(t=>t.id!==id));
   const applyTaskTemplate = (id) => { const tpl=taskTemplates.find(t=>t.id===id); if(!tpl) return;
-    const add=(tpl.tasks||[]).map(t=>({id:uid(),text:t.text,done:false,difficulty:t.difficulty||'medium'}));
+    const add=(tpl.tasks||[]).map(t=>{ const links = liveGoalLinks(goalLinksOf(t), goals);
+      return {id:uid(), text:t.text, done:false, difficulty:t.difficulty||'medium', ...(links.length?{goalLinks:links}:{})}; });
     updateEntry({ tasks:[...entry.tasks, ...add] }); };
 
   const addAccount = (name) => persist.finance({...finance, accounts:[...finance.accounts,{id:uid(),name,snapshots:[]}]});
@@ -884,7 +891,31 @@ function App(){
     const parts=[]; if(habitsToday) parts.push(`${habitsToday} привыч.`); if(dl) parts.push(`${dl} дедлайн.`); if(remToday) parts.push(`${remToday} напомин.`);
     return parts.length ? `Сегодня: ${parts.join(' · ')}` : 'На сегодня ничего не запланировано — начни что-то новое!';
   };
-  useEffect(() => { syncNotifications({ habits: habitsForNotif(), notes, study, goals, ongoing, bills, deadlineCfg: settings.deadlineNotif, morningCfg: settings.morningSummary, billsCfg: settings.billsNotif, morningBody: computeMorningBody(), enabled: !settings.notifOff }); }, [habits, notes, study, goals, ongoing, bills, settings.notifOff, settings.deadlineNotif, settings.morningSummary, settings.billsNotif]);
+  // 🔔 Состояние активности для уведомлений «опиши день» / «вчера ноль» / «серия сгорит».
+  // Считается по СЕГОДНЯШНЕМУ дню (не по выбранному в календаре — уведомление про сегодня).
+  const activityState = () => {
+    const t = todayStr(); const e = days[t] || {}; const tasks = e.tasks || [];
+    const doneCount = tasks.filter(x=>x.done).length;
+    return {
+      todayDescribed: e.rating!=null || !!(e.note && e.note.trim()),
+      todayHadTasks: tasks.length>0,
+      todayDoneCount: doneCount,
+      todayActive: doneCount>0 || Object.values(e.dailyCompletions||{}).some(Boolean) || habits.some(h=>h.log&&h.log[t]),
+      streak,
+    };
+  };
+  // Подпись состояния активности: расписание нужно пересобирать, когда меняются ФАКТЫ, от которых
+  // зависят эти уведомления, но НЕ на каждое движение в дне — пересборка снимает и ставит заново все
+  // уведомления через нативный мост. Строка меняется только при значимом изменении.
+  const actSig = (() => { const a = activityState();
+    return `${a.todayDescribed?1:0}|${a.todayHadTasks?1:0}|${a.todayDoneCount>0?1:0}|${a.todayActive?1:0}|${a.streak}`; })();
+  useEffect(() => { syncNotifications({ habits: habitsForNotif(), notes, study, goals, ongoing, bills,
+    deadlineCfg: settings.deadlineNotif, morningCfg: settings.morningSummary, billsCfg: settings.billsNotif,
+    noteCfg: settings.noteNotif, goalPaceCfg: settings.goalPace,
+    activity: activityState(), activitySettings: settings,
+    morningBody: computeMorningBody(), enabled: !settings.notifOff }); },
+    [habits, notes, study, goals, ongoing, bills, actSig, settings.notifOff, settings.deadlineNotif,
+     settings.morningSummary, settings.billsNotif, settings.noteNotif, settings.goalPace, settings.activity]);
   // Android-виджет «Задачи на сегодня»: пишем прогресс по одноразовым задачам СЕГОДНЯ (session 023).
   useEffect(() => { const t = todayStr(); const e = days[t] || {}; const tasks = e.tasks || [];
     updateTodayWidget(tasks.filter(x=>x.done).length, tasks.length, t); }, [days]);
@@ -1077,7 +1108,8 @@ function App(){
         morningCfg={settings.morningSummary||null} setSettingFlag={setSettingFlag}
         gamify={gamify} setGamify={(patch)=>persist.settings({...settings, gamify:{...gamify, ...patch}})}
         requestNotifs={requestNotifs} testNotif={testNotif} showNotifDiag={showNotifDiag} notifMsg={notifMsg} deadlineCfg={settings.deadlineNotif||null}
-        showGoalDeadline={!!settings.showGoalDeadline} billsNotif={settings.billsNotif||null} />}
+        showGoalDeadline={!!settings.showGoalDeadline} billsNotif={settings.billsNotif||null}
+        noteCfg={settings.noteNotif||null} goalPaceCfg={settings.goalPace||null} activity={settings.activity||null} />}
       </div>
 
       {isMobile && (

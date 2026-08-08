@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { NOTE_REPEATS, NOTE_TYPES, NOTE_TYPE_COLOR, WEEKDAY_OPTS } from '../lib/constants.js';
 import { addDays, openDatePicker, todayStr } from '../lib/dates.js';
 import { uid } from '../lib/format.js';
-import { hasReminderWhen, notePreviewOf, noteTitleOf, reminderWhenLabel } from '../lib/notes.js';
+import { hasReminderWhen, isOneShotReminder, notePreviewOf, noteTitleOf, reminderDone, reminderWhenLabel } from '../lib/notes.js';
 import { S } from '../lib/styles.js';
 import { C } from '../lib/theme.js';
 import { ConfirmIconBtn, Modal, Select } from '../ui/primitives.jsx';
@@ -28,14 +28,20 @@ export function NotesTab({notes, addNote, updateNote, deleteNote}){
       <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(220px,1fr))',gap:12}}>
         {filtered.map(n=>{
           const col=NOTE_TYPE_COLOR[n.type]||C.cyan;
-          const oneShot = n.type==='Напоминание' && (!n.repeat || n.repeat==='none') && n.remindDate;
-          const overdue = oneShot && n.remindDate < today;
-          const soon = oneShot && !overdue && n.remindDate <= addDays(today,1);
+          const oneShot = isOneShotReminder(n);
+          const remDone = reminderDone(n);
+          const overdue = oneShot && !remDone && n.remindDate < today;
+          const soon = oneShot && !remDone && !overdue && n.remindDate <= addDays(today,1);
           return (
             <div key={n.id} onClick={()=>setEditing(n)} style={{...S.panel,marginBottom:0,cursor:'pointer',borderLeft:`3px solid ${col}`,...(n.pinned?{borderTop:`1px solid ${C.amber}`,borderRight:`1px solid ${C.amber}`,borderBottom:`1px solid ${C.amber}`}:{}),display:'flex',flexDirection:'column',gap:6,minHeight:110}}>
               <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:6}}>
                 <span style={{fontSize:10,color:col,letterSpacing:'.05em'}}>{n.pinned?'📌 ':''}{n.type==='Напоминание'?'⏰ НАПОМИНАНИЕ':'ЗАМЕТКА'}</span>
                 <div style={{display:'flex',alignItems:'center',gap:2}}>
+                  {/* ✓ у одноразового напоминания: единственный способ прекратить повторы при просрочке
+                      (у дел ту же роль играет статус «Выполнено»). Запись остаётся, замолкает только звонок. */}
+                  {oneShot && <button className="icon-btn" title={remDone?'вернуть в активные':'отметить выполненным'}
+                    style={remDone?{color:C.green}:undefined}
+                    onClick={e=>{ e.stopPropagation(); updateNote(n.id,{remindDone:!remDone}); }}>{remDone?'✓':'○'}</button>}
                   <button className="icon-btn" title={n.pinned?'открепить':'закрепить'} style={n.pinned?{color:C.amber}:undefined} onClick={e=>{ e.stopPropagation(); updateNote(n.id,{pinned:!n.pinned}); }}>📌</button>
                   <ConfirmIconBtn onConfirm={()=>deleteNote(n.id)} confirmLabel="удалить?" title="удалить запись" />
                 </div>
@@ -46,8 +52,9 @@ export function NotesTab({notes, addNote, updateNote, deleteNote}){
                 <div style={{fontSize:11,color:n.checklist.every(i=>i.done)?C.green:C.dim}}>☑ {n.checklist.filter(i=>i.done).length}/{n.checklist.length}</div>
               )}
               {hasReminderWhen(n) ? (
-                <div style={{fontSize:11,color:overdue?C.red:soon?C.amber:C.dim,fontWeight:overdue?700:400}}>
-                  ⏰ {reminderWhenLabel(n)}{overdue?' · прошло':''}
+                <div style={{fontSize:11,color:remDone?C.green:overdue?C.red:soon?C.amber:C.dim,fontWeight:overdue?700:400,
+                  ...(remDone?{textDecoration:'line-through',opacity:.75}:null)}}>
+                  ⏰ {reminderWhenLabel(n)}{remDone?' · выполнено':overdue?' · просрочено':''}
                 </div>
               ) : <div style={{fontSize:10.5,color:C.dim}}>{n.updatedAt||n.createdAt}</div>}
             </div>
@@ -82,6 +89,9 @@ export function NoteEditor({note, onSave, onDelete, onClose}){
     remindDate: (isRem && rep==='none')?(remindDate||undefined):undefined,
     remindWeekday: (isRem && rep==='weekly' && remindWeekday!=='')?Number(remindWeekday):undefined,
     remindDay: (isRem && rep==='monthly' && remindDay!=='')?Number(remindDay):undefined,
+    // Перенёс срок или сменил тип/повтор — отметка «выполнено» снимается, иначе напоминание с новой
+    // датой молчало бы: снаружи оно выглядит как активное, а планировщик его пропускает.
+    remindDone: (isRem && rep==='none' && remindDate===note.remindDate) ? note.remindDone : undefined,
   }); onClose(); };
   return (
     <Modal onClose={onClose} title={note.id?'Редактировать':'Новая запись'}>

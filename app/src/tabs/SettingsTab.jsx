@@ -1,13 +1,26 @@
 // Вкладка/раздел: SettingsTab (вынесено из App.jsx, session: decompose phase 3)
 import { useState } from 'react';
-import { ALL_MOBILE_TAB_IDS, BUILD_ID, OVERDUE_TIMES_DEFAULT, OVERDUE_TIMES_MAX, TAB_META } from '../lib/constants.js';
+import { ACTIVITY_DEFAULT, ALL_MOBILE_TAB_IDS, AWAY_DAYS_MAX, BUILD_ID, GOAL_PACE_DEFAULT, NOTE_LEAD_DAYS_DEFAULT, OVERDUE_TIMES_DEFAULT, OVERDUE_TIMES_MAX, TAB_META } from '../lib/constants.js';
 import { GAMIFY_DEFAULT, LEVEL_CAP, WEEKLY_XP } from '../lib/gamify.js';
 import { MODULE_GROUPS } from '../lib/storage.js';
 import { S } from '../lib/styles.js';
 import { C } from '../lib/theme.js';
 import { Select, SettingsDivider, SettingsSection, SubHead } from '../ui/primitives.jsx';
 
-export function SettingsTab({hidden, toggleModule, defaults, setDefault, categories, accounts, mobileTabs, toggleMobileTab, soundOff, notifOff, maskNetWorth, maskDebts, maskOps, maskAllFinance, morningCfg, setSettingFlag, gamify=GAMIFY_DEFAULT, setGamify, requestNotifs, testNotif, showNotifDiag, notifMsg, deadlineCfg, showGoalDeadline=false, billsNotif=null}){
+export function SettingsTab({hidden, toggleModule, defaults, setDefault, categories, accounts, mobileTabs, toggleMobileTab, soundOff, notifOff, maskNetWorth, maskDebts, maskOps, maskAllFinance, morningCfg, setSettingFlag, gamify=GAMIFY_DEFAULT, setGamify, requestNotifs, testNotif, showNotifDiag, notifMsg, deadlineCfg, showGoalDeadline=false, billsNotif=null, noteCfg=null, goalPaceCfg=null, activity=null}){
+  // ⏰ Напоминания в заметках: «за N дней» + просрочка (session: reminders-activity-pace)
+  const nlDays = (noteCfg && noteCfg.days && noteCfg.days.length) ? noteCfg.days : NOTE_LEAD_DAYS_DEFAULT;
+  const nOvOn = !(noteCfg && noteCfg.overdueOff);
+  const nOvTimes = (noteCfg && noteCfg.overdueTimes && noteCfg.overdueTimes.length) ? noteCfg.overdueTimes : OVERDUE_TIMES_DEFAULT;
+  const setNote = (patch) => setSettingFlag('noteNotif', {days:nlDays, overdueTimes:nOvTimes, ...(noteCfg||{}), ...patch});
+  const toggleNlDay = (d) => { const has=nlDays.includes(d); setNote({days: has?nlDays.filter(x=>x!==d):[...nlDays,d].sort((a,b)=>a-b)}); };
+  // 🎯 Темп целей в штуках
+  const gp = {...GOAL_PACE_DEFAULT, ...(goalPaceCfg||{})};
+  const gpOn = !gp.off, gpTime = gp.time, gpMin = gp.min, gpWarn = gp.warnAt;
+  const setGp = (patch) => setSettingFlag('goalPace', {...gp, ...patch});
+  // 👋 Уведомления об активности
+  const act = {...ACTIVITY_DEFAULT, ...(activity||{})};
+  const setAct = (patch) => setSettingFlag('activity', {...act, ...patch});
   const dlOn = !!(deadlineCfg && !deadlineCfg.off);
   const dlDays = (deadlineCfg && deadlineCfg.days && deadlineCfg.days.length) ? deadlineCfg.days : [3,1];
   const dlTime = (deadlineCfg && deadlineCfg.time) || '09:00';
@@ -142,6 +155,127 @@ export function SettingsTab({hidden, toggleModule, defaults, setDefault, categor
             <span style={{fontSize:12,color:C.dim}}>за сколько дней:</span>
             <input style={{...S.input,width:64,minWidth:0,textAlign:'center',flex:'none'}} type="number" min="0" max="14"
               value={billsLead} onChange={e=>{ let v=parseInt(e.target.value,10); if(isNaN(v)) v=0; v=Math.max(0,Math.min(14,v)); setBills({leadDays:v}); }} />
+          </div>
+        )}
+
+        <SettingsDivider/>
+        <SubHead>Напоминания в заметках</SubHead>
+        <div style={{...S.dimSpan,marginLeft:0,marginBottom:8,display:'block'}}>
+          Для одноразовых напоминаний с датой — та же система, что у дел: заранее, в сам день и повторы при
+          просрочке. Время у каждого напоминания своё (задаётся в редакторе). Повторяющиеся (каждый день/неделю/
+          месяц) приходят по своему расписанию — их это не касается.
+        </div>
+        <div style={{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center'}}>
+          <span style={{fontSize:12,color:C.dim}}>напоминать заранее:</span>
+          {[7,3,1].map(d=>{ const on=nlDays.includes(d); return (
+            <div key={d} className="chip" onClick={()=>toggleNlDay(d)}
+              style={{background:on?C.amber:C.panelAlt,color:on?'#1A1200':C.dim,borderColor:on?C.amber:C.border}}>за {d} дн.</div>
+          ); })}
+          <span style={{fontSize:11,color:C.dim}}>в сам день — всегда</span>
+        </div>
+        <label className="row-hover" style={{...S.taskRow, cursor:'pointer', marginTop:12}}>
+          <input type="checkbox" checked={nOvOn} onChange={()=>setNote({overdueOff: nOvOn})} />
+          <div style={{flex:1}}>Напоминать о ПРОСРОЧЕННЫХ несколько раз в день</div>
+          <span style={{fontSize:11,color:C.dim}}>{nOvOn?'вкл':'выкл'}</span>
+        </label>
+        <div style={{...S.dimSpan,marginLeft:0,marginTop:6,display:'block'}}>
+          Пока напоминание не отмечено ✓ «выполнено» (кнопка на карточке в Заметках), оно приходит в каждое
+          из этих времён. Все просроченные — одним уведомлением на слот.
+        </div>
+        {nOvOn && (
+          <div style={{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center',marginTop:8}}>
+            {nOvTimes.map((t,i)=>(
+              <div key={i} style={{display:'flex',alignItems:'center',gap:2}}>
+                <input style={{...S.input,maxWidth:110}} type="time" value={t} onChange={e=>setNote({overdueTimes: nOvTimes.map((x,k)=>k===i?e.target.value:x)})} />
+                {nOvTimes.length>1 && <button className="icon-btn" title="убрать время" onClick={()=>setNote({overdueTimes: nOvTimes.filter((_,k)=>k!==i)})}>✕</button>}
+              </div>
+            ))}
+            {nOvTimes.length<OVERDUE_TIMES_MAX &&
+              <div className="chip" onClick={()=>setNote({overdueTimes:[...nOvTimes,'12:00']})} style={{borderColor:C.amber,color:C.amber}}>+ время</div>}
+          </div>
+        )}
+
+        <SettingsDivider/>
+        <SubHead>Темп целей в штуках</SubHead>
+        <label className="row-hover" style={{...S.taskRow, cursor:'pointer'}}>
+          <input type="checkbox" checked={gpOn} onChange={()=>setGp({off: gpOn})} />
+          <div style={{flex:1}}>Предупреждать, когда нужно ≈по штуке в день</div>
+          <span style={{fontSize:11,color:C.dim}}>{gpOn?'вкл':'выкл'}</span>
+        </label>
+        <div style={{...S.dimSpan,marginLeft:0,marginTop:6,display:'block'}}>
+          Для целей со счётчиком (неделя/месяц/год): если до срока осталось столько, что требуется уже
+          {' '}{String(gpMin).replace('.',',')} шт/день и больше — придёт одно уведомление со списком таких целей.
+          Порог «приближается» — {String(gpWarn).replace('.',',')} шт/день. Цели «на день» не берём: у них срок
+          всегда сегодня, уведомление приходило бы каждый день.
+        </div>
+        {gpOn && (
+          <div style={{display:'flex',gap:10,flexWrap:'wrap',alignItems:'center',marginTop:10}}>
+            <span style={{fontSize:12,color:C.dim}}>время:</span>
+            <input style={{...S.input,maxWidth:120}} type="time" value={gpTime} onChange={e=>setGp({time:e.target.value})} />
+            <span style={{fontSize:12,color:C.dim}}>тревога от:</span>
+            <input style={{...S.input,width:70,minWidth:0,textAlign:'center',flex:'none'}} type="number" min="0.1" max="20" step="0.1"
+              value={gpMin} onChange={e=>{ let v=parseFloat(e.target.value); if(isNaN(v)) v=1; setGp({min:Math.max(0.1,Math.min(20,v))}); }} />
+            <span style={{fontSize:12,color:C.dim}}>предупреждать от:</span>
+            <input style={{...S.input,width:70,minWidth:0,textAlign:'center',flex:'none'}} type="number" min="0.1" max="20" step="0.1"
+              value={gpWarn} onChange={e=>{ let v=parseFloat(e.target.value); if(isNaN(v)) v=0.8; setGp({warnAt:Math.max(0.1,Math.min(20,v))}); }} />
+          </div>
+        )}
+      </SettingsSection>
+
+      <SettingsSection title="Напоминания об активности" icon="👋">
+        <div style={{...S.dimSpan,marginLeft:0,marginBottom:10,display:'block'}}>
+          Уведомления о том, что тебя давно нет или день не закрыт. Работают без интернета: расписание
+          пересобирается при каждом заходе в приложение, поэтому зашёл — отсчёт начался заново, и лишнее
+          уведомление не придёт.
+        </div>
+        {[
+          {k:'evening', off:'eveningOff', time:'eveningTime', label:'🌙 Вечером — «опиши день»',
+           hint:'Если у сегодняшнего дня нет ни оценки, ни заметки «что было». Заполнил — уведомление снимается.'},
+          {k:'morning', off:'morningOff', time:'morningTime', label:'☀️ Утром — «вчера ноль задач»',
+           hint:'Если вчера задачи были и ни одна не закрыта.'},
+          {k:'streak', off:'streakOff', time:'streakTime', label:'🔥 «Серия под угрозой»',
+           hint:'Если сегодня нет никакой активности, а серия достаточно длинная.'},
+        ].map(row => { const on = !act[row.off]; return (
+          <div key={row.k}>
+            <label className="row-hover" style={{...S.taskRow, cursor:'pointer'}}>
+              <input type="checkbox" checked={on} onChange={()=>setAct({[row.off]: on})} />
+              <div style={{flex:1}}>{row.label}</div>
+              {on && <input style={{...S.input,maxWidth:110,flex:'none'}} type="time" value={act[row.time]}
+                onClick={e=>e.stopPropagation()} onChange={e=>setAct({[row.time]: e.target.value})} />}
+              {!on && <span style={{fontSize:11,color:C.dim}}>выкл</span>}
+            </label>
+            <div style={{...S.dimSpan,marginLeft:0,marginTop:2,marginBottom:6,display:'block',fontSize:11}}>{row.hint}</div>
+          </div>
+        ); })}
+        {!act.streakOff && (
+          <div style={{display:'flex',gap:8,alignItems:'center',marginBottom:10}}>
+            <span style={{fontSize:12,color:C.dim}}>предупреждать при серии от:</span>
+            <input style={{...S.input,width:70,minWidth:0,textAlign:'center',flex:'none'}} type="number" min="2" max="60"
+              value={act.streakMin} onChange={e=>{ let v=parseInt(e.target.value,10); if(isNaN(v)) v=3; setAct({streakMin:Math.max(2,Math.min(60,v))}); }} />
+            <span style={{fontSize:12,color:C.dim}}>дней</span>
+          </div>
+        )}
+        <SettingsDivider/>
+        <SubHead>Если тебя долго нет</SubHead>
+        <label className="row-hover" style={{...S.taskRow, cursor:'pointer'}}>
+          <input type="checkbox" checked={!act.awayOff} onChange={()=>setAct({awayOff: !act.awayOff})} />
+          <div style={{flex:1}}>Напоминать после N дней без захода</div>
+          {!act.awayOff && <input style={{...S.input,maxWidth:110,flex:'none'}} type="time" value={act.awayTime}
+            onClick={e=>e.stopPropagation()} onChange={e=>setAct({awayTime:e.target.value})} />}
+        </label>
+        <div style={{...S.dimSpan,marginLeft:0,marginTop:6,display:'block'}}>
+          Текст меняется с длительностью отсутствия: от «загляни» до «скучаю». Любой заход в приложение
+          сбрасывает отсчёт.
+        </div>
+        {!act.awayOff && (
+          <div style={{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center',marginTop:8}}>
+            {[1,2,3,5,7,14,30,60].map(d=>{ const on=(act.awayDays||[]).includes(d); return (
+              <div key={d} className="chip" onClick={()=>{ const cur=act.awayDays||[];
+                  const next = on ? cur.filter(x=>x!==d) : [...cur,d].sort((a,b)=>a-b);
+                  if(next.length>AWAY_DAYS_MAX) return; setAct({awayDays:next}); }}
+                style={{background:on?C.amber:C.panelAlt,color:on?'#1A1200':C.dim,borderColor:on?C.amber:C.border}}>{d} дн.</div>
+            ); })}
+            <span style={{fontSize:11,color:C.dim}}>максимум {AWAY_DAYS_MAX}</span>
           </div>
         )}
       </SettingsSection>
