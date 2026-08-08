@@ -38,3 +38,17 @@ export const reminderWhenLabel = (n) => {
   return n.remindDate ? `${n.remindDate}${t}` : '';
 };
 export const hasReminderWhen = (n) => n.type==='Напоминание' && (n.remindDate || n.repeat==='daily' || (n.repeat==='weekly'&&n.remindWeekday!=null) || (n.repeat==='monthly'&&n.remindDay!=null));
+
+// Одноразовое напоминание с датой — единственный вид, у которого есть СРОК, а значит «за N дней до»
+// и просрочка. У повторяющихся (каждый день/неделю/месяц) срока нет: они просто приходят по расписанию.
+export const isOneShotReminder = (n) => n && n.type==='Напоминание'
+  && (!n.repeat || n.repeat==='none') && !!n.remindDate;
+// Отметка «выполнено» есть только у одноразовых: без неё просроченное напоминание было бы нечем
+// остановить, кроме удаления записи (у дел ту же роль играет статус «Выполнено»).
+export const reminderDone = (n) => !!(n && n.remindDone);
+// Приведение напоминаний к виду дедлайнов ({label, deadline}) — чтобы «за N дней» и текст просрочки
+// считались тем же кодом, что у дел/целей/задач (lib/deadlines.js), и правила не разъезжались.
+// time оставляем СВОЁ у каждого напоминания: у дел время общее (настройка), у напоминания — личное.
+export const reminderItems = (notes) => (notes||[])
+  .filter(n => isOneShotReminder(n) && !reminderDone(n))
+  .map(n => ({ kind:'note', label: noteTitleOf(n), deadline: n.remindDate, time: n.remindTime || '09:00' }));
