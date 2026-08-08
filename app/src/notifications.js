@@ -6,9 +6,12 @@ import { Capacitor } from '@capacitor/core';
 import { LocalNotifications } from '@capacitor/local-notifications';
 // «Сегодня» для сравнения дат (просрочен ли дедлайн) — логический день проекта, а не new Date().
 // Реальный new Date() здесь остаётся только для РАСЧЁТА ВРЕМЕНИ срабатывания (nextDaily и пр.).
-import { OVERDUE_TIMES_DEFAULT, OVERDUE_TIMES_MAX } from './lib/constants.js';
+import { OVERDUE_TIMES_DEFAULT, OVERDUE_TIMES_MAX, NOTE_LEAD_DAYS_DEFAULT, GOAL_PACE_DEFAULT } from './lib/constants.js';
 import { todayStr } from './lib/dates.js';
 import { KIND_META, deadlineItems, overdueBody, overdueOf } from './lib/deadlines.js';
+import { reminderDone, reminderItems } from './lib/notes.js';
+import { goalPaceItems, goalPaceBody } from './lib/goals.js';
+import { activityNotifPlan, activityCfg } from './lib/activity.js';
 
 // синхронный доступ к плагину: сам плагин на нативе, иначе null
 function ln(){ return Capacitor.isNativePlatform() ? LocalNotifications : null; }
@@ -107,14 +110,19 @@ function habitNotifs(habits){
   return out;
 }
 
-function noteNotifs(notes){
+// ⏰ Напоминания из Заметок. Повторяющиеся — по расписанию, как раньше. У ОДНОРАЗОВЫХ (с датой)
+// появился срок, а значит та же система, что у дел: «за N дней до» + в день + повторы при просрочке.
+// Просрочка гасится отметкой «выполнено» у напоминания (без неё её нечем было бы остановить).
+function noteNotifs(notes, cfg){
   const out = [];
+  const lead = (cfg && cfg.days && cfg.days.length) ? cfg.days : NOTE_LEAD_DAYS_DEFAULT;
+  const offsets = Array.from(new Set([0, ...lead.filter(d=>d>0)])).sort((a,b)=>a-b);
   notes.filter(n => n.type==='Напоминание').forEach((n, ni) => {
     const hm = HM(n.remindTime || '09:00'); if(!hm) return;
     const [hh,mm] = hm;
     const rep = n.repeat || 'none';
     const body = (n.title && n.title.trim()) || (n.body||'').slice(0,80) || 'Напоминание';
-    const base = { id: 200000 + ni, title:'Напоминание ⏰', body, channelId:CHANNEL_ID };
+    const base = { id: 200000 + ni*10, title:'Напоминание ⏰', body, channelId:CHANNEL_ID };
     if(rep==='daily'){
       out.push({ ...base, schedule:{ at: nextDaily(hh,mm), every:'day', allowWhileIdle:true } });
     } else if(rep==='weekly'){
@@ -129,11 +137,31 @@ function noteNotifs(notes){
       out.push({ ...base, schedule:{ at: nextMonthly(dom,hh,mm), every:'month', allowWhileIdle:true } });
     } else {
       if(!n.remindDate) return;
-      const at = new Date(n.remindDate+'T00:00:00'); at.setHours(hh,mm,0,0);
-      if(at.getTime() <= Date.now()) return; // прошедшее одноразовое — не планируем
-      out.push({ ...base, schedule:{ at, allowWhileIdle:true } });
+      if(reminderDone(n)) return;              // отмечено «выполнено» — молчим (и просрочка тоже)
+      // «За N дней до» + в день срока. Раньше был ровно один `at` на дату напоминания.
+      offsets.forEach((off, oi) => {
+        const at = new Date(n.remindDate+'T00:00:00'); at.setHours(hh,mm,0,0); at.setDate(at.getDate()-off);
+        if(at.getTime() <= Date.now()) return; // прошедшее — не планируем
+        const when = off===0 ? body : `${body} — через ${off} дн.`;
+        out.push({ ...base, id: base.id + oi, body: when, schedule:{ at, allowWhileIdle:true } });
+      });
     }
   });
+  // Просрочка: все просроченные напоминания — ОДНИМ уведомлением на слот, ежедневно (как у дел).
+  if(!cfg || !cfg.overdueOff){
+    const today = todayStr();
+    const overdue = overdueOf(reminderItems(notes), today);
+    if(overdue.length){
+      const slots = Array.from(new Set((cfg && cfg.overdueTimes && cfg.overdueTimes.length)
+        ? cfg.overdueTimes : OVERDUE_TIMES_DEFAULT)).sort();
+      const body = overdueBody(overdue, today);
+      slots.slice(0, OVERDUE_TIMES_MAX).forEach((tm, ti) => {
+        const s = HM(tm); if(!s) return;
+        out.push({ id: 360000 + ti, title:'⏰ Напоминание просрочено!', body, channelId:CHANNEL_ID,
+          schedule:{ at: nextDaily(s[0], s[1]), every:'day', allowWhileIdle:true } });
+      });
+    }
+  }
   return out;
 }
 
@@ -210,13 +238,47 @@ function morningSummaryNotif(cfg, body){
     schedule:{ at: nextDaily(hh,mm), every:'day', allowWhileIdle:true } }];
 }
 
+// 🎯 Темп целей в штуках: одно ежедневное уведомление, если по какой-то цели требуется уже ≈штука в
+// день. Смысл — предупредить ЗАРАНЕЕ, пока успеть ещё реально, а не сообщить о провале постфактум.
+function goalPaceNotifs(goals, cfg){
+  const c = {...GOAL_PACE_DEFAULT, ...(cfg||{})};
+  if(c.off) return [];
+  const hm = HM(c.time); if(!hm) return [];
+  const items = goalPaceItems(goals, c, todayStr());
+  if(!items.length) return [];
+  const urgent = items.some(i=>i.urgent);
+  return [{ id: 370000, channelId: CHANNEL_ID,
+    title: urgent ? '🎯 Нужно по штуке в день' : '🎯 Темп цели поджимает',
+    body: goalPaceBody(items),
+    schedule:{ at: nextDaily(hm[0], hm[1]), every:'day', allowWhileIdle:true } }];
+}
+
+// 🔔 Активность: «опиши день», лестница отсутствия, «вчера ни одной задачи», «серия сгорит».
+// Условие каждого проверено в lib/activity.js на момент планирования; расписание пересобирается при
+// каждом запуске приложения, поэтому пришедший пользователь автоматически отменяет всё лишнее.
+function activityNotifs(state, cfg){
+  const plan = activityNotifPlan(state, cfg, Math.floor(Date.now()/86400000));
+  const out = [];
+  plan.forEach((p, i) => {
+    const hm = HM(p.time); if(!hm) return;
+    const at = new Date(); at.setHours(hm[0], hm[1], 0, 0); at.setDate(at.getDate() + (p.dayOffset||0));
+    if(at.getTime() <= Date.now()) return; // время уже прошло (например, открыл приложение поздно вечером)
+    out.push({ id: 380000 + i, title:p.title, body:p.body, channelId:CHANNEL_ID,
+      schedule:{ at, allowWhileIdle:true } });
+  });
+  return out;
+}
+
 // пересобрать ВСЕ уведомления (снять запланированные, потом запланировать заново). Возвращает число запланированных (-1 при ошибке планирования).
-export async function syncNotifications({ habits=[], notes=[], study=[], goals={}, ongoing=[], bills=[], deadlineCfg=null, morningCfg=null, billsCfg=null, morningBody='', enabled=true }){
+export async function syncNotifications({ habits=[], notes=[], study=[], goals={}, ongoing=[], bills=[], deadlineCfg=null, morningCfg=null, billsCfg=null, noteCfg=null, goalPaceCfg=null, activity=null, activitySettings=null, morningBody='', enabled=true }){
   const l = ln(); if(!l) return 0;
   await ensureChannel(l);
   try{ const pend = await withTimeout(l.getPending(), 4000, 'getPending'); if(pend.notifications && pend.notifications.length) await withTimeout(l.cancel({ notifications: pend.notifications.map(n=>({id:n.id})) }), 4000, 'cancel'); }catch(e){}
   if(!enabled) return 0;
-  const list = [...habitNotifs(habits), ...noteNotifs(notes), ...deadlineNotifs({study, goals, ongoing}, deadlineCfg), ...billNotifs(bills, billsCfg), ...morningSummaryNotif(morningCfg, morningBody)];
+  const list = [...habitNotifs(habits), ...noteNotifs(notes, noteCfg), ...deadlineNotifs({study, goals, ongoing}, deadlineCfg),
+    ...billNotifs(bills, billsCfg), ...morningSummaryNotif(morningCfg, morningBody),
+    ...goalPaceNotifs(goals, goalPaceCfg),
+    ...(activity ? activityNotifs(activity, activityCfg(activitySettings)) : [])];
   if(list.length){ try{ await withTimeout(l.schedule({ notifications: list }), 4000, 'schedule'); }catch(e){ return -1; } }
   return list.length;
 }
