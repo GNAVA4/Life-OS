@@ -10,7 +10,7 @@ import { C } from '../lib/theme.js';
 import { GoalLinkPicker } from '../ui/GoalLinkPicker.jsx';
 import { ConfirmIconBtn, Select } from '../ui/primitives.jsx';
 
-export function TodayTab({entry, selectedDate, setSelectedDate, addTask, toggleTask, deleteTask, updateEntry, goals,
+export function TodayTab({entry, selectedDate, setSelectedDate, addTask, toggleTask, deleteTask, editTask, updateEntry, goals,
   tags, toggleTagOnDay, addTagGlobal, removeTagGlobal,
   antiTags=[], toggleAntiTagOnDay, addAntiTagGlobal, removeAntiTagGlobal, antiXp=15, hpAnti=5,
   dailyTasks, toggleDaily, addDailyTask, deleteDailyTask,
@@ -28,6 +28,15 @@ export function TodayTab({entry, selectedDate, setSelectedDate, addTask, toggleT
   const [taskLinks,setTaskLinks] = useState([]);
   const submitTask = () => { if(!newTaskText.trim()) return; addTask(newTaskText.trim(), difficulty, taskLinks);
     setNewTaskText(''); setTaskLinks([]); };
+  // ✏ правка существующей задачи (название/сложность/привязки) — инлайн, как переименование цели и долга
+  const [editId,setEditId] = useState(null);
+  const [editText,setEditText] = useState('');
+  const [editDiff,setEditDiff] = useState('medium');
+  const [editLinks,setEditLinks] = useState([]);
+  const startEdit = (t) => { setEditId(t.id); setEditText(t.text); setEditDiff(t.difficulty||'medium'); setEditLinks(goalLinksOf(t)); };
+  const cancelEdit = () => setEditId(null);
+  const saveEdit = (id) => { if(!editText.trim()) return;
+    editTask(id, {text:editText, difficulty:editDiff, goalLinks:editLinks}); setEditId(null); };
   // привязка новой ЕЖЕДНЕВНОЙ задачи к цели
   const [dailyLinkOpen,setDailyLinkOpen] = useState(false);
   const [dailyLinks,setDailyLinks] = useState([]);
@@ -167,12 +176,33 @@ export function TodayTab({entry, selectedDate, setSelectedDate, addTask, toggleT
           )}
           <div style={{marginTop:10}}>
             {entry.tasks.length===0 && <div style={S.emptyState}>Пусто. Добавь 1–3 дела.</div>}
-            {entry.tasks.map(t=>(
+            {entry.tasks.map(t=> editId===t.id ? (
+              /* ✏ Правка задачи: название, сложность, привязки. У ВЫПОЛНЕННОЙ задачи смена привязок
+                 переносит вклад в целях, а смена сложности — правит XP (см. editTask в App.jsx). */
+              <div key={t.id} style={{...S.panel, marginBottom:8, background:C.panelAlt}}>
+                <div style={S.inputRow}>
+                  <input style={S.input} autoFocus value={editText} onChange={e=>setEditText(e.target.value)}
+                    onKeyDown={e=>{ if(e.key==='Enter') saveEdit(t.id); if(e.key==='Escape') cancelEdit(); }} />
+                  <Select style={{minWidth:120}} value={editDiff} onChange={setEditDiff}
+                    options={[{value:'easy',label:'лёгкая'},{value:'medium',label:'средняя'},{value:'hard',label:'сложная'}]} />
+                  <button style={S.iconBtnAmber} title="сохранить" onClick={()=>saveEdit(t.id)}>💾</button>
+                  <button className="icon-btn" title="отмена" onClick={cancelEdit}>✕</button>
+                </div>
+                <div style={{marginTop:8,fontSize:11.5,color:C.cyan}}>🎯 привязка к целям:</div>
+                <GoalLinkPicker goals={goals} links={editLinks} onLinks={setEditLinks} />
+                {t.done && (
+                  <div style={{...S.dimSpan,marginLeft:0,marginTop:6,display:'block',fontSize:11}}>
+                    Задача уже выполнена: смена привязок перенесёт вклад в целях, смена сложности — поправит XP.
+                  </div>
+                )}
+              </div>
+            ) : (
               <div key={t.id} className="row-hover" style={S.taskRow}>
                 <input type="checkbox" checked={t.done} onChange={()=>toggleTask(t.id)} />
                 <div style={{flex:1, minWidth:0, overflowWrap:'anywhere', textDecoration:t.done?'line-through':'none', color:t.done?C.dim:C.text}}>{t.text}</div>
                 {goalLinksOf(t).map((l,i)=><span key={i} title={`Вклад в цель: +${l.amount}`} style={{fontSize:11,color:C.amber,flexShrink:0}}>🎯+{l.amount}</span>)}
                 <span style={{fontSize:10, color:C.dim}}>{t.difficulty||'medium'}</span>
+                {editTask && <button className="icon-btn" title="изменить задачу" onClick={()=>startEdit(t)}>✏</button>}
                 <ConfirmIconBtn onConfirm={()=>deleteTask(t.id)} confirmLabel="удалить?" title="удалить задачу" />
               </div>
             ))}

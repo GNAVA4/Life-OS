@@ -284,15 +284,41 @@ function App(){
   // setGoals). Мёртвые привязки (цели уже нет) отбрасываются — иначе шаблон задач тянул бы ссылки на
   // закрытые цели. Цель, дошедшая до 100% через привязку, теперь награждается так же, как при ручном
   // выставлении ползунком: +GOAL_DONE_XP, дата выполнения, тост. Откат симметричен (ADR-002).
-  const contributeToGoals = (links, sign) => {
-    const res = applyGoalLinks(goals, links, sign, todayStr());
-    if(res.goals === goals) return;
-    persist.goals(res.goals);
-    const delta = (res.crossedUp.length - res.crossedDown.length) * GOAL_DONE_XP;
+  // Несколько операций со ссылками ЗА ОДНУ запись. Нужно при смене привязок у выполненной задачи:
+  // старые надо снять, новые начислить, и оба шага обязаны идти по одному и тому же объекту целей —
+  // два отдельных вызова прочитали бы `goals` из замыкания и второй затёр бы первый.
+  const contributeMany = (ops) => {
+    let g = goals; const up = [], down = [];
+    ops.forEach(({links, sign}) => { const r = applyGoalLinks(g, links, sign, todayStr());
+      g = r.goals; up.push(...r.crossedUp); down.push(...r.crossedDown); });
+    if(g === goals) return;
+    persist.goals(g);
+    const delta = (up.length - down.length) * GOAL_DONE_XP;
     if(delta) addXp(delta);
-    if(res.crossedUp.length) setToasts(prev => [...prev, ...res.crossedUp.map(g=>({tid:uid(), goalDone:g.title}))]);
+    if(up.length) setToasts(prev => [...prev, ...up.map(x=>({tid:uid(), goalDone:x.title}))]);
   };
+  const contributeToGoals = (links, sign) => contributeMany([{links, sign}]);
   const addTask = (text, difficulty, goalLinks) => updateEntry({ tasks:[...entry.tasks, {id:uid(),text,done:false,difficulty, ...(goalLinks&&goalLinks.length?{goalLinks}:{})}] });
+  // ✏ Редактирование задачи: название, сложность, привязки к целям.
+  // Если задача УЖЕ ВЫПОЛНЕНА, её вклад уже учтён, поэтому правка обязана перенести последствия:
+  //   • привязки — снять старые и начислить новые (одной записью, см. contributeMany);
+  //   • сложность — доначислить разницу XP, иначе шкала молча разъедется с задачей.
+  // Привязки, не изменившиеся по составу, НЕ трогаем: цикл «−1 затем +1» сбросил бы дату выполнения
+  // цели на сегодня, хотя цель закрыта давно.
+  const editTask = (id, patch) => {
+    const t = entry.tasks.find(x=>x.id===id); if(!t) return;
+    const text = patch.text!=null ? patch.text.trim() : t.text; if(!text) return;
+    const difficulty = patch.difficulty || t.difficulty || 'medium';
+    const oldLinks = goalLinksOf(t);
+    const newLinks = patch.goalLinks!=null ? patch.goalLinks : oldLinks;
+    const linksChanged = JSON.stringify(oldLinks) !== JSON.stringify(newLinks);
+    updateEntry({ tasks: entry.tasks.map(x => x.id!==id ? x
+      : { ...x, text, difficulty, ...(newLinks.length ? {goalLinks:newLinks} : {goalLinks:undefined}) }) });
+    if(!t.done) return;                       // невыполненная ещё ничего не вносила — правим только поля
+    const xpDelta = (DIFF_XP[difficulty]||10) - (DIFF_XP[t.difficulty]||10);
+    if(xpDelta) addXp(xpDelta);
+    if(linksChanged) contributeMany([{links:oldLinks, sign:-1}, {links:newLinks, sign:+1}]);
+  };
   const toggleTask = (id) => {
     let delta=0, links=[], nowDone=false;
     const tasks = entry.tasks.map(t=>{ if(t.id===id){ const xp = DIFF_XP[t.difficulty]||10; delta = t.done?-xp:xp; nowDone=!t.done; links=goalLinksOf(t); return {...t,done:!t.done}; } return t; });
@@ -1067,7 +1093,7 @@ function App(){
 
       <div key={tab} className="anim-tab">
       {tab==='today' && <TodayTab entry={entry} selectedDate={selectedDate} setSelectedDate={setSelectedDate}
-        addTask={addTask} toggleTask={toggleTask} deleteTask={deleteTask} updateEntry={updateEntry} goals={goals}
+        addTask={addTask} toggleTask={toggleTask} deleteTask={deleteTask} editTask={editTask} updateEntry={updateEntry} goals={goals}
         maskOps={finMask.ops}
         tags={tags} toggleTagOnDay={toggleTagOnDay} addTagGlobal={addTagGlobal} removeTagGlobal={removeTagGlobal}
         antiTags={antiTags} toggleAntiTagOnDay={toggleAntiTagOnDay} addAntiTagGlobal={addAntiTagGlobal} removeAntiTagGlobal={removeAntiTagGlobal} antiXp={gamify.antiXp} hpAnti={gamify.hpAnti}
