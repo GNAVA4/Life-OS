@@ -37,4 +37,17 @@ export const habitBestStreak = (h, today) => {
   }
   return Math.max(max, run);
 };
-export const habitChallengeDone = (h) => (h.targetDays>0) && (habitCompletedCount(h) >= h.targetDays);
+// 🔴 Челлендж считается по СЕРИИ, а не по общему числу отметок. Раньше здесь стоял
+// `habitCompletedCount(h) >= h.targetDays` — сумма всех галочек за всё время, без непрерывности и без
+// заморозок. Из-за этого шкала челленджа продолжала набираться после срыва: «дней подряд» обнулялось,
+// а прогресс челленджа рос, потому что считал ДРУГУЮ величину. Два правила про одну и ту же дисциплину
+// разъехались — тот же класс, что «просрочено» в session 035.
+//
+// Теперь обе величины считает один и тот же ход по журналу (habitCurrentStreak/habitBestStreak),
+// который уважает разрешённые пропуски `freezesPerMonth`: можно пропустить N раз в месяц и серия живёт;
+// пропустил сверх лимита — серия и прогресс челленджа начинаются заново.
+//
+// Прогресс = ТЕКУЩАЯ серия; «пройден» = ЛУЧШАЯ серия за всю историю (решение пользователя):
+// раз дошёл — заслужил, и последующий срыв награду не отбирает, хотя шкала честно стартует с нуля.
+export const habitChallengeRun = (h, today) => habitCurrentStreak(h, today);
+export const habitChallengeDone = (h, today) => (h.targetDays>0) && (habitBestStreak(h, today) >= h.targetDays);

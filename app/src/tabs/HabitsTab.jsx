@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { addDays, todayStr } from '../lib/dates.js';
 import { goalLinksOf } from '../lib/goals.js';
-import { HABIT_WD, habitBestStreak, habitChallengeDone, habitCompletedCount, habitCurrentStreak, habitDoneOn, habitScheduleLabel, isHabitScheduled } from '../lib/habits.js';
+import { HABIT_WD, habitBestStreak, habitChallengeDone, habitChallengeRun, habitCompletedCount, habitCurrentStreak, habitDoneOn, habitScheduleLabel, isHabitScheduled } from '../lib/habits.js';
 import { S } from '../lib/styles.js';
 import { C } from '../lib/theme.js';
 import { GoalLinkPicker } from '../ui/GoalLinkPicker.jsx';
@@ -78,11 +78,14 @@ export function HabitsTab({habits, addHabit, toggleHabitDay, deleteHabit, update
       {habits.map(h=>{
         const streak = habitCurrentStreak(h, today);
         const best = habitBestStreak(h, today);
-        const done = habitCompletedCount(h);
+        const done = habitCompletedCount(h);          // всего отметок за историю (показываем отдельно)
         const todayScheduled = isHabitScheduled(h, today);
         const todayDone = habitDoneOn(h, today);
-        const targetPct = h.targetDays>0 ? Math.min(100, done/h.targetDays*100) : 0;
-        const challenge = habitChallengeDone(h);
+        // Прогресс челленджа = ТЕКУЩАЯ серия (с учётом разрешённых пропусков), а не сумма всех отметок:
+        // иначе шкала растёт после срыва, хотя «дней подряд» обнулилось. См. lib/habits.js.
+        const run = habitChallengeRun(h, today);
+        const targetPct = h.targetDays>0 ? Math.min(100, run/h.targetDays*100) : 0;
+        const challenge = habitChallengeDone(h, today);
         const last7 = []; for(let i=6;i>=0;i--) last7.push(addDays(today,-i));
         return (
           <div key={h.id} style={S.panel}>
@@ -111,7 +114,8 @@ export function HabitsTab({habits, addHabit, toggleHabitDay, deleteHabit, update
             {h.targetDays>0 && (
               <div style={{marginTop:8}}>
                 <div style={{display:'flex',justifyContent:'space-between',fontSize:11,color:C.dim,marginBottom:3}}>
-                  <span>Челлендж{challenge?' · пройден 🎉':''}</span><span>{done} / {h.targetDays}</span>
+                  <span>Челлендж · подряд{challenge?' · пройден 🎉':''}</span>
+                  <span>{run} / {h.targetDays}<span style={{opacity:.6}}> · всего {done}</span></span>
                 </div>
                 <div style={{height:5,background:C.panelAlt,borderRadius:3,overflow:'hidden'}}><div style={{height:'100%',width:`${targetPct}%`,background:challenge?C.green:C.amber}}/></div>
               </div>

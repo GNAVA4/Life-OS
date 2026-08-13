@@ -131,7 +131,7 @@ export function computeAchStats({days, goals, study, notes, finance, meta, ongoi
   s.habitsCount = H.filter(h=>h.outcome!=='failed').length;
   s.habitCompletions = H.reduce((n,h)=>n+habitCompletedCount(h),0);
   s.habitBestStreak = H.reduce((mx,h)=>Math.max(mx, habitBestStreak(h, tdy)), 0);
-  s.habitsChallengeDone = H.filter(h=>habitChallengeDone(h)).length;
+  s.habitsChallengeDone = H.filter(h=>habitChallengeDone(h, tdy)).length;
   return s;
 }
 

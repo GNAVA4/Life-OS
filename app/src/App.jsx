@@ -569,7 +569,7 @@ function App(){
   const archiveHabit = (id, outcome='completed') => {
     const h = habits.find(x=>x.id===id); if(!h) return;
     const t = todayStr();
-    const snap = {...h, archivedAt:t, outcome, bestStreak:habitBestStreak(h,t), completedCount:habitCompletedCount(h), challengeDone:habitChallengeDone(h)};
+    const snap = {...h, archivedAt:t, outcome, bestStreak:habitBestStreak(h,t), completedCount:habitCompletedCount(h), challengeDone:habitChallengeDone(h, t)};
     persistHabitsArchive([...habitsArchive, snap]);
     persist.habits(habits.filter(x=>x.id!==id));
   };
