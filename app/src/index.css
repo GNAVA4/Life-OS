@@ -22,7 +22,9 @@ input,textarea,select,button{font-family:'Onest',system-ui,sans-serif;}
 input[type=checkbox]{accent-color:var(--amber);width:16px;height:16px;cursor:pointer;}
 input[type=range]{accent-color:var(--amber);}
 /* grid-колонки должны уметь сжиматься уже своего содержимого — иначе 1fr(=minmax(auto,1fr)) распирает сетку шире экрана */
-@media (max-width:720px){ .grid2{grid-template-columns:minmax(0,1fr) !important;} .grid3{grid-template-columns:minmax(0,1fr) !important;} }
+/* 2 колонки — только если рядом с боковым меню (216px) остаётся ≥ ~720px контента; иначе колонки по ~250px тесные. Этап 7. */
+@media (max-width:1000px){ .grid2{grid-template-columns:minmax(0,1fr) !important;} }
+@media (max-width:720px){ .grid3{grid-template-columns:minmax(0,1fr) !important;} }
 .grid2>*,.grid3>*{min-width:0;}
 /* ползунок оценки дня (редизайн session 043) */
 input.lo-range{-webkit-appearance:none;appearance:none;height:28px;background:transparent;cursor:pointer;margin:0;}

@@ -24,6 +24,9 @@ export const S = {
   exportBtn:{background:C.panelAlt,border:`1px solid ${C.panelAlt}`,borderRadius:10,padding:'9px 14px',color:C.text,fontSize:13.5,fontWeight:600,cursor:'pointer',display:'inline-flex',alignItems:'center',justifyContent:'center',gap:6},
   btnPrimary:{background:C.amber,border:`1px solid ${C.amber}`,borderRadius:10,padding:'9px 14px',color:'#17130C',fontSize:13.5,fontWeight:600,cursor:'pointer',display:'inline-flex',alignItems:'center',justifyContent:'center',gap:6},
   btnGhost:{background:'transparent',border:`1px solid ${C.border}`,borderRadius:10,padding:'7px 12px',color:C.text,fontSize:12.5,fontWeight:600,cursor:'pointer',display:'inline-flex',alignItems:'center',justifyContent:'center',gap:6},
+  // Широкий экран (этап 7): боковое меню + колонка контента.
+  desk:{background:C.bg,color:C.text,minHeight:'100vh',fontFamily:FONT,display:'flex',alignItems:'flex-start'},
+  deskMain:{flex:1,minWidth:0,maxWidth:1120,margin:'0 auto',padding:'24px 32px 48px'},
   nav:{display:'flex',gap:2,marginBottom:22,flexWrap:'wrap',borderBottom:`1px solid ${C.border}`},
   tabBtn:{background:'transparent',border:'none',cursor:'pointer',padding:'10px 12px',fontSize:13.5,fontWeight:500,borderRadius:'8px 8px 0 0',display:'inline-flex',alignItems:'center',gap:7},
   panel:{background:'transparent',border:'none',borderRadius:0,padding:'0 0 4px',marginBottom:26},

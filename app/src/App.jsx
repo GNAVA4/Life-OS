@@ -30,6 +30,7 @@ import { SearchModal, SEARCH_MIN_CHARS } from './ui/SearchModal.jsx';
 import { MobileBottomNav, MobileSheet } from './ui/MobileNav.jsx';
 import { useIsMobile } from './ui/useIsMobile.js';
 import { Icon } from './ui/Icon.jsx';
+import { DesktopSidebar } from './ui/DesktopSidebar.jsx';
 import { TAB_META } from './lib/constants.js';
 import { TodayTab } from './tabs/TodayTab.jsx';
 import { HabitsTab } from './tabs/HabitsTab.jsx';
@@ -1095,7 +1096,14 @@ function App(){
   const sheetTabIds = ALL_MOBILE_TAB_IDS.filter(id => !mobileTabIds.includes(id) && vis('tab.'+id));
 
   return (
-    <div style={{...S.root, padding: isMobile?'16px 12px 92px':'20px 20px 40px'}}>
+    <div style={isMobile ? {...S.root, padding:'16px 12px 92px'} : S.desk}>
+      {/* Широкий экран (этап 7 редизайна): боковое меню вместо верхней строки вкладок. */}
+      {!isMobile && (
+        <DesktopSidebar tabIds={NAV.filter(n => n.id!=='settings' && (n.id==='today' || vis('tab.'+n.id))).map(n => n.id)}
+          tab={tab} onPick={setTab} level={level} into={into} needed={needed} levelMax={levelMax}
+          health={meta.health ?? 100} onProfile={()=>setProfileOpen(true)} />
+      )}
+      <div style={isMobile ? undefined : S.deskMain}>
       {/* Шапка (редизайн session 043): на «Сегодня» — день недели и дата, на остальных — название раздела.
           Здоровье и уровень остаются видны на всех вкладках; полный профиль — по аватару. */}
       <div style={S.header}>
@@ -1105,8 +1113,8 @@ function App(){
             : <div style={{...S.h1,paddingTop:4}}>{tab==='settings'?'Настройки':(TAB_META[tab]?.label||'')}</div>}
         </div>
         <div style={{display:'flex',alignItems:'center',gap:10}}>
-          {tab!=='today' && <div style={S.miniGauge} title="Здоровье"><Icon name="heart" size={14}/><span>{meta.health ?? 100}</span></div>}
-          {tab!=='today' && <div style={S.miniGauge} title={`Уровень · ${into}/${needed} XP`}><span>ур. {level}</span></div>}
+          {isMobile && tab!=='today' && <div style={S.miniGauge} title="Здоровье"><Icon name="heart" size={14}/><span>{meta.health ?? 100}</span></div>}
+          {isMobile && tab!=='today' && <div style={S.miniGauge} title={`Уровень · ${into}/${needed} XP`}><span>ур. {level}</span></div>}
           <button onClick={()=>setSearchOpen(true)} title="Поиск" aria-label="Поиск" style={S.profileBtn}><Icon name="search" size={18}/></button>
           <button onClick={()=>setProfileOpen(true)} title="Профиль" aria-label="Профиль" style={S.avatarBtn}><Icon name="user" size={16}/></button>
         </div>
@@ -1123,7 +1131,7 @@ function App(){
         <Modal onClose={()=>setImportPending(null)} title="Импорт бэкапа">
           <div style={{fontSize:13.5,lineHeight:1.5,marginBottom:14}}>Импортировать <b>{importPending.keys.length}</b> раздел(ов) из файла? Текущие данные будут <b style={{color:C.red}}>перезаписаны</b>. Это действие нельзя отменить.</div>
           <div style={{display:'flex',gap:8}}>
-            <button style={{...S.exportBtn,borderColor:C.red,color:C.red,flex:1}} onClick={applyImport}>Импортировать и перезаписать</button>
+            <button style={{...S.exportBtn,background:tint(C.red,.14),borderColor:'transparent',color:C.red,flex:1}} onClick={applyImport}>Импортировать и перезаписать</button>
             <button style={S.exportBtn} onClick={()=>setImportPending(null)}>Отмена</button>
           </div>
         </Modal>
@@ -1157,17 +1165,6 @@ function App(){
         <div style={{background:tint(C.amber,.1),border:'none',borderRadius:12,padding:'10px 12px',marginBottom:14,display:'flex',alignItems:'center',gap:10}}>
           <span style={{color:C.amber,display:'flex',flex:'none'}}><Icon name="warn" size={16}/></span><span style={{fontSize:12.5,color:C.amber,flex:1,lineHeight:1.45}}>Хранилище почти заполнено: {lsPct}% (~{Math.round(lsBytes/1024)} КБ из ~5 МБ). Сделай бэкап (Экспорт JSON) и почисти старые данные — иначе новые записи могут не сохраниться.</span>
           <button className="icon-btn" title="скрыть" onClick={()=>setLsWarnDismissed(true)}><Icon name="x" size={15}/></button>
-        </div>
-      )}
-
-      {!isMobile && (
-        <div style={S.nav}>
-          {NAV.filter(n => n.id==='today' || n.id==='settings' || vis('tab.'+n.id)).map(n => (
-            <button key={n.id} className="tab-btn" onClick={()=>setTab(n.id)}
-              style={{...S.tabBtn, color: tab===n.id?C.text:C.dim, borderBottom: tab===n.id?`2px solid ${C.amber}`:'2px solid transparent', marginBottom:-1}}>
-              <Icon name={TAB_META[n.id]?.icon || 'settings'} size={15}/>{n.id==='settings'?'Настройки':(TAB_META[n.id]?.label||n.label)}
-            </button>
-          ))}
         </div>
       )}
 
@@ -1243,7 +1240,7 @@ function App(){
         <Modal compact onClose={()=>setConfirmDialog(null)} title="Подтверждение">
           <div style={{fontSize:13.5,color:C.text,marginBottom:16,lineHeight:1.5}}>{confirmDialog.message}</div>
           <div style={{display:'flex',gap:8}}>
-            <button style={{...S.sheetBtn,borderColor:C.amber,color:C.amber}} onClick={()=>{ const f=confirmDialog.onYes; setConfirmDialog(null); f&&f(); }}>Да</button>
+            <button style={{...S.btnPrimary,flex:1}} onClick={()=>{ const f=confirmDialog.onYes; setConfirmDialog(null); f&&f(); }}>Да</button>
             <button style={S.sheetBtn} onClick={()=>setConfirmDialog(null)}>Отмена</button>
           </div>
         </Modal>
@@ -1252,6 +1249,7 @@ function App(){
       <ToastStack toasts={toasts} isMobile={isMobile} onOpenAchievements={()=>setTab('achievements')} />
 
       <LevelUpBanner levelUp={levelUp} levelMax={levelMax} onClose={()=>setLevelUp(null)} />
+      </div>
     </div>
   );
 }
