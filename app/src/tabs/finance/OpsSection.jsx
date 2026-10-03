@@ -1,20 +1,27 @@
-// Финансы → Операции: транзакции, категории, планы, регулярные платежи, графики, бюджет-алерты,
-// «свободно на сегодня», помесячный просмотр. Вынесено из FinanceTab.jsx (session 036).
+// Финансы → Операции и Обзор (редизайн «Тихий», session 043: Э6/Э6б). Расчёты прежние (session 015–036);
+// раскладка разделена: part='ops' — быстрый ввод, «заполнить как раньше», свободно на сегодня, список операций с
+// фильтрами, категории; part='overview' — бюджет-алерты, структура расходов/доходов, план/факт, расходы по дням,
+// регулярные платежи. Месяц просмотра общий (держит FinanceTab).
 import { useMemo, useState } from 'react';
 import { baseChartOpts } from '../../lib/charts.js';
 import { monthLabelRu, openDatePicker, shiftMonth, todayStr } from '../../lib/dates.js';
 import { maskMoney } from '../../lib/format.js';
 import { vis } from '../../lib/storage.js';
 import { S } from '../../lib/styles.js';
-import { C, PIE_COLORS } from '../../lib/theme.js';
+import { C, PIE_COLORS, tint } from '../../lib/theme.js';
 import { ChartCanvas } from '../../ui/ChartCanvas.jsx';
-import { Select } from '../../ui/primitives.jsx';
+import { Icon } from '../../ui/Icon.jsx';
+import { ConfirmIconBtn, Select } from '../../ui/primitives.jsx';
 import { PlanPanel } from './PlanPanel.jsx';
 
-export function OpsSection({finance, categories, budgets, incomePlans, bills, monthTx, defaults={}, finMask={}, addTransaction, deleteTransaction, addCategory, removeCategory, setBudget, removeBudget, setIncomePlan, removeIncomePlan, setBudgetsBatch, setIncomePlansBatch, addBill, deleteBill, updateBill, collapse={}, toggleCollapse, dismissedAlerts={}, dismissAlert}){
+// «Заполнить как раньше»: сколько последних дней смотреть и сколько вариантов показывать.
+// 60 дней — частые траты живут в пределах пары месяцев; 4 чипа помещаются в строку телефона.
+const REPEAT_LOOKBACK_DAYS = 60, REPEAT_MAX = 4;
+
+export function OpsSection({part='ops', viewMonth, setViewMonth, finance, categories, budgets, incomePlans, bills, monthTx, defaults={}, finMask={}, addTransaction, deleteTransaction, addCategory, removeCategory, setBudget, removeBudget, setIncomePlan, removeIncomePlan, setBudgetsBatch, setIncomePlansBatch, addBill, deleteBill, updateBill, collapse={}, toggleCollapse, dismissedAlerts={}, dismissAlert}){
   const mo = n => maskMoney(finMask.ops, n);   // приватность: скрытие сумм операций
   const [planOpen,setPlanOpen] = useState(false);
-  const [planKind,setPlanKind] = useState('expense'); // переключатель внутри плашки планов (session 020)
+  const [planKind,setPlanKind] = useState('expense');
   // категория по умолчанию: из настроек, если валидна, иначе первая в списке
   const defExpenseCat = categories.expense.includes(defaults.expenseCat) ? defaults.expenseCat : categories.expense[0];
   const defIncomeCat = categories.income.includes(defaults.incomeCat) ? defaults.incomeCat : categories.income[0];
@@ -23,28 +30,47 @@ export function OpsSection({finance, categories, budgets, incomePlans, bills, mo
   const [txCat,setTxCat] = useState(defExpenseCat); const [txNote,setTxNote] = useState('');
   const [txDate,setTxDate] = useState(todayStr()); const [txExclude,setTxExclude] = useState(false);
   const [txAccountId,setTxAccountId] = useState(defAccount);
+  const [showNote,setShowNote] = useState(false);
+  const [addedMsg,setAddedMsg] = useState('');
   const [newCat,setNewCat] = useState(''); const [showCatManager,setShowCatManager] = useState(false);
   const [catKind,setCatKind] = useState('expense');
+  const [billOpen,setBillOpen] = useState(false);
   const [billName,setBillName] = useState(''); const [billAmount,setBillAmount] = useState(''); const [billDay,setBillDay] = useState('');
-  const [opsCat,setOpsCat] = useState('');        // фильтр списка операций по категории (session: ops-filter-group)
-  const [opsGroup,setOpsGroup] = useState(false); // группировка списка операций по дням
-  const [opsExcludeOnly,setOpsExcludeOnly] = useState(false); // показать только «не считаемые» операции
-  const cats = txType==='expense' ? categories.expense : categories.income;
+  const [opsCat,setOpsCat] = useState('');
+  const [opsGroup,setOpsGroup] = useState(true);
+  const [opsExcludeOnly,setOpsExcludeOnly] = useState(false);
   const managedCats = catKind==='expense' ? categories.expense : categories.income;
   const accountName = (id) => finance.accounts.find(a=>a.id===id)?.name;
+  const today = todayStr();
 
-  const submit = () => { const amount=parseFloat(txAmount); if(isNaN(amount)||amount<=0) return;
+  // категории текущего типа: часто используемые — первыми (по последним 90 дням), остальные — в исходном порядке
+  const catsSorted = useMemo(()=>{
+    const list = txType==='expense' ? categories.expense : categories.income;
+    const freq = {}; finance.transactions.forEach(t=>{ if(t.type===txType && !t.debtFlow) freq[t.category]=(freq[t.category]||0)+1; });
+    return [...list].sort((a,b)=>(freq[b]||0)-(freq[a]||0));
+  }, [finance.transactions, categories, txType]);
+
+  // «Заполнить как раньше»: частые сочетания тип+категория+сумма(+комментарий, счёт) за последние дни
+  const repeats = useMemo(()=>{
+    const from = new Date(today+'T00:00:00'); from.setDate(from.getDate()-REPEAT_LOOKBACK_DAYS);
+    const fromStr = `${from.getFullYear()}-${String(from.getMonth()+1).padStart(2,'0')}-${String(from.getDate()).padStart(2,'0')}`;
+    const m = {};
+    finance.transactions.forEach(t=>{ if(t.debtFlow || t.date<fromStr) return;
+      const k = `${t.type}|${t.category}|${t.amount}|${t.note||''}`;
+      if(!m[k]) m[k] = {t, n:0}; m[k].n++; });
+    return Object.values(m).filter(x=>x.n>=2).sort((a,b)=>b.n-a.n).slice(0,REPEAT_MAX).map(x=>x.t);
+  }, [finance.transactions, today]);
+  const fillFrom = (t) => { setTxType(t.type); setTxCat(t.category); setTxAmount(String(t.amount)); setTxNote(t.note||''); setShowNote(!!t.note);
+    if(t.accountId) setTxAccountId(t.accountId); setTxExclude(!!t.exclude); setTxDate(today); };
+
+  const submit = () => { const amount=parseFloat(String(txAmount).replace(',','.')); if(isNaN(amount)||amount<=0) return;
     addTransaction({type:txType, amount, category:txCat, note:txNote.trim(), exclude:txExclude, date:txDate, accountId:txAccountId||null});
-    setTxAmount(''); setTxNote(''); setTxExclude(false); };
+    setAddedMsg(`${txType==='income'?'+':'−'}${mo(amount)} · ${txCat}`); setTimeout(()=>setAddedMsg(''), 2200);
+    setTxAmount(''); setTxNote(''); setTxExclude(false); setShowNote(false); };
 
-  // Выбранный месяц просмотра (операции/графики/планы) — можно листать историю. session 032
-  const [viewMonth,setViewMonth] = useState(todayStr().slice(0,7));
   const viewTx = useMemo(()=> finance.transactions.filter(t=>!t.debtFlow && t.date.slice(0,7)===viewMonth), [finance.transactions, viewMonth]);
-  // круговые диаграммы — по ВЫБРАННОМУ месяцу
   const viewExpenseByCat = useMemo(()=>{ const m={}; viewTx.filter(t=>t.type==='expense'&&!t.exclude).forEach(t=>{ m[t.category]=(m[t.category]||0)+t.amount; }); return m; }, [viewTx]);
   const viewIncomeByCat  = useMemo(()=>{ const m={}; viewTx.filter(t=>t.type==='income'&&!t.exclude).forEach(t=>{ m[t.category]=(m[t.category]||0)+t.amount; }); return m; }, [viewTx]);
-  const pieData = { labels:Object.keys(viewExpenseByCat), datasets:[{data:Object.values(viewExpenseByCat), backgroundColor:PIE_COLORS}] };
-  const incomePieData = { labels:Object.keys(viewIncomeByCat), datasets:[{data:Object.values(viewIncomeByCat), backgroundColor:PIE_COLORS}] };
   // бюджет-алерты — по ТЕКУЩЕМУ месяцу (прогноз до конца месяца), не зависят от viewMonth
   const expenseByCat = useMemo(()=>{ const map={}; monthTx.filter(t=>t.type==='expense'&&!t.exclude).forEach(t=>{ map[t.category]=(map[t.category]||0)+t.amount; }); return map; }, [monthTx]);
   const expenseCountByCat = useMemo(()=>{ const m={}; monthTx.filter(t=>t.type==='expense'&&!t.exclude).forEach(t=>{ m[t.category]=(m[t.category]||0)+1; }); return m; }, [monthTx]);
@@ -70,20 +96,23 @@ export function OpsSection({finance, categories, budgets, incomePlans, bills, mo
     const spentToday = monthTx.filter(t=>t.type==='expense'&&!t.exclude&&t.date===todayStr()).reduce((s,t)=>s+t.amount,0);
     return {plan, spent, remaining, perDay:Math.round(perDay), remainingDays, spentToday, leftToday:Math.round(perDay-spentToday)};
   }, [budgets, monthTx]);
+
+  const curYm = today.slice(0,7);
   const monthSwitcher = (
-    <div style={{display:'flex',alignItems:'center',gap:8}}>
-      <button style={S.navArrow} onClick={()=>setViewMonth(shiftMonth(viewMonth,-1))}>◀</button>
-      <span style={{fontSize:12,color:C.dim,minWidth:120,textAlign:'center',textTransform:'capitalize'}}>{monthLabelRu(viewMonth)}</span>
-      <button style={S.navArrow} onClick={()=>setViewMonth(shiftMonth(viewMonth,1))} disabled={viewMonth>=todayStr().slice(0,7)} title="следующий месяц">▶</button>
+    <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8,marginBottom:16}}>
+      <button style={S.navArrow} aria-label="Предыдущий месяц" onClick={()=>setViewMonth(shiftMonth(viewMonth,-1))}><Icon name="chevL"/></button>
+      <div style={{display:'flex',flexDirection:'column',alignItems:'center'}}>
+        <b style={{fontWeight:600,textTransform:'capitalize'}}>{monthLabelRu(viewMonth)}</b>
+        {viewMonth!==curYm && <button onClick={()=>setViewMonth(curYm)} style={{background:'none',border:'none',color:C.cyan,fontSize:12,cursor:'pointer',fontFamily:'inherit',padding:0}}>к текущему месяцу</button>}
+      </div>
+      <button style={{...S.navArrow,opacity:viewMonth>=curYm?.3:1}} aria-label="Следующий месяц" onClick={()=>setViewMonth(shiftMonth(viewMonth,1))} disabled={viewMonth>=curYm}><Icon name="chevR"/></button>
     </div>
   );
 
   // бюджет-алерты + прогноз к концу месяца (текущий месяц). session 015; уточнено 016/017.
   // Прогноз = run-rate: факт/деньМесяца*днейВМесяце — честен ТОЛЬКО для частых трат.
-  //   Для категорий с ≤5 операциями (разовые: транспорт-абонемент, аренда) НЕ экстраполируем (sparse). [user, 017]
-  // Алерт показываем ТОЛЬКО если ФАКТ по категории ≥25% всех планируемых расходов месяца —
-  //   т.е. категория реально «весит» в бюджете. Мелкая трата (транспорт 2к из 30к плана) на 100%
-  //   своего плана — бесполезный шум, не показываем. Фильтр по ФАКТУ, не по плану. [user, 017]
+  //   Для категорий с ≤5 операциями (разовые) НЕ экстраполируем (sparse). [user, 017]
+  // Алерт показываем ТОЛЬКО если ФАКТ по категории ≥25% всех планируемых расходов месяца. [user, 017]
   const MIN_TX_FOR_FORECAST = 6;      // >5 операций → строим прогноз
   const MIN_SHARE_FOR_ALERT = 0.25;   // факт категории ≥25% от общих планируемых расходов
   const budgetAlerts = useMemo(()=>{
@@ -92,11 +121,11 @@ export function OpsSection({finance, categories, budgets, incomePlans, bills, mo
     const totalPlan = Object.values(b).reduce((s,v)=>s+(v>0?v:0),0);
     if(totalPlan<=0) return [];
     const [Y,M,D] = todayStr().split('-').map(Number);
-    const daysInMonth = new Date(Y, M, 0).getDate();  // M 1-based → последний день месяца M
+    const daysInMonth = new Date(Y, M, 0).getDate();
     const rows=[];
     Object.keys(b).forEach(c=>{ const plan=b[c]; if(!plan||plan<=0) return;
       const spent=expenseByCat[c]||0;
-      if(spent/totalPlan < MIN_SHARE_FOR_ALERT) return;   // факт мелкий на фоне бюджета — не шумим
+      if(spent/totalPlan < MIN_SHARE_FOR_ALERT) return;
       const ratio=spent/plan; const cnt=expenseCountByCat[c]||0;
       const sparse = cnt < MIN_TX_FOR_FORECAST;
       const projected = (sparse || D<=0) ? spent : Math.round(spent/D*daysInMonth);
@@ -105,7 +134,7 @@ export function OpsSection({finance, categories, budgets, incomePlans, bills, mo
     return rows.sort((a,b)=>b.ratio-a.ratio);
   }, [budgets, expenseByCat, expenseCountByCat]);
 
-  // расходы по каждому дню ВЫБРАННОГО месяца (гистограмма, НЕ накопительно). session 015; помесячно session 032.
+  // расходы по каждому дню ВЫБРАННОГО месяца (гистограмма, НЕ накопительно). session 015/032.
   const dailyExpense = useMemo(()=>{
     const byDate={};
     viewTx.forEach(t=>{ if(!t.exclude && t.type==='expense') byDate[t.date]=(byDate[t.date]||0)+t.amount; });
@@ -115,90 +144,157 @@ export function OpsSection({finance, categories, budgets, incomePlans, bills, mo
     return {labels, data};
   }, [viewTx, viewMonth]);
 
-  // список операций: фильтр по категории + опциональная группировка по дням (session: ops-filter-group)
-  // debtFlow (движения долгов) не показываем среди операций — у них своя вкладка «Долги».
+  // список операций: фильтр по категории + группировка по дням. debtFlow — во вкладке «Долги».
   const opsCats = useMemo(()=>{ const set=new Set(); finance.transactions.forEach(t=>{ if(!t.debtFlow) set.add(t.category); }); return [...set].sort(); }, [finance.transactions]);
   const filteredTx = useMemo(()=> finance.transactions.filter(t=> !t.debtFlow && t.date.slice(0,7)===viewMonth && (!opsCat || t.category===opsCat) && (!opsExcludeOnly || t.exclude)), [finance.transactions, viewMonth, opsCat, opsExcludeOnly]);
   const groupedTx = useMemo(()=>{
-    const map={}; filteredTx.slice(0,120).forEach(t=>{ (map[t.date]=map[t.date]||[]).push(t); });
+    const map={}; filteredTx.slice(0,200).forEach(t=>{ (map[t.date]=map[t.date]||[]).push(t); });
     return Object.keys(map).sort((a,b)=>b<a?-1:1).map(date=>{ const rows=map[date];
       const inc=rows.filter(t=>t.type==='income'&&!t.exclude).reduce((s,t)=>s+t.amount,0);
       const exp=rows.filter(t=>t.type==='expense'&&!t.exclude).reduce((s,t)=>s+t.amount,0);
       return {date, rows, inc, exp}; });
   }, [filteredTx]);
-  const txRow = (t) => (
-    <div key={t.id} className="row-hover" style={S.taskRow}>
-      <div style={{width:8,height:8,borderRadius:4,background:t.type==='income'?C.green:C.red}} />
-      <div style={{width:60,fontSize:12,color:C.dim,fontVariantNumeric:'tabular-nums'}}>{t.date.slice(5)}</div>
-      <div style={{flex:1,fontSize:13.5}}>{t.category}{t.accountId?` · ${accountName(t.accountId)||'?'}`:''}{t.note?` · ${t.note}`:''}{t.exclude?<span style={{...S.dimSpan,marginLeft:4}}>(не считается)</span>:null}</div>
-      <div style={{fontVariantNumeric:'tabular-nums',fontSize:13,color:t.type==='income'?C.green:C.red}}>{t.type==='income'?'+':'−'}{mo(t.amount)}</div>
-      <button className="icon-btn" onClick={()=>deleteTransaction(t.id)}>✕</button>
+  const dayLabel = (ds) => ds===today ? 'Сегодня' : new Date(ds+'T00:00:00').toLocaleDateString('ru-RU',{weekday:'short',day:'numeric',month:'long'});
+  const txRow = (t, showDate) => (
+    <div key={t.id} style={{...S.taskRow,gap:10}}>
+      <span style={{width:6,height:6,borderRadius:3,background:t.type==='income'?C.green:C.red,flex:'none'}}/>
+      <div style={{flex:1,minWidth:0,display:'flex',flexDirection:'column',gap:2}}>
+        <span style={{fontSize:14,overflowWrap:'anywhere'}}>{t.note || t.category}</span>
+        <span style={{fontSize:12,color:C.dim,overflowWrap:'anywhere'}}>{showDate?`${t.date.slice(8,10)}.${t.date.slice(5,7)} · `:''}{t.note?t.category:''}{t.note&&t.accountId?' · ':''}{t.accountId?(accountName(t.accountId)||'?'):''}{t.exclude?<span style={{color:C.amber}}> · не считается</span>:null}</span>
+      </div>
+      <span style={{fontVariantNumeric:'tabular-nums',fontSize:14,fontWeight:600,color:t.type==='income'?C.green:C.text,whiteSpace:'nowrap'}}>{t.type==='income'?'+':'−'}{mo(t.amount)}</span>
+      <ConfirmIconBtn onConfirm={()=>deleteTransaction(t.id)} title="удалить операцию" confirmLabel="удалить?" />
     </div>
   );
+  const chip = (on, onClick, children, key, tone=C.amber) => (
+    <button key={key} type="button" className="chip" onClick={onClick} style={{fontFamily:'inherit',background:on?tint(tone,.16):C.panelAlt,color:on?tone:C.dim}}>{children}</button>
+  );
 
-  return (
+  // ---------------- ОПЕРАЦИИ ----------------
+  if(part==='ops') return (
     <div>
-      <div style={{...S.panel, display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:8}}>
-        <div style={{fontSize:12.5,color:C.dim}}>📅 Месяц просмотра (операции, графики, планы){viewMonth!==todayStr().slice(0,7) && <span style={{color:C.amber}}> · не текущий</span>}</div>
-        {monthSwitcher}
-      </div>
-      <div style={S.panel}>
-        <div style={S.panelTitle}>Новая операция</div>
-        <div style={S.inputRow}>
-          <Select style={{minWidth:110}} value={txType} onChange={v=>{ setTxType(v); setTxCat(v==='expense'?defExpenseCat:defIncomeCat); }}
-            options={[{value:'expense',label:'Расход'},{value:'income',label:'Доход'}]} />
-          <input style={{...S.input,maxWidth:100}} type="number" placeholder="сумма" value={txAmount} onChange={e=>setTxAmount(e.target.value)} />
-          <Select style={{minWidth:130,flex:1}} value={txCat} onChange={setTxCat} options={cats} />
-          <Select style={{minWidth:130,flex:1}} value={txAccountId} onChange={setTxAccountId}
-            options={[{value:'',label:'— без счёта —'}, ...finance.accounts.map(a=>({value:a.id,label:a.name}))]} />
-          <input style={{...S.input,maxWidth:130}} type="date" value={txDate} onChange={e=>setTxDate(e.target.value)} onClick={openDatePicker} />
-          <input style={S.input} placeholder="комментарий" value={txNote} onChange={e=>setTxNote(e.target.value)} onKeyDown={e=>e.key==='Enter'&&submit()} />
-          <label style={{display:'flex',alignItems:'center',gap:5,fontSize:12,color:C.dim,whiteSpace:'nowrap'}}><input type="checkbox" checked={txExclude} onChange={e=>setTxExclude(e.target.checked)} />не считать</label>
-          <button style={S.iconBtnAmber} onClick={submit}>+</button>
+      {/* быстрый ввод: сумма → категория → «Добавить»; счёт и дата запоминаются, пока открыта вкладка */}
+      <div style={{...S.plate,display:'flex',flexDirection:'column',gap:12,marginBottom:14}}>
+        <div style={{...S.seg,background:C.bg,display:'flex'}}>
+          {[{v:'expense',l:'Расход',c:C.red},{v:'income',l:'Доход',c:C.green}].map(o=>(
+            <button key={o.v} onClick={()=>{ setTxType(o.v); setTxCat(o.v==='expense'?defExpenseCat:defIncomeCat); }}
+              style={{...S.segBtn,flex:1,fontSize:13.5,padding:'8px',background:txType===o.v?C.panelAlt:'transparent',color:txType===o.v?o.c:C.dim}}>{o.v==='expense'?'− ':'+ '}{o.l}</button>))}
         </div>
-        <div style={{marginTop:8}}>
-          <span style={{fontSize:11.5,color:C.cyan,cursor:'pointer'}} onClick={()=>setShowCatManager(!showCatManager)}>{showCatManager?'скрыть категории':'управление категориями'}</span>
+        <div style={{display:'flex',alignItems:'baseline',gap:8,borderBottom:`1px solid ${C.border}`,paddingBottom:6}}>
+          <input value={txAmount} onChange={e=>setTxAmount(e.target.value.replace(/[^\d.,]/g,''))} inputMode="decimal" placeholder="0" aria-label="Сумма"
+            onKeyDown={e=>e.key==='Enter'&&submit()}
+            style={{flex:1,minWidth:0,background:'transparent',border:'none',outline:'none',color:txType==='income'?C.green:C.text,fontSize:30,fontWeight:700,fontFamily:'inherit',fontVariantNumeric:'tabular-nums',padding:0}} />
+          <span style={{fontSize:18,color:C.dim,fontWeight:600}}>₽</span>
+        </div>
+        <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+          {catsSorted.map(c=>chip(txCat===c, ()=>setTxCat(c), c, c, txType==='income'?C.green:C.amber))}
+          <button type="button" className="chip" onClick={()=>{ setCatKind(txType); setShowCatManager(v=>!v); }} style={{fontFamily:'inherit',background:'transparent',border:`1px dashed ${C.faint}`,color:C.dim}}><Icon name="edit" size={12}/>категории</button>
         </div>
         {showCatManager && (
-          <div style={{marginTop:10}}>
-            <div style={{display:'flex',gap:6,marginBottom:8}}>
-              {[{id:'expense',label:'Расходы'},{id:'income',label:'Доходы'}].map(({id,label})=>(
-                <div key={id} className="chip" onClick={()=>setCatKind(id)} style={{background:catKind===id?C.amber:C.panelAlt,color:catKind===id?'#1A1200':C.dim,borderColor:catKind===id?C.amber:C.border}}>{label}</div>
-              ))}
-            </div>
-            <div style={S.inputRow}>
-              <input style={S.input} placeholder="новая категория" value={newCat} onChange={e=>setNewCat(e.target.value)}
+          <div className="anim-collapse" style={{background:C.bg,borderRadius:10,padding:10,display:'flex',flexDirection:'column',gap:8}}>
+            <div style={{display:'flex',gap:6}}>{[{id:'expense',label:'Расходы'},{id:'income',label:'Доходы'}].map(({id,label})=>chip(catKind===id, ()=>setCatKind(id), label, id))}</div>
+            <div style={{display:'flex',gap:6}}>
+              <input style={{...S.input,padding:'7px 10px',fontSize:13}} placeholder="Новая категория" value={newCat} aria-label="Новая категория" onChange={e=>setNewCat(e.target.value)}
                 onKeyDown={e=>{ if(e.key==='Enter'&&newCat.trim()){ addCategory(catKind,newCat.trim()); setNewCat(''); } }} />
-              <button style={S.iconBtnAmber} onClick={()=>{ if(newCat.trim()){ addCategory(catKind,newCat.trim()); setNewCat(''); } }}>+</button>
+              <button style={{...S.iconBtnAmber,width:36,height:36}} aria-label="Добавить категорию" onClick={()=>{ if(newCat.trim()){ addCategory(catKind,newCat.trim()); setNewCat(''); } }}><Icon name="plus" size={16}/></button>
             </div>
-            <div style={{display:'flex',flexWrap:'wrap',gap:6,marginTop:8}}>
+            <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
               {managedCats.map(c=>(
-                <div key={c} className="chip" style={{background:C.panelAlt,color:C.dim,borderColor:C.border,display:'flex',gap:6,alignItems:'center'}}>
-                  {c}
-                  <span style={{cursor:'pointer'}} onClick={()=>removeCategory(catKind,c)}>✕</span>
-                </div>
-              ))}
+                <div key={c} className="chip" style={{background:C.panelAlt,color:C.dim,paddingRight:4}}>{c}
+                  <ConfirmIconBtn onConfirm={()=>removeCategory(catKind,c)} title="удалить категорию" confirmLabel="удалить?" /></div>))}
             </div>
           </div>
         )}
+        <div style={{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center'}}>
+          <Select small style={{flex:'1 1 130px'}} value={txAccountId} onChange={setTxAccountId}
+            options={[{value:'',label:'без счёта'}, ...finance.accounts.map(a=>({value:a.id,label:a.name}))]} />
+          <input style={{...S.input,flex:'0 1 140px',padding:'6px 9px',fontSize:12.5}} type="date" value={txDate} aria-label="Дата операции" onChange={e=>setTxDate(e.target.value||today)} onClick={openDatePicker} />
+          {chip(showNote||!!txNote, ()=>setShowNote(v=>!v), 'комментарий', 'note', C.text)}
+          {chip(txExclude, ()=>setTxExclude(v=>!v), 'не считать', 'ex')}
+        </div>
+        {showNote && <input autoFocus style={{...S.input,background:C.bg}} placeholder="Комментарий" value={txNote} aria-label="Комментарий" onChange={e=>setTxNote(e.target.value)} onKeyDown={e=>e.key==='Enter'&&submit()} />}
+        {txExclude && <span style={{fontSize:12,color:C.dim,marginTop:-4}}>«Не считать» — операция не попадёт в доходы, расходы и статистику.</span>}
+        <button style={{...S.btnPrimary,padding:'11px',opacity:parseFloat(String(txAmount).replace(',','.'))>0?1:.45}} onClick={submit}>
+          {txType==='income'?'Добавить доход':'Добавить расход'}{txDate!==today?` · ${txDate.slice(8,10)}.${txDate.slice(5,7)}`:''}</button>
+        {addedMsg && <span role="status" style={{fontSize:12.5,color:C.green,textAlign:'center',marginTop:-4}}>Добавлено: {addedMsg}</span>}
       </div>
+
+      {repeats.length>0 && (
+        <div style={{display:'flex',flexDirection:'column',gap:6,marginBottom:18}}>
+          <span style={{fontSize:12,color:C.dim}}>Заполнить как раньше</span>
+          <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+            {repeats.map((t,i)=><button key={i} className="chip" onClick={()=>fillFrom(t)} style={{fontFamily:'inherit',background:C.panelAlt,color:C.text}}>
+              {t.note||t.category} <span style={{color:t.type==='income'?C.green:C.dim}}>{t.type==='income'?'+':''}{mo(t.amount)}</span></button>)}
+          </div>
+        </div>
+      )}
 
       {vis('ops.safeToSpend') && safeToSpend && (() => {
         const st = safeToSpend; const over = st.leftToday<0; const col = over?C.red:(st.leftToday< st.perDay*0.3?C.amber:C.green);
         return (
-        <div style={{...S.panel, borderColor:col}}>
-          <div style={{...S.panelTitle, color:col}}>💸 Свободно на сегодня</div>
-          <div style={{display:'flex',alignItems:'baseline',gap:8,flexWrap:'wrap'}}>
-            <span style={{fontSize:26,fontWeight:800,color:col,fontVariantNumeric:'tabular-nums'}}>{over?'−':''}{mo(Math.abs(st.leftToday))}</span>
-            <span style={{fontSize:12,color:C.dim}}>{over?'превышен дневной лимит':'ещё можно потратить сегодня'}</span>
+          <div style={{...S.plate,marginBottom:22,display:'flex',flexDirection:'column',gap:4}}>
+            <span style={{fontSize:12.5,color:C.dim}}>{over?'Дневной лимит превышен на':'Свободно сегодня'}</span>
+            <span style={{fontSize:26,fontWeight:700,color:col,fontVariantNumeric:'tabular-nums'}}>{over?'−':''}{mo(Math.abs(st.leftToday))}</span>
+            <span style={{fontSize:12,color:C.dim,lineHeight:1.5}}>лимит в день ~{mo(st.perDay)} · сегодня потрачено {mo(st.spentToday)}<br/>до конца месяца {mo(st.remaining)} на {st.remainingDays} дн. · план {mo(st.plan)}, потрачено {mo(st.spent)}</span>
           </div>
-          <div style={{fontSize:11,color:C.dim,marginTop:6,lineHeight:1.5}}>
-            дневной лимит ~{mo(st.perDay)} · потрачено сегодня {mo(st.spentToday)}<br/>
-            в месяце осталось {mo(st.remaining)} на {st.remainingDays} дн. (план {mo(st.plan)}, потрачено {mo(st.spent)})
-          </div>
-        </div>
         );
       })()}
+
+      {monthSwitcher}
+      <div style={{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap',marginBottom:8}}>
+        <Select small style={{flex:'1 1 150px'}} value={opsCat} onChange={setOpsCat} options={[{value:'',label:'Все категории'}, ...opsCats.map(c=>({value:c,label:c}))]} />
+        {chip(opsExcludeOnly, ()=>setOpsExcludeOnly(v=>!v), 'не считаемые', 'exo')}
+        {chip(opsGroup, ()=>setOpsGroup(v=>!v), 'по дням', 'grp')}
+      </div>
+      {finance.transactions.length===0 && <div style={S.emptyState}>Операций пока нет — добавь первую формой выше.</div>}
+      {finance.transactions.length>0 && filteredTx.length===0 && <div style={S.emptyState}>За этот месяц операций нет.</div>}
+      {!opsGroup && filteredTx.slice(0,200).map(t=>txRow(t,true))}
+      {opsGroup && groupedTx.map(({date,rows,inc,exp})=>(
+        <div key={date} style={{marginBottom:10}}>
+          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8,padding:'10px 0 2px'}}>
+            <span style={{...S.panelTitle,marginBottom:0}}>{dayLabel(date)}</span>
+            <span style={{fontSize:12,fontVariantNumeric:'tabular-nums'}}>
+              {inc>0 && <span style={{color:C.green}}>+{mo(inc)}</span>}{inc>0 && exp>0 && <span style={{color:C.dim}}> · </span>}{exp>0 && <span style={{color:C.dim}}>−{mo(exp)}</span>}
+            </span>
+          </div>
+          {rows.map(t=>txRow(t,false))}
+        </div>
+      ))}
+    </div>
+  );
+
+  // ---------------- ОБЗОР ----------------
+  const donut = (byCat, title, emptyTxt, visId) => {
+    if(!vis(visId)) return null;
+    const entries = Object.entries(byCat).sort((a,b)=>b[1]-a[1]);
+    const total = entries.reduce((s,[,v])=>s+v,0);
+    return (
+      <div style={S.panel}>
+        <div style={S.panelTitle}>{title}<span style={S.dimSpan}>{entries.length?mo(total):''}</span></div>
+        {entries.length===0 ? <div style={S.emptyState}>{emptyTxt}</div> : (
+          <div style={{display:'flex',gap:16,alignItems:'center',flexWrap:'wrap'}}>
+            <div style={{width:130,height:130,flex:'none'}}>
+              <ChartCanvas type="doughnut" height={130} data={{labels:entries.map(e=>e[0]), datasets:[{data:entries.map(e=>e[1]), backgroundColor:PIE_COLORS, borderWidth:0}]}}
+                options={{responsive:true,maintainAspectRatio:false,cutout:'68%',plugins:{legend:{display:false},tooltip:{enabled:!finMask.ops}}}} />
+            </div>
+            <div style={{flex:'1 1 160px',minWidth:0,display:'flex',flexDirection:'column',gap:6}}>
+              {entries.map(([c,v],i)=>(
+                <div key={c} style={{display:'flex',alignItems:'center',gap:8,fontSize:13}}>
+                  <span style={{width:9,height:9,borderRadius:3,background:PIE_COLORS[i%PIE_COLORS.length],flex:'none'}}/>
+                  <span style={{flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',color:C.dim}}>{c}</span>
+                  <span style={{fontVariantNumeric:'tabular-nums'}}>{mo(v)}</span>
+                  <span style={{fontSize:11.5,color:C.faint,width:34,textAlign:'right',fontVariantNumeric:'tabular-nums'}}>{Math.round(v/total*100)}%</span>
+                </div>))}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div>
+      {monthSwitcher}
 
       {(() => {
         if(!vis('ops.budgetAlerts')) return null;
@@ -207,44 +303,49 @@ export function OpsSection({finance, categories, budgets, incomePlans, bills, mo
         if(!visibleAlerts.length) return null;
         const isC = !!(collapse.ui && collapse.ui.alerts);
         return (
-        <div style={{...S.panel, borderColor:C.amber}}>
-          <div style={{...S.panelTitle, color:C.amber, cursor:'pointer', display:'flex', alignItems:'center', marginBottom:isC?0:10}} onClick={()=>toggleCollapse && toggleCollapse('ui','alerts')}>
-            <span style={{marginRight:6}}>{isC?'▶':'▼'}</span>⚠ Бюджет-алерты · {ym} <span style={S.dimSpan}>{visibleAlerts.length}</span>
+          <div style={{...S.plate,background:tint(C.amber,.08),marginBottom:22}}>
+            <button onClick={()=>toggleCollapse && toggleCollapse('ui','alerts')} aria-expanded={!isC}
+              style={{display:'flex',alignItems:'center',gap:8,width:'100%',background:'none',border:'none',padding:0,color:C.amber,cursor:'pointer',fontFamily:'inherit',fontSize:13.5,fontWeight:600,marginBottom:isC?0:10}}>
+              <Icon name="warn" size={15}/><span style={{flex:1,textAlign:'left'}}>Бюджет: {visibleAlerts.length} {visibleAlerts.length===1?'категория':'категории'} у предела · текущий месяц</span>
+              <span style={{display:'flex',transform:isC?'none':'rotate(90deg)'}}><Icon name="chevR" size={14}/></span>
+            </button>
+            {!isC && visibleAlerts.map(a=>(
+              <div key={a.cat} style={{marginBottom:10}}>
+                <div style={{display:'flex',justifyContent:'space-between',fontSize:13,marginBottom:4,gap:8,alignItems:'center'}}>
+                  <span style={{minWidth:0,overflowWrap:'anywhere',flex:1,color:a.over?C.red:C.text}}>{a.cat}</span>
+                  <span style={{color:C.dim,fontVariantNumeric:'tabular-nums'}}>{mo(a.spent)} / {mo(a.plan)} · {Math.round(a.ratio*100)}%</span>
+                  <button className="icon-btn" title="скрыть этот алерт до следующего месяца" aria-label="Скрыть алерт" onClick={()=>dismissAlert && dismissAlert(ym+'_'+a.cat)}><Icon name="x" size={14}/></button>
+                </div>
+                <div style={{height:4,background:C.panelAlt,borderRadius:4,overflow:'hidden'}}><div style={{height:'100%',width:`${Math.min(100,a.ratio*100)}%`,background:a.over?C.red:C.amber}}/></div>
+                <div style={{fontSize:12,color:(!a.sparse && a.projected>a.plan)?C.red:C.dim,marginTop:4}}>
+                  {a.sparse ? `прогноз ${mo(a.projected)} — разовые траты (${a.cnt} оп.), без экстраполяции`
+                    : `прогноз на месяц ${mo(a.projected)}${a.projected>a.plan?` · превышение на ${mo(a.projected-a.plan)}`:''}`}
+                </div>
+              </div>
+            ))}
           </div>
-          {!isC && visibleAlerts.map(a=>(
-            <div key={a.cat} style={{marginBottom:9}}>
-              <div style={{display:'flex',justifyContent:'space-between',fontSize:12.5,marginBottom:3,gap:8,alignItems:'center'}}>
-                <span style={{minWidth:0,overflowWrap:'anywhere',flex:1}}>{a.over?'🔴':'🟡'} {a.cat}</span>
-                <span style={{color:C.dim,fontVariantNumeric:'tabular-nums',flexShrink:0}}>{mo(a.spent)} / {mo(a.plan)} · {Math.round(a.ratio*100)}%</span>
-                <button className="icon-btn" title="скрыть этот алерт" style={{flexShrink:0}} onClick={()=>dismissAlert && dismissAlert(ym+'_'+a.cat)}>✕</button>
-              </div>
-              <div style={{height:4,background:C.panelAlt,borderRadius:2,overflow:'hidden'}}><div style={{height:'100%',width:`${Math.min(100,a.ratio*100)}%`,background:a.over?C.red:C.amber}}/></div>
-              <div style={{fontSize:10.5,color:(!a.sparse && a.projected>a.plan)?C.red:C.dim,marginTop:3}}>
-                {a.sparse
-                  ? `прогноз: ${mo(a.projected)} — разовые траты (${a.cnt} оп.), без экстраполяции`
-                  : `прогноз к концу месяца: ${mo(a.projected)}${a.projected>a.plan?` · превышение на ${mo(a.projected-a.plan)}`:''}`}
-              </div>
-            </div>
-          ))}
-        </div>
         );
       })()}
 
+      <div className="grid2" style={S.grid2}>
+        {donut(viewExpenseByCat, 'Расходы по категориям', 'Расходов за месяц нет.', 'ops.expensePie')}
+        {donut(viewIncomeByCat, 'Доходы по категориям', 'Доходов за месяц нет.', 'ops.incomePie')}
+      </div>
+
       {(() => {
-        // Единая плашка планов с переключателем Расходы/Доходы прямо в заголовке (session 020).
-        // Больше НЕ зависит от типа новой операции — своё независимое переключение.
+        // Плашка планов с переключателем Расходы/Доходы (session 020) — по ВЫБРАННОМУ месяцу.
         const showExp = vis('ops.planExpense'), showInc = vis('ops.planIncome');
         if(!showExp && !showInc) return null;
         const effKind = (planKind==='income' && showInc) ? 'income' : (showExp ? 'expense' : 'income');
         const isExp = effKind==='expense';
         const kindToggle = (
           <div style={{display:'flex',gap:6}}>
-            {showExp && <div className="chip" onClick={(e)=>{e.stopPropagation(); setPlanKind('expense');}} style={{background:isExp?C.amber:C.panelAlt,color:isExp?'#1A1200':C.dim,borderColor:isExp?C.amber:C.border,padding:'3px 10px',fontSize:11}}>Расходы</div>}
-            {showInc && <div className="chip" onClick={(e)=>{e.stopPropagation(); setPlanKind('income');}} style={{background:!isExp?C.amber:C.panelAlt,color:!isExp?'#1A1200':C.dim,borderColor:!isExp?C.amber:C.border,padding:'3px 10px',fontSize:11}}>Доходы</div>}
+            {showExp && chip(isExp, (e)=>{ e&&e.stopPropagation&&e.stopPropagation(); setPlanKind('expense'); }, 'Расходы', 'pe')}
+            {showInc && chip(!isExp, (e)=>{ e&&e.stopPropagation&&e.stopPropagation(); setPlanKind('income'); }, 'Доходы', 'pi')}
           </div>
         );
         return (
-          <PlanPanel title="Планируемые" kindToggle={kindToggle} open={planOpen} setOpen={setPlanOpen} planSwitcher={monthSwitcher} resetKey={viewMonth+'_'+effKind} mask={finMask.ops}
+          <PlanPanel title="План / факт" kindToggle={kindToggle} open={planOpen} setOpen={setPlanOpen} planSwitcher={null} resetKey={viewMonth+'_'+effKind} mask={finMask.ops}
             categories={isExp?categories.expense:categories.income}
             actualByCat={isExp?planExpenseByCat:planIncomeByCat}
             plans={isExp?monthBudgets:monthIncomePlans}
@@ -254,81 +355,43 @@ export function OpsSection({finance, categories, budgets, incomePlans, bills, mo
         );
       })()}
 
-      {vis('ops.bills') && (
-      <div style={S.panel}>
-        <div style={S.panelTitle}>Регулярные платежи</div>
-        <div style={S.inputRow}>
-          <input style={S.input} placeholder="Название" value={billName} onChange={e=>setBillName(e.target.value)} />
-          <input style={{...S.input,maxWidth:100}} type="number" placeholder="сумма" value={billAmount} onChange={e=>setBillAmount(e.target.value)} />
-          <input style={{...S.input,maxWidth:80}} type="number" min="1" max="31" placeholder="день" value={billDay} onChange={e=>setBillDay(e.target.value)} />
-          <button style={S.iconBtnAmber} onClick={()=>{ const a=parseFloat(billAmount), d=parseInt(billDay,10); if(billName.trim()&&!isNaN(a)&&!isNaN(d)){ addBill(billName.trim(),a,d); setBillName(''); setBillAmount(''); setBillDay(''); } }}>+</button>
-        </div>
-        {bills.map(b=>(
-          <div key={b.id} className="row-hover" style={S.taskRow}>
-            <div style={{flex:1,fontSize:13}}>{b.name} · {b.dayOfMonth} числа</div>
-            <div style={{fontVariantNumeric:'tabular-nums',fontSize:12.5}}>{mo(b.amount)}</div>
-            <button className="icon-btn" title={b.notify?'напоминание включено — выключить':'напоминать об этом платеже'}
-              style={{color:b.notify?C.amber:C.dim}} onClick={()=>updateBill && updateBill(b.id,{notify:!b.notify})}>{b.notify?'🔔':'🔕'}</button>
-            <button className="icon-btn" onClick={()=>deleteBill(b.id)}>✕</button>
-          </div>
-        ))}
-        <div style={{...S.dimSpan,marginLeft:0,marginTop:8,display:'block',fontSize:11}}>🔔 — напоминать об этом платеже ежемесячно. Включить/настроить время: Настройки → «Уведомления и звук» → «Регулярные платежи».</div>
-      </div>
-      )}
-
-      <div className="grid2" style={S.grid2}>
-        {vis('ops.expensePie') && (
-        <div style={S.panel}>
-          <div style={{...S.panelTitle,textTransform:'capitalize'}}>Расходы по категориям · {monthLabelRu(viewMonth)}</div>
-          {Object.keys(viewExpenseByCat).length===0 ? <div style={S.emptyState}>Нет расходов за месяц</div> :
-            <ChartCanvas type="pie" data={pieData} options={{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'right',labels:{color:C.dim,font:{size:11}}}}}} height={220} />}
-        </div>
-        )}
-        {vis('ops.incomePie') && (
-        <div style={S.panel}>
-          <div style={{...S.panelTitle,textTransform:'capitalize'}}>Доходы по категориям · {monthLabelRu(viewMonth)}</div>
-          {Object.keys(viewIncomeByCat).length===0 ? <div style={S.emptyState}>Нет доходов за месяц</div> :
-            <ChartCanvas type="pie" data={incomePieData} options={{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'right',labels:{color:C.dim,font:{size:11}}}}}} height={220} />}
-        </div>
-        )}
-      </div>
       {vis('ops.expenseDaily') && (
-      <div style={S.panel}>
-        <div style={{...S.panelTitle,textTransform:'capitalize'}}>Расходы по дням · {monthLabelRu(viewMonth)}</div>
-        <ChartCanvas type="bar" data={{labels:dailyExpense.labels, datasets:[{label:'Расход', data:dailyExpense.data, backgroundColor:C.red, borderRadius:3, maxBarThickness:14}]}} options={baseChartOpts()} height={220} />
-      </div>
+        <div style={S.panel}>
+          <div style={S.panelTitle}>Расходы по дням</div>
+          <ChartCanvas type="bar" data={{labels:dailyExpense.labels, datasets:[{label:'Расход', data:dailyExpense.data, backgroundColor:C.amber, borderRadius:3, maxBarThickness:12}]}}
+            options={baseChartOpts({plugins:{legend:{display:false},tooltip:{enabled:!finMask.ops}}, scales:{x:{ticks:{color:C.dim,font:{size:10},maxRotation:0,autoSkip:true,maxTicksLimit:10},grid:{display:false}}, y:{ticks:{color:C.dim,font:{size:10},display:!finMask.ops},grid:{color:C.border}}}})} height={200} />
+        </div>
       )}
 
-      <div style={S.panel}>
-        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8,flexWrap:'wrap',marginBottom:10}}>
-          <div style={{...S.panelTitle,marginBottom:0,textTransform:'capitalize'}}>Операции · {monthLabelRu(viewMonth)}</div>
-          <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
-            <Select small style={{minWidth:150}} value={opsCat} onChange={setOpsCat}
-              options={[{value:'',label:'все категории'}, ...opsCats.map(c=>({value:c,label:c}))]} />
-            <div className="chip" onClick={()=>setOpsExcludeOnly(v=>!v)} title="показать только операции с флагом «не считать»"
-              style={{background:opsExcludeOnly?C.amber:C.panelAlt,color:opsExcludeOnly?'#1A1200':C.dim,borderColor:opsExcludeOnly?C.amber:C.border}}>не считаемые</div>
-            <div className="chip" onClick={()=>setOpsGroup(v=>!v)} title="сгруппировать по дням"
-              style={{background:opsGroup?C.amber:C.panelAlt,color:opsGroup?'#1A1200':C.dim,borderColor:opsGroup?C.amber:C.border}}>📅 по дням</div>
+      {vis('ops.bills') && (
+        <div style={S.panel}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:4}}>
+            <div style={{...S.panelTitle,marginBottom:0}}>Регулярные платежи</div>
+            <button style={{background:'none',border:'none',color:billOpen?C.amber:C.dim,fontSize:12.5,cursor:'pointer',fontFamily:'inherit',display:'inline-flex',gap:4,alignItems:'center'}} onClick={()=>setBillOpen(o=>!o)}><Icon name="plus" size={14}/>Добавить</button>
           </div>
-        </div>
-        {finance.transactions.length===0 && <div style={S.emptyState}>Операций пока нет</div>}
-        {finance.transactions.length>0 && filteredTx.length===0 && <div style={S.emptyState}>Нет операций за выбранный месяц</div>}
-        {!opsGroup && filteredTx.slice(0,200).map(txRow)}
-        {opsGroup && groupedTx.map(({date,rows,inc,exp})=>(
-          <div key={date} style={{marginBottom:12}}>
-            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8,padding:'4px 0',borderBottom:`1px solid ${C.border}`,marginBottom:2}}>
-              <span style={{fontSize:12,color:C.dim,fontVariantNumeric:'tabular-nums'}}>{date}</span>
-              <span style={{fontSize:11.5,fontVariantNumeric:'tabular-nums'}}>
-                {inc>0 && <span style={{color:C.green}}>+{mo(inc)}</span>}
-                {inc>0 && exp>0 && <span style={{color:C.dim}}> · </span>}
-                {exp>0 && <span style={{color:C.red}}>−{mo(exp)}</span>}
-              </span>
+          {billOpen && (
+            <div style={{display:'flex',gap:6,flexWrap:'wrap',margin:'8px 0'}}>
+              <input style={{...S.input,flex:'1 1 140px'}} placeholder="Название" value={billName} aria-label="Название платежа" onChange={e=>setBillName(e.target.value)} />
+              <input style={{...S.input,flex:'0 1 100px'}} inputMode="decimal" placeholder="Сумма" value={billAmount} aria-label="Сумма платежа" onChange={e=>setBillAmount(e.target.value)} />
+              <input style={{...S.input,flex:'0 1 80px'}} type="number" min="1" max="31" placeholder="Число" value={billDay} aria-label="Число месяца" onChange={e=>setBillDay(e.target.value)} />
+              <button style={S.iconBtnAmber} aria-label="Добавить платёж" onClick={()=>{ const a=parseFloat(String(billAmount).replace(',','.')), d=parseInt(billDay,10); if(billName.trim()&&!isNaN(a)&&!isNaN(d)){ addBill(billName.trim(),a,d); setBillName(''); setBillAmount(''); setBillDay(''); setBillOpen(false); } }}><Icon name="plus" size={18}/></button>
             </div>
-            {rows.map(txRow)}
-          </div>
-        ))}
-      </div>
+          )}
+          {bills.length===0 && !billOpen && <div style={S.emptyState}>Аренда, связь, подписки — добавь, и в нужный день придёт напоминание.</div>}
+          {bills.map(b=>{ const dNow=parseInt(today.slice(8,10),10); const left=b.dayOfMonth>=dNow? b.dayOfMonth-dNow : null; return (
+            <div key={b.id} style={S.taskRow}>
+              <div style={{flex:1,minWidth:0,display:'flex',flexDirection:'column',gap:2}}>
+                <span style={{fontSize:14}}>{b.name}</span>
+                <span style={{fontSize:12,color:C.dim}}>каждое {b.dayOfMonth}-е{left===0?' · сегодня':left!=null?` · через ${left} дн.`:''}</span>
+              </div>
+              <span style={{fontVariantNumeric:'tabular-nums',fontWeight:600}}>{mo(b.amount)}</span>
+              <button className="icon-btn" title={b.notify?'напоминание включено — выключить':'напоминать об этом платеже'} aria-label={b.notify?'Выключить напоминание':'Включить напоминание'} aria-pressed={!!b.notify}
+                style={{color:b.notify?C.amber:C.faint}} onClick={()=>updateBill && updateBill(b.id,{notify:!b.notify})}><Icon name={b.notify?'bell':'bellOff'} size={17}/></button>
+              <ConfirmIconBtn onConfirm={()=>deleteBill(b.id)} title="удалить платёж" confirmLabel="удалить?" />
+            </div>); })}
+          {bills.length>0 && <div style={{fontSize:12,color:C.dim,marginTop:8}}>Колокольчик — напоминать ежемесячно. Время — Настройки → Уведомления.</div>}
+        </div>
+      )}
     </div>
   );
 }
-

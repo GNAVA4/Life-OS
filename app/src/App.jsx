@@ -1195,7 +1195,7 @@ function App(){
         collapsed={collapseState.study||{}} onToggleCollapse={(epic)=>toggleCollapse('study',epic)} onSetCollapseAll={(keys,v)=>setCollapseAll('study',keys,v)} />}
       {tab==='notes' && <NotesTab notes={notes} addNote={addNote} updateNote={updateNote} deleteNote={deleteNote} />}
       {tab==='finance' && <FinanceTab finance={finance} categories={categories} budgets={budgets} incomePlans={incomePlans} bills={bills} defaults={settings.defaults||{}}
-        finMask={finMask} setSettingFlag={setSettingFlag}
+        finMask={finMask} setSettingFlag={setSettingFlag} maskAll={!!settings.maskAllFinance}
         collapse={collapseState} toggleCollapse={toggleCollapse} dismissedAlerts={settings.dismissedAlerts||{}} dismissAlert={dismissAlert}
         addTransaction={addTransaction} deleteTransaction={deleteTransaction}
         addCategory={addCategory} removeCategory={removeCategory} setBudget={setBudget} removeBudget={removeBudget}

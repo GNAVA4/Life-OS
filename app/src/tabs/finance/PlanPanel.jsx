@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { maskMoney } from '../../lib/format.js';
 import { S } from '../../lib/styles.js';
 import { C } from '../../lib/theme.js';
+import { Icon } from '../../ui/Icon.jsx';
 
 export function PlanPanel({title, open, setOpen, planSwitcher, kindToggle, categories, actualByCat, plans, onSaveBatch, onRemove, barColor, spentWord, resetKey, mask=false}){
   const mo = n => maskMoney(mask, n);   // приватность: планы — часть «операций» (finMask.ops)
@@ -17,8 +18,8 @@ export function PlanPanel({title, open, setOpen, planSwitcher, kindToggle, categ
   return (
     <div style={S.panel}>
       <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:open?12:0,gap:8,flexWrap:'wrap'}}>
-        <div style={{display:'flex',alignItems:'center',gap:8,cursor:'pointer'}} onClick={()=>setOpen(o=>!o)}>
-          <span style={{color:C.dim,fontSize:11,transform:open?'none':'rotate(-90deg)',transition:'transform .12s'}}>▾</span>
+        <div style={{display:'flex',alignItems:'center',gap:8,cursor:'pointer'}} onClick={()=>setOpen(o=>!o)} role="button" aria-expanded={open}>
+          <span style={{color:C.dim,display:'flex',transform:open?'rotate(90deg)':'none',transition:'transform .12s'}}><Icon name="chevR" size={14}/></span>
           <div style={{...S.panelTitle,marginBottom:0}}>{title}</div>
           {kindToggle}
         </div>
@@ -33,9 +34,9 @@ export function PlanPanel({title, open, setOpen, planSwitcher, kindToggle, categ
                 <div style={{display:'flex',alignItems:'center',gap:6}}>
                   <span style={{fontSize:11.5,color:C.dim,fontVariantNumeric:'tabular-nums',minWidth:58,textAlign:'right'}}>{mo(spent)}</span>
                   <span style={{color:C.dim}}>/</span>
-                  <input style={{...S.input,fontSize:12.5,padding:'7px 9px',width:120,minWidth:0,flex:'none'}} type="number" placeholder="план ₽"
+                  <input style={{...S.input,fontSize:12.5,padding:'7px 9px',width:110,minWidth:0,flex:'none'}} type="number" inputMode="decimal" placeholder="план ₽"
                     value={valOf(c)} onChange={e=>setDraft({...draft,[c]:e.target.value})} onKeyDown={e=>e.key==='Enter'&&save()} />
-                  {plan!=null ? <button className="icon-btn" title="сбросить план" onClick={()=>onRemove(c)}>✕</button> : <span style={{width:20}}/>}
+                  {plan!=null ? <button className="icon-btn" title="сбросить план" aria-label="Сбросить план" onClick={()=>onRemove(c)}><Icon name="x" size={14}/></button> : <span style={{width:23}}/>}
                 </div>
               </div>
               {pn>0 && (
@@ -48,7 +49,7 @@ export function PlanPanel({title, open, setOpen, planSwitcher, kindToggle, categ
         })}
         <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,marginTop:14,flexWrap:'wrap',borderTop:`1px solid ${C.border}`,paddingTop:12}}>
           <div style={{fontSize:12,color:C.dim}}>Итого план: <b style={{color:C.text}}>{mo(totalPlan)}</b> · {spentWord} {mo(totalSpent)}</div>
-          <button style={{...S.iconBtnAmber,width:'auto',padding:'0 18px',height:36,fontWeight:700,opacity:dirty?1:0.55}} onClick={save}>Сохранить планы</button>
+          <button style={{...S.btnPrimary,opacity:dirty?1:0.45}} onClick={save}>Сохранить планы</button>
         </div>
       </>)}
     </div>
