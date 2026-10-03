@@ -13,6 +13,7 @@ import { C, tint } from '../lib/theme.js';
 import { Icon } from '../ui/Icon.jsx';
 import { ConfirmIconBtn, Modal } from '../ui/primitives.jsx';
 import { Check } from '../ui/Check.jsx';
+import { useIsMobile } from '../ui/useIsMobile.js';
 
 const SCOPES = [{id:'day',label:'День'},{id:'week',label:'Неделя'},{id:'month',label:'Месяц'},{id:'year',label:'Год'}];
 const num = (n) => String(n).replace('.',',');
@@ -33,6 +34,8 @@ function periodTitle(scope, today){
 
 export function GoalsTab({registerAdd, goals, addGoal, setGoalProgress, addGoalSubtask, toggleGoalSubtask, deleteGoalSubtask, deleteGoal, renameGoal, setGoalMode, setGoalCounter, setGoalDeadline, archiveGoal, archive=[], restoreGoal, deleteArchivedGoal, showGoalDeadline=false, collapsed={}, onToggleCollapse}){
   const today = todayStr();
+  // Широкое окно (≥1600px): все четыре периода колонками рядом [user, s049]. 4 колонки × ~300px + промежутки + меню 216 + поля ≈ 1600.
+  const wide = !useIsMobile(1599);
   // по умолчанию: последний выбранный период, иначе первый непустой (месяц → неделя → день → год)
   const [view,setViewRaw] = useState(()=>{ const v=readView(); if(SCOPES.some(s=>s.id===v)) return v;
     return ['month','week','day','year'].find(s=>(goals[s]||[]).length) || 'month'; });
@@ -175,6 +178,7 @@ export function GoalsTab({registerAdd, goals, addGoal, setGoalProgress, addGoalS
   return (
     <div>
       <div>
+      {!wide && <>
       {(() => { const pt = periodTitle(view, today); const list = goals[view]||[];
         const avg = list.length? Math.round(list.reduce((s,g)=>s+(g.progress||0),0)/list.length) : 0;
         const doneCount = list.filter(g=>(g.progress||0)>=100).length;
@@ -188,6 +192,7 @@ export function GoalsTab({registerAdd, goals, addGoal, setGoalProgress, addGoalS
           <button key={o.id} onClick={()=>setView(o.id)} aria-pressed={view===o.id} style={{...S.segBtn,flex:1,background:view===o.id?C.panelAlt:'transparent',color:view===o.id?C.text:C.dim}}>
             {o.label}{n>0 && <span style={{color:C.faint,fontWeight:500}}> {n}</span>}</button>); })}
       </div>
+      </>}
 
       {addOpen && (
         <Modal onClose={()=>setAddOpen(false)} title="Новая цель">
@@ -205,7 +210,27 @@ export function GoalsTab({registerAdd, goals, addGoal, setGoalProgress, addGoalS
         </Modal>
       )}
 
-      {(goals[view]||[]).length===0 ? (
+      {wide && (
+        <div style={{display:'grid',gridTemplateColumns:'repeat(4,minmax(0,1fr))',gap:'0 36px',alignItems:'start',marginBottom:24}}>
+          {SCOPES.map(({id,label})=>{ const list=goals[id]||[]; const pt=periodTitle(id,today);
+            const avg = list.length? Math.round(list.reduce((s,g)=>s+(g.progress||0),0)/list.length) : 0;
+            const doneCount = list.filter(g=>(g.progress||0)>=100).length;
+            return (
+              <div key={id} style={{minWidth:0}}>
+                <div style={{display:'flex',alignItems:'center',gap:8,paddingBottom:8,borderBottom:`1px solid ${C.border}`}}>
+                  <span style={{fontSize:15,fontWeight:600}}>{label}</span>
+                  <span style={{fontSize:12.5,color:C.dim,flex:1,minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{pt.name}{pt.left!=null?` · ${pt.left} ${daysW(pt.left)}`:''}</span>
+                  {list.length>0 && <span style={{fontSize:12,color:C.dim,fontVariantNumeric:'tabular-nums',flex:'none'}}>{doneCount}/{list.length} · {avg}%</span>}
+                  <button className="icon-btn" title={`добавить цель на ${SCOPE_ACC[id]}`} aria-label={`Добавить цель на ${SCOPE_ACC[id]}`} onClick={()=>{ setScope(id); setAddOpen(true); }}><Icon name="plus" size={16}/></button>
+                </div>
+                {list.length===0
+                  ? <div style={{fontSize:13,color:C.faint,padding:'14px 0'}}>Целей на {SCOPE_ACC[id]} нет</div>
+                  : list.map(g=>goalItem(id,g))}
+              </div>
+            ); })}
+        </div>
+      )}
+      {!wide && ((goals[view]||[]).length===0 ? (
         <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:10,padding:'36px 10px',textAlign:'center',color:C.dim,fontSize:13.5}}>
           <span style={{width:44,height:44,borderRadius:'50%',background:C.panel,display:'grid',placeItems:'center',color:C.faint}}><Icon name="goals" size={22}/></span>
           <span>Целей на {SCOPE_ACC[view]} нет. Цель с трекером показывает, сколько осталось и какой нужен темп.</span>
@@ -213,7 +238,7 @@ export function GoalsTab({registerAdd, goals, addGoal, setGoalProgress, addGoalS
         </div>
       ) : (
         <div className="goals-cols" style={{marginBottom:24}}>{(goals[view]||[]).map(g=>goalItem(view,g))}</div>
-      )}
+      ))}
       {/* Архив целей — внизу, свёрнут по умолчанию */}
       {archive.length>0 && (
         <div style={{marginTop:6}}>

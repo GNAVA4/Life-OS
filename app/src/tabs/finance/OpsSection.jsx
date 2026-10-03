@@ -173,8 +173,9 @@ export function OpsSection({part='ops', viewMonth, setViewMonth, finance, catego
   );
 
   // ---------------- ОПЕРАЦИИ ----------------
+  // широкий экран (≥1400px): слева ввод и сводка, справа список операций месяца [user, s049] — класс .fin-ops в index.css
   if(part==='ops') return (
-    <div>
+    <div className="fin-ops"><div>
       {/* быстрый ввод: сумма → категория → «Добавить»; счёт и дата запоминаются, пока открыта вкладка */}
       <div style={{...S.plate,display:'flex',flexDirection:'column',gap:12,marginBottom:14}}>
         <div style={{...S.seg,background:C.bg,display:'flex'}}>
@@ -275,6 +276,7 @@ export function OpsSection({part='ops', viewMonth, setViewMonth, finance, catego
         );
       })()}
 
+      </div><div>
       {monthSwitcher}
       <div style={{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap',marginBottom:8}}>
         <Select small style={{flex:'1 1 150px'}} value={opsCat} onChange={setOpsCat} options={[{value:'',label:'Все категории'}, ...opsCats.map(c=>({value:c,label:c}))]} />
@@ -295,6 +297,7 @@ export function OpsSection({part='ops', viewMonth, setViewMonth, finance, catego
           {rows.map(t=>txRow(t,false))}
         </div>
       ))}
+      </div>
     </div>
   );
 

@@ -74,3 +74,5 @@ input,textarea{transition:border-color .15s ease,background .15s ease;}
 .settings-group > * + *{border-top:1px solid #26282C;}
 /* Цели на широком экране: карточки целей в колонки (без пустых групп — показан один период), s048 */
 @media (min-width:1001px){ .goals-cols{display:grid;grid-template-columns:repeat(auto-fill,minmax(420px,1fr));column-gap:40px;align-items:start;} }
+/* Финансы «Операции» на широком экране: ввод и сводка слева, список операций справа (s049) */
+@media (min-width:1400px){ .fin-ops{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:0 40px;align-items:start;} }
