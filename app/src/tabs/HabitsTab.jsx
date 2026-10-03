@@ -103,7 +103,7 @@ export function HabitsTab({habits, addHabit, toggleHabitDay, deleteHabit, update
                 </div>
               </div>
               <div style={{textAlign:'right'}}>
-                <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:16,fontWeight:700,color:streak>0?C.amber:C.dim}}>🔥 {streak}</div>
+                <div style={{fontVariantNumeric:'tabular-nums',fontSize:16,fontWeight:700,color:streak>0?C.amber:C.dim}}>🔥 {streak}</div>
                 <div style={{fontSize:10,color:C.dim}}>рекорд {best}</div>
               </div>
               <ConfirmIconBtn onConfirm={()=>archiveHabit(h.id)} icon="🏁" confirmLabel="завершить?" title="завершить успешно → в архив" />

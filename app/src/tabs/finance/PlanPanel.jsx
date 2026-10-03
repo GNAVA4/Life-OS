@@ -31,7 +31,7 @@ export function PlanPanel({title, open, setOpen, planSwitcher, kindToggle, categ
               <div style={{display:'grid',gridTemplateColumns:'1fr auto',gap:8,alignItems:'center'}}>
                 <span style={{fontSize:12.5,overflowWrap:'anywhere',minWidth:0}}>{c}</span>
                 <div style={{display:'flex',alignItems:'center',gap:6}}>
-                  <span style={{fontSize:11.5,color:C.dim,fontFamily:"'JetBrains Mono',monospace",minWidth:58,textAlign:'right'}}>{mo(spent)}</span>
+                  <span style={{fontSize:11.5,color:C.dim,fontVariantNumeric:'tabular-nums',minWidth:58,textAlign:'right'}}>{mo(spent)}</span>
                   <span style={{color:C.dim}}>/</span>
                   <input style={{...S.input,fontSize:12.5,padding:'7px 9px',width:120,minWidth:0,flex:'none'}} type="number" placeholder="план ₽"
                     value={valOf(c)} onChange={e=>setDraft({...draft,[c]:e.target.value})} onKeyDown={e=>e.key==='Enter'&&save()} />

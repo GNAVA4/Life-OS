@@ -20,7 +20,7 @@ function HealthBreakdown({ last }) {
       {last.parts.map(([label, v], i) => (
         <div key={i} style={{ display: 'flex', fontSize: 12, padding: '2px 0' }}>
           <span style={{ flex: 1, color: C.text }}>{label}</span>
-          <span style={{ fontFamily: "'JetBrains Mono',monospace", color: v >= 0 ? C.green : C.red }}>{v > 0 ? '+' : ''}{v}</span>
+          <span style={{ color: v >= 0 ? C.green : C.red }}>{v > 0 ? '+' : ''}{v}</span>
         </div>
       ))}
     </div>

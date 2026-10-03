@@ -82,7 +82,7 @@ export function GoalsTab({goals, addGoal, setGoalProgress, addGoalSubtask, toggl
                       <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8,flexWrap:'wrap'}}>
                         <div style={{display:'flex',alignItems:'center',background:C.panelAlt,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
                           <button className="cnt-btn" onClick={()=>setGoalCounter(id,g.id,{current:(g.counter.current||0)-1})} style={S.counterBtn} aria-label="минус">−</button>
-                          <div style={{fontFamily:"'JetBrains Mono',monospace",minWidth:58,textAlign:'center',display:'flex',alignItems:'baseline',justifyContent:'center',gap:2}}>
+                          <div style={{fontVariantNumeric:'tabular-nums',minWidth:58,textAlign:'center',display:'flex',alignItems:'baseline',justifyContent:'center',gap:2}}>
                             <span style={{fontSize:14,fontWeight:700,color:done?C.green:C.text}}>{g.counter.current||0}</span>
                             <span style={{color:C.dim,fontSize:12.5,fontWeight:500}}>/ {g.counter.target}</span>
                           </div>
@@ -118,7 +118,7 @@ export function GoalsTab({goals, addGoal, setGoalProgress, addGoalSubtask, toggl
                   {mode==='slider' && (
                     <div style={{display:'flex',alignItems:'center',gap:8,marginTop:4}}>
                       <input type="range" min="0" max="100" step="1" value={g.progress||0} style={{flex:1,minWidth:0}} onChange={e=>setGoalProgress(id,g.id,parseInt(e.target.value,10))} />
-                      <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:11.5,color:C.dim,minWidth:34,textAlign:'right'}}>{g.progress||0}%</div>
+                      <div style={{fontVariantNumeric:'tabular-nums',fontSize:11.5,color:C.dim,minWidth:34,textAlign:'right'}}>{g.progress||0}%</div>
                     </div>
                   )}
 

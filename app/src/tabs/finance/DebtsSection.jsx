@@ -24,7 +24,7 @@ function DebtRow({d, mask, updateDebt, deleteDebt}){
   return (
     <div className="row-hover" style={{...S.taskRow, opacity:done?0.5:1}}>
       <div style={{flex:1,minWidth:0,fontSize:13.5,overflowWrap:'anywhere',textDecoration:done?'line-through':'none'}}>{d.name}</div>
-      <div style={{width:100,textAlign:'right',flex:'none',fontFamily:"'JetBrains Mono',monospace",fontSize:13}}>{mask?'••••••':fmtMoney(d.amount||0)}</div>
+      <div style={{width:100,textAlign:'right',flex:'none',fontVariantNumeric:'tabular-nums',fontSize:13}}>{mask?'••••••':fmtMoney(d.amount||0)}</div>
       <button className="icon-btn" title="переименовать" onClick={()=>{ setName(d.name||''); setEditing(true); }}>✏</button>
       <ConfirmIconBtn onConfirm={()=>deleteDebt(d.id)} confirmLabel="удалить?" title="удалить долг" />
     </div>
@@ -102,9 +102,9 @@ export function DebtsSection({debtors=[], transactions=[], accounts=[], mask=fal
           </div>
           {logTx.length===0 ? <div style={S.emptyState}>Нет по этому счёту</div> : logTx.map(t=>(
             <div key={t.id} className="row-hover" style={S.taskRow}>
-              <div style={{width:56,fontSize:12,color:C.dim,fontFamily:"'JetBrains Mono',monospace",flexShrink:0}}>{t.date.slice(5)}</div>
+              <div style={{width:56,fontSize:12,color:C.dim,fontVariantNumeric:'tabular-nums',flexShrink:0}}>{t.date.slice(5)}</div>
               <div style={{flex:1,minWidth:0,fontSize:13,overflowWrap:'anywhere'}}>{t.category}{t.note?` · ${t.note}`:''}<span style={{color:C.dim}}> · {accName(t.accountId)||'без счёта'}</span></div>
-              <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:13,color:t.type==='income'?C.green:C.red,flexShrink:0}}>{t.type==='income'?'+':'−'}{mm(t.amount)}</div>
+              <div style={{fontVariantNumeric:'tabular-nums',fontSize:13,color:t.type==='income'?C.green:C.red,flexShrink:0}}>{t.type==='income'?'+':'−'}{mm(t.amount)}</div>
             </div>
           ))}
         </div>

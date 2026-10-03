@@ -129,9 +129,9 @@ export function OpsSection({finance, categories, budgets, incomePlans, bills, mo
   const txRow = (t) => (
     <div key={t.id} className="row-hover" style={S.taskRow}>
       <div style={{width:8,height:8,borderRadius:4,background:t.type==='income'?C.green:C.red}} />
-      <div style={{width:60,fontSize:12,color:C.dim,fontFamily:"'JetBrains Mono',monospace"}}>{t.date.slice(5)}</div>
+      <div style={{width:60,fontSize:12,color:C.dim,fontVariantNumeric:'tabular-nums'}}>{t.date.slice(5)}</div>
       <div style={{flex:1,fontSize:13.5}}>{t.category}{t.accountId?` · ${accountName(t.accountId)||'?'}`:''}{t.note?` · ${t.note}`:''}{t.exclude?<span style={{...S.dimSpan,marginLeft:4}}>(не считается)</span>:null}</div>
-      <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:13,color:t.type==='income'?C.green:C.red}}>{t.type==='income'?'+':'−'}{mo(t.amount)}</div>
+      <div style={{fontVariantNumeric:'tabular-nums',fontSize:13,color:t.type==='income'?C.green:C.red}}>{t.type==='income'?'+':'−'}{mo(t.amount)}</div>
       <button className="icon-btn" onClick={()=>deleteTransaction(t.id)}>✕</button>
     </div>
   );
@@ -189,7 +189,7 @@ export function OpsSection({finance, categories, budgets, incomePlans, bills, mo
         <div style={{...S.panel, borderColor:col}}>
           <div style={{...S.panelTitle, color:col}}>💸 Свободно на сегодня</div>
           <div style={{display:'flex',alignItems:'baseline',gap:8,flexWrap:'wrap'}}>
-            <span style={{fontSize:26,fontWeight:800,color:col,fontFamily:"'JetBrains Mono',monospace"}}>{over?'−':''}{mo(Math.abs(st.leftToday))}</span>
+            <span style={{fontSize:26,fontWeight:800,color:col,fontVariantNumeric:'tabular-nums'}}>{over?'−':''}{mo(Math.abs(st.leftToday))}</span>
             <span style={{fontSize:12,color:C.dim}}>{over?'превышен дневной лимит':'ещё можно потратить сегодня'}</span>
           </div>
           <div style={{fontSize:11,color:C.dim,marginTop:6,lineHeight:1.5}}>
@@ -215,7 +215,7 @@ export function OpsSection({finance, categories, budgets, incomePlans, bills, mo
             <div key={a.cat} style={{marginBottom:9}}>
               <div style={{display:'flex',justifyContent:'space-between',fontSize:12.5,marginBottom:3,gap:8,alignItems:'center'}}>
                 <span style={{minWidth:0,overflowWrap:'anywhere',flex:1}}>{a.over?'🔴':'🟡'} {a.cat}</span>
-                <span style={{color:C.dim,fontFamily:"'JetBrains Mono',monospace",flexShrink:0}}>{mo(a.spent)} / {mo(a.plan)} · {Math.round(a.ratio*100)}%</span>
+                <span style={{color:C.dim,fontVariantNumeric:'tabular-nums',flexShrink:0}}>{mo(a.spent)} / {mo(a.plan)} · {Math.round(a.ratio*100)}%</span>
                 <button className="icon-btn" title="скрыть этот алерт" style={{flexShrink:0}} onClick={()=>dismissAlert && dismissAlert(ym+'_'+a.cat)}>✕</button>
               </div>
               <div style={{height:4,background:C.panelAlt,borderRadius:2,overflow:'hidden'}}><div style={{height:'100%',width:`${Math.min(100,a.ratio*100)}%`,background:a.over?C.red:C.amber}}/></div>
@@ -266,7 +266,7 @@ export function OpsSection({finance, categories, budgets, incomePlans, bills, mo
         {bills.map(b=>(
           <div key={b.id} className="row-hover" style={S.taskRow}>
             <div style={{flex:1,fontSize:13}}>{b.name} · {b.dayOfMonth} числа</div>
-            <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:12.5}}>{mo(b.amount)}</div>
+            <div style={{fontVariantNumeric:'tabular-nums',fontSize:12.5}}>{mo(b.amount)}</div>
             <button className="icon-btn" title={b.notify?'напоминание включено — выключить':'напоминать об этом платеже'}
               style={{color:b.notify?C.amber:C.dim}} onClick={()=>updateBill && updateBill(b.id,{notify:!b.notify})}>{b.notify?'🔔':'🔕'}</button>
             <button className="icon-btn" onClick={()=>deleteBill(b.id)}>✕</button>
@@ -317,8 +317,8 @@ export function OpsSection({finance, categories, budgets, incomePlans, bills, mo
         {opsGroup && groupedTx.map(({date,rows,inc,exp})=>(
           <div key={date} style={{marginBottom:12}}>
             <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8,padding:'4px 0',borderBottom:`1px solid ${C.border}`,marginBottom:2}}>
-              <span style={{fontSize:12,color:C.dim,fontFamily:"'JetBrains Mono',monospace"}}>{date}</span>
-              <span style={{fontSize:11.5,fontFamily:"'JetBrains Mono',monospace"}}>
+              <span style={{fontSize:12,color:C.dim,fontVariantNumeric:'tabular-nums'}}>{date}</span>
+              <span style={{fontSize:11.5,fontVariantNumeric:'tabular-nums'}}>
                 {inc>0 && <span style={{color:C.green}}>+{mo(inc)}</span>}
                 {inc>0 && exp>0 && <span style={{color:C.dim}}> · </span>}
                 {exp>0 && <span style={{color:C.red}}>−{mo(exp)}</span>}

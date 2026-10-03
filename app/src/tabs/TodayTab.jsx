@@ -72,7 +72,7 @@ export function TodayTab({entry, selectedDate, setSelectedDate, addTask, toggleT
           <div style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}>
             <button style={S.navArrow} onClick={()=>setSelectedDate(addDays(selectedDate,-1))}>◀</button>
             <div style={{display:'flex',alignItems:'center',gap:8}}>
-              <span style={{fontFamily:"'JetBrains Mono',monospace",fontSize:13}}>{selectedDate}</span>
+              <span style={{fontVariantNumeric:'tabular-nums',fontSize:13}}>{selectedDate}</span>
               <input type="date" value={selectedDate} onChange={e=>setSelectedDate(e.target.value)} onClick={openDatePicker} style={{...S.input, padding:'4px 6px', minWidth:0}} />
             </div>
             <button style={S.navArrow} onClick={()=>setSelectedDate(addDays(selectedDate,1))}>▶</button>
@@ -105,7 +105,7 @@ export function TodayTab({entry, selectedDate, setSelectedDate, addTask, toggleT
             <div key={q.id} style={{display:'flex',alignItems:'center',gap:8,padding:'4px 0'}}>
               <span style={{fontSize:15,opacity:dDone?1:.5}}>{dDone?'✅':q.icon}</span>
               <span style={{flex:1,minWidth:0,fontSize:12.5,color:dDone?C.green:C.text,textDecoration:dDone?'line-through':'none',overflowWrap:'anywhere'}}>{q.label}{q.deferred&&!q.claimed?<span style={{color:C.dim,fontSize:10.5}}> · по итогам дня</span>:null}</span>
-              <span style={{fontSize:11,color:q.claimed?C.green:C.dim,fontFamily:"'JetBrains Mono',monospace",flexShrink:0}}>+{q.xp}{q.claimed?' ✓':''}</span>
+              <span style={{fontSize:11,color:q.claimed?C.green:C.dim,fontVariantNumeric:'tabular-nums',flexShrink:0}}>+{q.xp}{q.claimed?' ✓':''}</span>
             </div>
           ); })}
         </div>
@@ -120,7 +120,7 @@ export function TodayTab({entry, selectedDate, setSelectedDate, addTask, toggleT
           <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:6}}>
             <span style={{fontSize:15}}>{weekly.chal.icon}</span>
             <span style={{flex:1,minWidth:0,fontSize:12.5,overflowWrap:'anywhere'}}>{weekly.chal.label}</span>
-            <span style={{fontSize:11,color:weekly.done?C.green:C.dim,fontFamily:"'JetBrains Mono',monospace",flexShrink:0}}>{Math.min(weekly.cur,weekly.target)}/{weekly.target}</span>
+            <span style={{fontSize:11,color:weekly.done?C.green:C.dim,fontVariantNumeric:'tabular-nums',flexShrink:0}}>{Math.min(weekly.cur,weekly.target)}/{weekly.target}</span>
           </div>
           <div style={{height:5,background:C.panelAlt,borderRadius:3,overflow:'hidden'}}><div style={{height:'100%',background:weekly.done?C.green:C.amber,width:`${Math.min(100,weekly.cur/weekly.target*100)}%`}}/></div>
           <div style={{fontSize:10.5,color:weekly.claimed?C.green:C.dim,marginTop:5}}>{weekly.claimed?`✓ пройдено · +${WEEKLY_XP} XP`:weekly.done?`выполнено! +${WEEKLY_XP} XP начислено`:`награда +${WEEKLY_XP} XP`}</div>
@@ -307,14 +307,14 @@ export function TodayTab({entry, selectedDate, setSelectedDate, addTask, toggleT
           <div style={S.panelTitle}>Оценка дня</div>
           {!ratingEdit ? (
             <div style={{display:'flex',alignItems:'center',gap:10}}>
-              <div style={{flex:1,fontFamily:"'JetBrains Mono',monospace",fontSize:16,fontWeight:700}}>{entry.rating!=null?`${entry.rating.toLocaleString('ru-RU')} / 10`:<span style={{color:C.dim,fontWeight:400,fontSize:13}}>не оценён</span>}</div>
+              <div style={{flex:1,fontVariantNumeric:'tabular-nums',fontSize:16,fontWeight:700}}>{entry.rating!=null?`${entry.rating.toLocaleString('ru-RU')} / 10`:<span style={{color:C.dim,fontWeight:400,fontSize:13}}>не оценён</span>}</div>
               <button style={{...S.exportBtn,borderColor:C.amber,color:C.amber}} onClick={()=>{ setRatingDraft(entry.rating||5); setRatingEdit(true); }}>✏ {entry.rating!=null?'изменить':'оценить'}</button>
             </div>
           ) : (
             <div>
               <div style={{display:'flex',alignItems:'center',gap:10}}>
                 <input type="range" min="1" max="10" step="0.1" value={ratingDraft} style={{flex:1}} onChange={e=>setRatingDraft(Math.round(parseFloat(e.target.value)*10)/10)} />
-                <div style={{fontFamily:"'JetBrains Mono',monospace",fontSize:16,fontWeight:700,minWidth:34,textAlign:'right'}}>{ratingDraft.toLocaleString('ru-RU',{minimumFractionDigits:1,maximumFractionDigits:1})}</div>
+                <div style={{fontVariantNumeric:'tabular-nums',fontSize:16,fontWeight:700,minWidth:34,textAlign:'right'}}>{ratingDraft.toLocaleString('ru-RU',{minimumFractionDigits:1,maximumFractionDigits:1})}</div>
               </div>
               <div style={{display:'flex',gap:8,marginTop:10}}>
                 <button style={{...S.exportBtn,borderColor:C.green,color:C.green,flex:1}} onClick={()=>{ updateEntry({rating:ratingDraft}); setRatingEdit(false); }}>💾 Сохранить</button>

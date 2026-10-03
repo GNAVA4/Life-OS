@@ -4,8 +4,9 @@ import { ACTIVITY_DEFAULT, ALL_MOBILE_TAB_IDS, AWAY_DAYS_MAX, BUILD_ID, GOAL_PAC
 import { GAMIFY_DEFAULT, LEVEL_CAP, WEEKLY_XP } from '../lib/gamify.js';
 import { MODULE_GROUPS } from '../lib/storage.js';
 import { S } from '../lib/styles.js';
-import { C } from '../lib/theme.js';
+import { C, tint } from '../lib/theme.js';
 import { Select, SettingsDivider, SettingsSection, SubHead } from '../ui/primitives.jsx';
+import { Icon } from '../ui/Icon.jsx';
 
 export function SettingsTab({hidden, toggleModule, defaults, setDefault, categories, accounts, mobileTabs, toggleMobileTab, soundOff, notifOff, maskNetWorth, maskDebts, maskOps, maskAllFinance, morningCfg, setSettingFlag, gamify=GAMIFY_DEFAULT, setGamify, requestNotifs, testNotif, showNotifDiag, notifMsg, deadlineCfg, showGoalDeadline=false, billsNotif=null, noteCfg=null, goalPaceCfg=null, activity=null}){
   // ⏰ Напоминания в заметках: «за N дней» + просрочка (session: reminders-activity-pace)
@@ -330,8 +331,8 @@ export function SettingsTab({hidden, toggleModule, defaults, setDefault, categor
         <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
           {ALL_MOBILE_TAB_IDS.map(id=>{ const on=mobileTabs.includes(id); const full=mobileTabs.length>=4; const m=TAB_META[id];
             return <div key={id} className="chip" onClick={()=>toggleMobileTab(id)}
-              style={{background:on?C.amber:C.panelAlt,color:on?'#1A1200':(full?C.border:C.dim),borderColor:on?C.amber:C.border,opacity:(!on&&full)?0.5:1}}>
-              {m.icon} {m.label}</div>;
+              style={{background:on?tint(C.amber,.16):C.panelAlt,color:on?C.amber:C.dim,opacity:(!on&&full)?0.5:1}}>
+              <Icon name={m.icon} size={14}/>{m.label}</div>;
           })}
         </div>
 

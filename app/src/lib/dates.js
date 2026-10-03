@@ -21,6 +21,9 @@ export const isoWeek = (ds) => {
 };
 export const daysBetween = (a,b) => Math.round((new Date(b+'T00:00:00') - new Date(a+'T00:00:00'))/864e5);
 export const formatDateRu = (ds) => new Date(ds+'T00:00:00').toLocaleDateString('ru-RU',{weekday:'long',day:'numeric',month:'long'});
+// Заголовок дня (Э1): { weekday:'суббота', date:'3 октября' } — по-русски, месяц строчными.
+export const formatDayTitle = (ds) => { const d=new Date(ds+'T00:00:00');
+  return { weekday:d.toLocaleDateString('ru-RU',{weekday:'long'}), date:d.toLocaleDateString('ru-RU',{day:'numeric',month:'long'}) }; };
 export const formatDateShort = (ds) => new Date(ds+'T00:00:00').toLocaleDateString('ru-RU',{weekday:'short',day:'numeric',month:'short'});
 export const openDatePicker = (e) => { try{ e.target.showPicker && e.target.showPicker(); }catch(err){} };
 export const shiftMonth = (ym,n) => { const [y,m]=ym.split('-').map(Number); const d=new Date(y, m-1+n, 1); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`; };

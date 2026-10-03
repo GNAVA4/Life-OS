@@ -10,7 +10,7 @@ import { syncNotifications, requestNotif, testNotification, notifDiagnostics } f
 import { C } from './lib/theme.js';
 import { S } from './lib/styles.js';
 import { DAY_CHECK_MS, NOTIF_SOFT_LIMIT, GOAL_DONE_XP, EXPENSE_DEFAULT, INCOME_DEFAULT, TAGS_DEFAULT, ANTITAGS_DEFAULT, PERIOD_SCOPES, DIFF_XP, GL_SCOPE } from './lib/constants.js';
-import { todayStr, addDays, daysAgoStr, formatDateShort, periodOf } from './lib/dates.js';
+import { todayStr, addDays, daysAgoStr, formatDayTitle, periodOf } from './lib/dates.js';
 import { maskMoney, uid } from './lib/format.js';
 import { loadKey, saveKey, saveRaw, setPushHook, setHiddenModules, vis } from './lib/storage.js';
 import { planSync, diffSides, keysToPush, markDirty, markSynced, loadDirty, SYNCED_UID_KEY, SYNC_ACK_MS, withTimeout } from './lib/syncPlan.js';
@@ -29,6 +29,8 @@ import { SyncConflictModal } from './ui/SyncConflictModal.jsx';
 import { SearchModal, SEARCH_MIN_CHARS } from './ui/SearchModal.jsx';
 import { MobileBottomNav, MobileSheet } from './ui/MobileNav.jsx';
 import { useIsMobile } from './ui/useIsMobile.js';
+import { Icon } from './ui/Icon.jsx';
+import { TAB_META } from './lib/constants.js';
 import { TodayTab } from './tabs/TodayTab.jsx';
 import { HabitsTab } from './tabs/HabitsTab.jsx';
 import { GoalsTab } from './tabs/GoalsTab.jsx';
@@ -1086,16 +1088,19 @@ function App(){
 
   return (
     <div style={{...S.root, padding: isMobile?'16px 12px 92px':'20px 20px 40px'}}>
+      {/* Шапка (редизайн session 043): на «Сегодня» — день недели и дата, на остальных — название раздела.
+          Здоровье и уровень остаются видны на всех вкладках; полный профиль — по аватару. */}
       <div style={S.header}>
         <div style={{minWidth:0}}>
-          <div style={S.eyebrow}>LIFE OS</div>
-          <div style={S.h1compact}>{formatDateShort(todayStr())}</div>
+          {tab==='today'
+            ? <><div style={S.eyebrow}>{formatDayTitle(todayStr()).weekday}</div><div style={S.h1}>{formatDayTitle(todayStr()).date}</div></>
+            : <div style={{...S.h1,paddingTop:4}}>{tab==='settings'?'Настройки':(TAB_META[tab]?.label||'')}</div>}
         </div>
-        <div style={{display:'flex',alignItems:'center',gap:14,flexWrap:'wrap'}}>
-          <div style={S.miniGauge} title="Здоровье"><span style={{fontSize:15}}>❤</span><span style={S.gaugeVal}>{meta.health ?? 100}</span></div>
-          <div style={S.miniGauge} title={`Уровень · ${into}/${needed} XP`}><span style={{fontSize:15}}>🏆</span><span style={S.gaugeVal}>{level}</span></div>
-          <button onClick={()=>setSearchOpen(true)} title="Поиск" style={S.profileBtn}>🔍</button>
-          <button onClick={()=>setProfileOpen(true)} title="Профиль" style={S.profileBtn}>👤</button>
+        <div style={{display:'flex',alignItems:'center',gap:10}}>
+          <div style={S.miniGauge} title="Здоровье"><Icon name="heart" size={14}/><span>{meta.health ?? 100}</span></div>
+          <div style={S.miniGauge} title={`Уровень · ${into}/${needed} XP`}><span>ур. {level}</span></div>
+          <button onClick={()=>setSearchOpen(true)} title="Поиск" aria-label="Поиск" style={S.profileBtn}><Icon name="search" size={18}/></button>
+          <button onClick={()=>setProfileOpen(true)} title="Профиль" aria-label="Профиль" style={S.avatarBtn}><Icon name="user" size={16}/></button>
         </div>
         <input ref={fileInputRef} type="file" accept="application/json,.json" style={{display:'none'}}
           onChange={e=>{ const f=e.target.files[0]; if(f) importJson(f); e.target.value=''; }} />
@@ -1151,8 +1156,8 @@ function App(){
         <div style={S.nav}>
           {NAV.filter(n => n.id==='today' || n.id==='settings' || vis('tab.'+n.id)).map(n => (
             <button key={n.id} className="tab-btn" onClick={()=>setTab(n.id)}
-              style={{...S.tabBtn, color: tab===n.id?C.text:C.dim, borderBottom: tab===n.id?`2px solid ${C.amber}`:'2px solid transparent'}}>
-              {n.label}
+              style={{...S.tabBtn, color: tab===n.id?C.text:C.dim, borderBottom: tab===n.id?`2px solid ${C.amber}`:'2px solid transparent', marginBottom:-1}}>
+              <Icon name={TAB_META[n.id]?.icon || 'settings'} size={15}/>{n.id==='settings'?'Настройки':(TAB_META[n.id]?.label||n.label)}
             </button>
           ))}
         </div>

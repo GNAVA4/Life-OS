@@ -269,7 +269,7 @@ export function StatsTab({days, finance, budgets, incomePlans, habits=[], finMas
                 <div key={f.name} style={{marginBottom:9}}>
                   <div style={{display:'flex',justifyContent:'space-between',fontSize:12,marginBottom:3,gap:8}}>
                     <span style={{minWidth:0,overflowWrap:'anywhere'}}>{f.name}</span>
-                    <span style={{color:f.r>=0?C.green:C.red,fontFamily:"'JetBrains Mono',monospace",flexShrink:0}}>r={f.r>0?'+':''}{f.r} · {f.present}д</span>
+                    <span style={{color:f.r>=0?C.green:C.red,fontVariantNumeric:'tabular-nums',flexShrink:0}}>r={f.r>0?'+':''}{f.r} · {f.present}д</span>
                   </div>
                   {bar(f.r)}
                 </div>
@@ -293,7 +293,7 @@ export function StatsTab({days, finance, budgets, incomePlans, habits=[], finMas
               <div key={f.key} style={{marginBottom:10}}>
                 <div style={{display:'flex',justifyContent:'space-between',fontSize:12.5,marginBottom:3,gap:8}}>
                   <span>{f.label}</span>
-                  <span style={{color:C.dim,fontFamily:"'JetBrains Mono',monospace",flexShrink:0}}>r={f.r>0?'+':''}{f.r} · {corrStrength(f.r)} · {f.n} дн.</span>
+                  <span style={{color:C.dim,fontVariantNumeric:'tabular-nums',flexShrink:0}}>r={f.r>0?'+':''}{f.r} · {corrStrength(f.r)} · {f.n} дн.</span>
                 </div>
                 {bar(f.r)}
               </div>

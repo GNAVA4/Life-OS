@@ -36,9 +36,10 @@ export const GL_SCOPE = {year:'Год',month:'Месяц',week:'Неделя',da
 
 // метаданные вкладок для мобильной навигации (иконка+подпись)
 export const TAB_META = {
-  today:{label:'Сегодня',icon:'🗓'}, habits:{label:'Привычки',icon:'🔁'}, goals:{label:'Цели',icon:'🎯'},
-  study:{label:'Дела',icon:'🗂'}, notes:{label:'Заметки',icon:'🗒'}, finance:{label:'Финансы',icon:'💰'},
-  stats:{label:'Статистика',icon:'📊'}, achievements:{label:'Награды',icon:'🏅'},
+  // icon — имя из ui/Icon.jsx (редизайн session 043; раньше были эмодзи)
+  today:{label:'Сегодня',icon:'today'}, habits:{label:'Привычки',icon:'habits'}, goals:{label:'Цели',icon:'goals'},
+  study:{label:'Дела',icon:'study'}, notes:{label:'Заметки',icon:'notes'}, finance:{label:'Финансы',icon:'finance'},
+  stats:{label:'Статистика',icon:'stats'}, achievements:{label:'Награды',icon:'achievements'},
 };
 export const ALL_MOBILE_TAB_IDS = ['today','habits','goals','study','notes','finance','stats','achievements'];
 export const DEFAULT_MOBILE_TABS = ['today','habits','goals','finance']; // нижняя навбар по умолчанию; настраивается в Настройках

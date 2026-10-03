@@ -107,7 +107,7 @@ export function AssetsSection({accounts, transactions, finMask={}, addAccount, d
             </div>
             {a.snapshots.slice(0,5).map(s=>(
               <div key={s.id} className="row-hover" style={S.taskRow}>
-                <div style={{width:70,fontSize:12,color:C.dim,fontFamily:"'JetBrains Mono',monospace"}}>{s.date.slice(5)}</div>
+                <div style={{width:70,fontSize:12,color:C.dim,fontVariantNumeric:'tabular-nums'}}>{s.date.slice(5)}</div>
                 <div style={{flex:1,fontSize:13}}>{finMask.net ? '••••••' : (s.currency==='USD'?`$${s.amount} (курс ${s.rate})`:fmtMoney(s.amount))}</div>
                 <button className="icon-btn" onClick={()=>deleteSnapshot(a.id,s.id)}>✕</button>
               </div>
