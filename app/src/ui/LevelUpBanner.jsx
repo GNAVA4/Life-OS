@@ -1,31 +1,22 @@
-// Баннер нового уровня: оверлей + CSS-салют + карточка ранга. Вынесено из App.jsx (session 036).
+// Окно нового уровня (О3). Вынесено из App.jsx (session 036). Редизайн «Тихий» — session 043:
+// единственное «громкое» окно в приложении — крупная цифра уровня и ранг, без конфетти.
 // ⚠️ Детект самого level-up остаётся в App (prevLevelRef + mount-окно) — сюда приходит уже готовый факт.
 import { S } from '../lib/styles.js';
 import { C } from '../lib/theme.js';
 
-const CONFETTI_COLORS = [C.amber, C.cyan, C.green, C.purple, C.red, '#6FA8DC', '#E0C36B'];
-const CONFETTI_COUNT = 36;
-
 export function LevelUpBanner({ levelUp, levelMax = false, onClose }) {
   if (!levelUp) return null;
   return (
-    <div style={S.levelUpOverlay} onClick={onClose}>
-      <div className="lo-confetti">
-        {Array.from({ length: CONFETTI_COUNT }).map((_, i) => (
-          <span key={i} className="lo-confetti-piece" style={{
-            left: `${(i * 2.8 + 3) % 100}%`, background: CONFETTI_COLORS[i % CONFETTI_COLORS.length],
-            animationDelay: `${(i % 12) * 0.12}s`, animationDuration: `${2.2 + (i % 5) * 0.35}s`,
-            transform: `rotate(${i * 40}deg)`, width: i % 3 === 0 ? 9 : 6, height: i % 3 === 0 ? 14 : 9,
-          }} />
-        ))}
-      </div>
-      <div className="anim-levelup" style={S.levelUpCard}>
-        <div style={{ fontSize: 12, letterSpacing: '.18em', color: C.amber, fontWeight: 700 }}>НОВЫЙ УРОВЕНЬ</div>
-        <div style={{ fontSize: 72, fontWeight: 900, lineHeight: 1, margin: '6px 0', color: C.text, textShadow: `0 0 26px ${C.amber}` }}>{levelUp.level}</div>
-        <div style={{ fontSize: 26 }}>{levelUp.rank.icon}</div>
-        <div style={{ fontSize: 16, fontWeight: 800, color: levelUp.rank.color, marginTop: 2 }}>{levelUp.rank.name}</div>
-        {levelMax && <div style={{ fontSize: 12, color: C.dim, marginTop: 6 }}>Максимальный уровень достигнут 👑</div>}
-        <div style={{ fontSize: 11, color: C.dim, marginTop: 10 }}>нажми, чтобы закрыть</div>
+    <div className="anim-fade" style={S.levelUpOverlay} onClick={onClose} role="dialog" aria-label={`Новый уровень ${levelUp.level}`}>
+      <div className="anim-levelup" style={{ ...S.levelUpCard, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+        <div style={{ fontSize: 13, color: C.dim }}>новый уровень</div>
+        <div style={{ fontSize: 76, fontWeight: 700, lineHeight: 1, letterSpacing: '-.03em', color: C.amber, fontVariantNumeric: 'tabular-nums' }}>{levelUp.level}</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
+          <span style={{ fontSize: 22 }}>{levelUp.rank.icon}</span>
+          <span style={{ fontSize: 17, fontWeight: 700, color: levelUp.rank.color }}>{levelUp.rank.name}</span>
+        </div>
+        {levelMax && <div style={{ fontSize: 12.5, color: C.dim }}>Это максимальный уровень</div>}
+        <button style={{ ...S.btnPrimary, marginTop: 14, minWidth: 160 }} onClick={onClose}>Продолжить</button>
       </div>
     </div>
   );

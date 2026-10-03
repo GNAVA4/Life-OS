@@ -1,12 +1,16 @@
-// Вкладка/раздел: StatsTab (вынесено из App.jsx, session: decompose phase 3)
+// Вкладка/раздел: StatsTab (вынесено из App.jsx, session: decompose phase 3).
+// Редизайн «Тихий» — session 043: ВСЕ блоки и расчёты прежние (итоги, анализ корреляций по тегам/привычкам/
+// анти-тегам, грид, графики задач/оценки/сна/финансов/здоровья/баланса, категории, частоты, план/факт);
+// поменялось только оформление: переключатель периода, иконки вместо эмодзи, кольца вместо пирогов.
 import { useMemo, useState } from 'react';
 import { axisColor, baseChartOpts, gridColor } from '../lib/charts.js';
 import { daysAgoStr, isoWeek, monthLabelRu, shiftMonth, todayStr } from '../lib/dates.js';
 import { maskMoney } from '../lib/format.js';
 import { vis } from '../lib/storage.js';
 import { S } from '../lib/styles.js';
-import { C, PIE_COLORS } from '../lib/theme.js';
+import { C, PIE_COLORS, tint } from '../lib/theme.js';
 import { ChartCanvas } from '../ui/ChartCanvas.jsx';
+import { Icon } from '../ui/Icon.jsx';
 
 export function StatsTab({days, finance, budgets, incomePlans, habits=[], finMask={}, study=[], studyArchive=[], habitsArchive=[], unlocked={}, healthLog={}}){
   const mo = n => maskMoney(finMask.ops, n);   // приватность: скрытие сумм в статистике
@@ -85,12 +89,12 @@ export function StatsTab({days, finance, budgets, incomePlans, habits=[], finMas
       return {n, r:(dx&&dy)?Math.round(num/Math.sqrt(dx*dy)*100)/100:0};
     };
     const aggDefs=[
-      {key:'sleep', label:'😴 Сон', get:r=>r.sleep, skip:analysisTarget==='sleep'},
-      {key:'tasksDone', label:'✅ Задач выполнено', get:r=>r.tasksDone, skip:analysisTarget==='tasksDone'},
-      {key:'tasksPlanned', label:'📋 Задач запланировано', get:r=>r.tasksPlanned},
-      {key:'habitsDone', label:'🔁 Привычек отмечено', get:r=>r.habitsDone},
-      {key:'tags', label:'🏷 Тегов за день', get:r=>r.tagSet.size},
-      {key:'anti', label:'🚫 Анти-тегов за день', get:r=>r.antiCount},
+      {key:'sleep', label:'Сон', get:r=>r.sleep, skip:analysisTarget==='sleep'},
+      {key:'tasksDone', label:'Задач выполнено', get:r=>r.tasksDone, skip:analysisTarget==='tasksDone'},
+      {key:'tasksPlanned', label:'Задач запланировано', get:r=>r.tasksPlanned},
+      {key:'habitsDone', label:'Привычек отмечено', get:r=>r.habitsDone},
+      {key:'tags', label:'Тегов за день', get:r=>r.tagSet.size},
+      {key:'anti', label:'Анти-тегов за день', get:r=>r.antiCount},
     ].filter(d=>!d.skip);
     const aggregate = aggDefs.map(d=>({key:d.key,label:d.label,...pearson(d.get)})).filter(f=>f.r!=null).sort((a,b)=>Math.abs(b.r||0)-Math.abs(a.r||0));
     // детально по элементам: только с достаточной вариацией (встречался ≥3 раз, но не каждый день)
@@ -121,7 +125,7 @@ export function StatsTab({days, finance, budgets, incomePlans, habits=[], finMas
     else { for(let i=heatWeeks*7-1;i>=0;i--) push(daysAgoStr(i)); }
     return arr; }, [days, heatWeeks, isMonth, selMonth, monthDays]);
   const weeks = []; for(let i=0;i<heatmapDays.length;i+=7) weeks.push(heatmapDays.slice(i,i+7));
-  const cellColor = n => n===0?C.panelAlt : n===1?'#5A4A26' : n===2?'#8A6B2C' : n===3?'#C68F2E' : C.amber;
+  const cellColor = n => n===0?C.panelAlt : n===1?tint(C.amber,.3) : n===2?tint(C.amber,.5) : n===3?tint(C.amber,.75) : C.amber;
 
   const grouping = isMonth ? 'day' : (range==='year'||range==='all') ? 'month' : (range==='90'?'week':'day');
   const weeklyStats = useMemo(()=>{
@@ -199,31 +203,33 @@ export function StatsTab({days, finance, budgets, incomePlans, habits=[], finMas
       return (
         <div key={c} style={{marginBottom:8}}>
           <div style={{display:'flex',justifyContent:'space-between',fontSize:12,marginBottom:3}}><span>{c}</span><span style={{color:C.dim}}>{mo(a)}{p?` / ${mo(p)}`:''}</span></div>
-          {p ? <div style={{height:5,background:C.panelAlt,borderRadius:3,overflow:'hidden'}}><div style={{height:'100%',width:`${ratio}%`,background:barColor}}/></div>
-             : <div style={{fontSize:10.5,color:C.dim}}>план не задан</div>}
+          {p ? <div style={{height:4,background:C.panelAlt,borderRadius:4,overflow:'hidden'}}><div style={{height:'100%',width:`${ratio}%`,background:barColor,borderRadius:4}}/></div>
+             : <div style={{fontSize:11.5,color:C.faint}}>план не задан</div>}
         </div>
       ); });
   };
 
   return (
     <div>
-      <div style={{display:'flex',gap:6,marginBottom:14,flexWrap:'wrap',alignItems:'center'}}>
-        {[{id:'7',label:'7д'},{id:'30',label:'30д'},{id:'90',label:'90д'},{id:'year',label:'Год'},{id:'all',label:'Всё время'},{id:'month',label:'📅 Месяц'}].map(r=>(
-          <div key={r.id} className="chip" onClick={()=>setRange(r.id)} style={{background:range===r.id?C.amber:C.panelAlt,color:range===r.id?'#1A1200':C.dim,borderColor:range===r.id?C.amber:C.border}}>{r.label}</div>
-        ))}
+      <div style={{display:'flex',flexDirection:'column',gap:10,marginBottom:20}}>
+        <div style={{...S.seg,display:'flex'}}>
+          {[{id:'7',label:'7д'},{id:'30',label:'30д'},{id:'90',label:'90д'},{id:'year',label:'Год'},{id:'all',label:'Всё'},{id:'month',label:'Месяц'}].map(r=>(
+            <button key={r.id} onClick={()=>setRange(r.id)} aria-pressed={range===r.id} style={{...S.segBtn,flex:1,padding:'7px 2px',background:range===r.id?C.panelAlt:'transparent',color:range===r.id?C.text:C.dim}}>{r.label}</button>
+          ))}
+        </div>
         {isMonth && (
-          <div style={{display:'flex',alignItems:'center',gap:8,marginLeft:4}}>
-            <button style={S.navArrow} onClick={()=>setSelMonth(shiftMonth(selMonth,-1))}>◀</button>
-            <span style={{fontSize:12,color:C.dim,minWidth:120,textAlign:'center',textTransform:'capitalize'}}>{monthLabelRu(selMonth)}</span>
-            <button style={S.navArrow} onClick={()=>setSelMonth(shiftMonth(selMonth,1))} disabled={selMonth>=todayStr().slice(0,7)}>▶</button>
+          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8}}>
+            <button style={S.navArrow} aria-label="Предыдущий месяц" onClick={()=>setSelMonth(shiftMonth(selMonth,-1))}><Icon name="chevL"/></button>
+            <b style={{fontWeight:600,textTransform:'capitalize'}}>{monthLabelRu(selMonth)}</b>
+            <button style={{...S.navArrow,opacity:selMonth>=todayStr().slice(0,7)?.3:1}} aria-label="Следующий месяц" onClick={()=>setSelMonth(shiftMonth(selMonth,1))} disabled={selMonth>=todayStr().slice(0,7)}><Icon name="chevR"/></button>
           </div>
         )}
       </div>
 
       {vis('stats.recap') && (
-      <div style={{...S.panel, borderColor:C.amber}}>
-        <div style={{...S.panelTitle,color:C.amber}}>📊 Итоги · {rangeLabel}</div>
-        <div className="grid3" style={{...S.grid3,gap:10}}>
+      <div style={S.panel}>
+        <div style={S.panelTitle}>Итоги<span style={S.dimSpan}>{rangeLabel}</span></div>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(min(100%,104px),1fr))',gap:8}}>
           {vis('recap.tasks')  && <div style={S.statCard}><div style={S.statVal}>{recap.tasksDone}</div><div style={S.dimSpan}>задач выполнено</div></div>}
           {vis('recap.perfect')&& <div style={S.statCard}><div style={S.statVal}>{recap.perfect}</div><div style={S.dimSpan}>идеальных дней</div></div>}
           {vis('recap.active') && <div style={S.statCard}><div style={S.statVal}>{recap.activeDays}</div><div style={S.dimSpan}>активных дней</div></div>}
@@ -238,10 +244,10 @@ export function StatsTab({days, finance, budgets, incomePlans, habits=[], finMas
           {vis('recap.net')    && <div style={S.statCard}><div style={{...S.statVal,color:C.green}}>{recap.inc-recap.exp>=0?'+':''}{mo(recap.inc-recap.exp)}</div><div style={S.dimSpan}>чистыми</div></div>}
         </div>
         {vis('recap.highlights') && (
-        <div style={{fontSize:11.5,color:C.dim,marginTop:10,lineHeight:1.6}}>
-          {recap.bestDay.date && <>🏅 Лучший день: <b style={{color:C.text}}>{recap.bestDay.date}</b> — {recap.bestDay.n} задач<br/></>}
-          {recap.bestWd && <>📅 Продуктивнее всего по: <b style={{color:C.text}}>{recap.bestWd}</b><br/></>}
-          {recap.topCat && <>💸 Больше всего трат: <b style={{color:C.text}}>{recap.topCat[0]}</b> — {mo(recap.topCat[1])}</>}
+        <div style={{fontSize:13,color:C.dim,marginTop:12,lineHeight:1.7}}>
+          {recap.bestDay.date && <>Лучший день: <b style={{color:C.text,fontWeight:600}}>{new Date(recap.bestDay.date+'T00:00:00').toLocaleDateString('ru-RU',{day:'numeric',month:'long'})}</b> — {recap.bestDay.n} задач<br/></>}
+          {recap.bestWd && <>Продуктивнее всего по дню: <b style={{color:C.text,fontWeight:600}}>{recap.bestWd}</b><br/></>}
+          {recap.topCat && <>Больше всего трат: <b style={{color:C.text,fontWeight:600}}>{recap.topCat[0]}</b> — {mo(recap.topCat[1])}</>}
           {recap.tasksDone===0 && recap.activeDays===0 && <span style={S.emptyState}>За период пока пусто — заполняй дни, и здесь появится сводка.</span>}
         </div>
         )}
@@ -259,10 +265,11 @@ export function StatsTab({days, finance, budgets, incomePlans, habits=[], finMas
         );
         const detailSection = (id, title, list) => (
           <div style={{marginTop:10,borderTop:`1px solid ${C.border}`,paddingTop:10}}>
-            <div style={{...S.panelTitle,fontSize:13,cursor:'pointer',display:'flex',alignItems:'center',marginBottom:openDetail[id]?8:0}}
-              onClick={()=>setOpenDetail(o=>({...o,[id]:!o[id]}))}>
-              <span style={{marginRight:6}}>{openDetail[id]?'▼':'▶'}</span>{title} <span style={S.dimSpan}>{list.length}</span>
-            </div>
+            <button onClick={()=>setOpenDetail(o=>({...o,[id]:!o[id]}))} aria-expanded={!!openDetail[id]}
+              style={{display:'flex',alignItems:'center',gap:8,width:'100%',background:'none',border:'none',color:C.text,cursor:'pointer',padding:'2px 0',fontFamily:'inherit',fontSize:14,textAlign:'left',marginBottom:openDetail[id]?10:0}}>
+              <span style={{color:C.dim,display:'flex',transform:openDetail[id]?'rotate(90deg)':'none',transition:'transform .15s'}}><Icon name="chevR" size={14}/></span>
+              <span style={{flex:1}}>{title}</span><span style={{fontSize:12,color:C.dim}}>{list.length}</span>
+            </button>
             {openDetail[id] && (list.length===0
               ? <div style={S.emptyState}>Мало данных (нужно, чтобы элемент встречался в части дней)</div>
               : list.map(f=>(
@@ -278,38 +285,38 @@ export function StatsTab({days, finance, budgets, incomePlans, habits=[], finMas
         );
         return (
         <div style={S.panel}>
-          <div style={S.panelTitle}>🔬 Анализ корреляций · {rangeLabel}</div>
-          <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:10}}>
-            <span style={{fontSize:11.5,color:C.dim,alignSelf:'center'}}>цель:</span>
+          <div style={S.panelTitle}>Что влияет<span style={S.dimSpan}>{rangeLabel}</span></div>
+          <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:10,alignItems:'center'}}>
+            <span style={{fontSize:12.5,color:C.dim}}>На что смотрим:</span>
             {TARGETS.map(t=>(
-              <div key={t.key} className="chip" onClick={()=>setAnalysisTarget(t.key)}
-                style={{background:analysisTarget===t.key?C.amber:C.panelAlt,color:analysisTarget===t.key?'#1A1200':C.dim,borderColor:analysisTarget===t.key?C.amber:C.border,padding:'3px 10px',fontSize:11}}>{t.label}</div>
+              <button key={t.key} className="chip" onClick={()=>setAnalysisTarget(t.key)} aria-pressed={analysisTarget===t.key}
+                style={{fontFamily:'inherit',background:analysisTarget===t.key?tint(C.amber,.16):C.panelAlt,color:analysisTarget===t.key?C.amber:C.dim}}>{t.label}</button>
             ))}
           </div>
-          <div style={{...S.dimSpan,marginLeft:0,marginBottom:10,display:'block'}}>Корреляция (Пирсон) между «{tgtLabel}» и факторами. Ближе к ±1 — сильнее связь; знак = направление. Нужно ≥4 дня с данными. Разделы ниже — по конкретным тегам/привычкам (тыкни, чтобы раскрыть).</div>
+          <div style={{fontSize:12,color:C.dim,lineHeight:1.5,marginBottom:12}}>Корреляция (Пирсон) между «{tgtLabel}» и факторами. Ближе к ±1 — сильнее связь; знак = направление. Нужно ≥4 дня с данными. Разделы ниже — по конкретным тегам/привычкам (тыкни, чтобы раскрыть).</div>
           {analysisData.aggregate.length===0
             ? <div style={S.emptyState}>Мало данных за период — заполняй дни почаще.</div>
             : analysisData.aggregate.map(f=>(
               <div key={f.key} style={{marginBottom:10}}>
-                <div style={{display:'flex',justifyContent:'space-between',fontSize:12.5,marginBottom:3,gap:8}}>
+                <div style={{display:'flex',justifyContent:'space-between',fontSize:13.5,marginBottom:4,gap:8}}>
                   <span>{f.label}</span>
                   <span style={{color:C.dim,fontVariantNumeric:'tabular-nums',flexShrink:0}}>r={f.r>0?'+':''}{f.r} · {corrStrength(f.r)} · {f.n} дн.</span>
                 </div>
                 {bar(f.r)}
               </div>
             ))}
-          {detailSection('tags', '🏷 По тегам', analysisData.tagsDetail)}
-          {detailSection('habits', '🔁 По привычкам', analysisData.habitsDetail)}
-          {detailSection('anti', '🚫 По анти-тегам', analysisData.antiDetail)}
+          {detailSection('tags', 'По тегам', analysisData.tagsDetail)}
+          {detailSection('habits', 'По привычкам', analysisData.habitsDetail)}
+          {detailSection('anti', 'По анти-тегам', analysisData.antiDetail)}
         </div>
         );
       })()}
 
       {vis('stats.heatmap') && (
       <div style={S.panel}>
-        <div style={S.panelTitle}>Дисциплин-грид</div>
+        <div style={S.panelTitle}>Дисциплина<span style={S.dimSpan}>выполненных задач за день</span></div>
         <div style={{display:'flex',gap:3,marginTop:8,overflowX:'auto'}}>
-          {weeks.map((week,wi)=><div key={wi} style={{display:'flex',flexDirection:'column',gap:3}}>{week.map(d=><div key={d.date} title={`${d.date}: ${d.doneCount}`} style={{width:11,height:11,borderRadius:2,background:cellColor(d.doneCount)}}/>)}</div>)}
+          {weeks.map((week,wi)=><div key={wi} style={{display:'flex',flexDirection:'column',gap:3}}>{week.map(d=><div key={d.date} title={`${d.date}: ${d.doneCount}`} style={{width:12,height:12,borderRadius:3,background:cellColor(d.doneCount)}}/>)}</div>)}
         </div>
       </div>
       )}
@@ -319,15 +326,15 @@ export function StatsTab({days, finance, budgets, incomePlans, habits=[], finMas
         <div style={S.panel}>
           <div style={S.panelTitle}>Выполнение задач</div>
           <ChartCanvas type="bar" data={{labels:weeklyStats.map(w=>w.key.slice(5)), datasets:[
-            {label:'Запланировано', data:weeklyStats.map(w=>w.planned), backgroundColor:C.border},
-            {label:'Выполнено', data:weeklyStats.map(w=>w.done), backgroundColor:C.amber},
+            {label:'Запланировано', data:weeklyStats.map(w=>w.planned), backgroundColor:C.panelAlt, borderRadius:3},
+            {label:'Выполнено', data:weeklyStats.map(w=>w.done), backgroundColor:C.amber, borderRadius:3},
           ]}} options={baseChartOpts({plugins:{legend:{display:true, labels:{color:C.dim,font:{size:10}}}}})} />
         </div>
         )}
         {vis('stats.rating') && (
         <div style={S.panel}>
           <div style={S.panelTitle}>Оценка дня</div>
-          <ChartCanvas type="line" data={{labels:ratingTrend.map(r=>r.date), datasets:[{data:ratingTrend.map(r=>r.v), borderColor:C.purple, backgroundColor:'transparent', spanGaps:true, tension:.3}]}} options={baseChartOpts({scales:{x:{ticks:{color:axisColor,font:{size:10}},grid:{color:gridColor}},y:{min:0,max:10,ticks:{color:axisColor,font:{size:10}},grid:{color:gridColor}}}})} />
+          <ChartCanvas type="line" data={{labels:ratingTrend.map(r=>r.date), datasets:[{data:ratingTrend.map(r=>r.v), borderColor:C.amber, backgroundColor:tint(C.amber,.12), fill:true, spanGaps:true, tension:.3, pointRadius:2}]}} options={baseChartOpts({scales:{x:{ticks:{color:axisColor,font:{size:10}},grid:{color:gridColor}},y:{min:0,max:10,ticks:{color:axisColor,font:{size:10}},grid:{color:gridColor}}}})} />
         </div>
         )}
       </div>
@@ -336,15 +343,15 @@ export function StatsTab({days, finance, budgets, incomePlans, habits=[], finMas
         {vis('stats.sleep') && (
         <div style={S.panel}>
           <div style={S.panelTitle}>Сон</div>
-          <ChartCanvas type="line" data={{labels:sleepTrend.map(r=>r.date), datasets:[{data:sleepTrend.map(r=>r.v), borderColor:C.cyan, backgroundColor:'transparent', spanGaps:true, tension:.3}]}} options={baseChartOpts()} />
+          <ChartCanvas type="line" data={{labels:sleepTrend.map(r=>r.date), datasets:[{data:sleepTrend.map(r=>r.v), borderColor:C.cyan, backgroundColor:tint(C.cyan,.12), fill:true, spanGaps:true, tension:.3, pointRadius:2}]}} options={baseChartOpts()} />
         </div>
         )}
         {vis('stats.monthly') && (
         <div style={S.panel}>
           <div style={S.panelTitle}>Доход/расход по месяцам</div>
           <ChartCanvas type="bar" data={{labels:monthlyFinance.map(m=>m.key), datasets:[
-            {label:'Доход', data:monthlyFinance.map(m=>m.income), backgroundColor:C.green},
-            {label:'Расход', data:monthlyFinance.map(m=>m.expense), backgroundColor:C.red},
+            {label:'Доход', data:monthlyFinance.map(m=>m.income), backgroundColor:C.green, borderRadius:3},
+            {label:'Расход', data:monthlyFinance.map(m=>m.expense), backgroundColor:C.red, borderRadius:3},
           ]}} options={baseChartOpts({plugins:{legend:{display:true, labels:{color:C.dim,font:{size:10}}}}})} />
         </div>
         )}
@@ -369,49 +376,49 @@ export function StatsTab({days, finance, budgets, incomePlans, habits=[], finMas
 
       {vis('stats.healthLine') && (
       <div style={S.panel}>
-        <div style={{...S.panelTitle,textTransform:'capitalize'}}>❤ Здоровье · {rangeLabel}</div>
+        <div style={S.panelTitle}>Здоровье<span style={S.dimSpan}>{rangeLabel}</span></div>
         {healthTrend.empty
           ? <div style={S.emptyState}>История здоровья копится с этой версии — загляни через пару дней.</div>
-          : <ChartCanvas type="line" data={{labels:healthTrend.labels, datasets:[{data:healthTrend.data, borderColor:C.red, backgroundColor:'transparent', tension:.3, spanGaps:true}]}}
+          : <ChartCanvas type="line" data={{labels:healthTrend.labels, datasets:[{data:healthTrend.data, borderColor:C.red, backgroundColor:tint(C.red,.1), fill:true, tension:.3, spanGaps:true, pointRadius:0}]}}
               options={{...baseChartOpts(), scales:{...(baseChartOpts().scales||{}), y:{...((baseChartOpts().scales||{}).y||{}), min:0, max:100}}}} height={200} />}
       </div>
       )}
 
       {vis('stats.balanceLine') && (
       <div style={S.panel}>
-        <div style={{...S.panelTitle,textTransform:'capitalize'}}>Баланс операций во времени · {rangeLabel}</div>
-        <ChartCanvas type="line" data={{labels:balanceTrend.labels, datasets:[{data:balanceTrend.data, borderColor:C.amber, backgroundColor:'transparent', tension:.3}]}} options={baseChartOpts()} height={220} />
+        <div style={S.panelTitle}>Баланс операций<span style={S.dimSpan}>{rangeLabel}</span></div>
+        <ChartCanvas type="line" data={{labels:balanceTrend.labels, datasets:[{data:balanceTrend.data, borderColor:C.amber, backgroundColor:tint(C.amber,.1), fill:true, tension:.3, pointRadius:0}]}} options={baseChartOpts()} height={220} />
       </div>
       )}
 
       <div className="grid2" style={S.grid2}>
         {vis('stats.incomeCat') && (
         <div style={S.panel}>
-          <div style={{...S.panelTitle,textTransform:'capitalize'}}>Доходы по категориям · {rangeLabel}</div>
+          <div style={S.panelTitle}>Доходы по категориям<span style={S.dimSpan}>{rangeLabel}</span></div>
           {Object.keys(catBreakdown.inc).length===0 ? <div style={S.emptyState}>Нет доходов за период</div> :
-            <ChartCanvas type="pie" data={{labels:Object.keys(catBreakdown.inc), datasets:[{data:Object.values(catBreakdown.inc), backgroundColor:PIE_COLORS}]}} options={{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'right',labels:{color:C.dim,font:{size:11}}}}}} height={220}/>}
+            <ChartCanvas type="doughnut" data={{labels:Object.keys(catBreakdown.inc), datasets:[{data:Object.values(catBreakdown.inc), backgroundColor:PIE_COLORS, borderWidth:0}]}} options={{responsive:true,maintainAspectRatio:false,cutout:'62%',plugins:{legend:{position:'right',labels:{color:C.dim,font:{size:11},boxWidth:10,boxHeight:10}},tooltip:{enabled:!finMask.ops}}}} height={220}/>}
         </div>
         )}
         {vis('stats.expenseCat') && (
         <div style={S.panel}>
-          <div style={{...S.panelTitle,textTransform:'capitalize'}}>Расходы по категориям · {rangeLabel}</div>
+          <div style={S.panelTitle}>Расходы по категориям<span style={S.dimSpan}>{rangeLabel}</span></div>
           {Object.keys(catBreakdown.exp).length===0 ? <div style={S.emptyState}>Нет расходов за период</div> :
-            <ChartCanvas type="pie" data={{labels:Object.keys(catBreakdown.exp), datasets:[{data:Object.values(catBreakdown.exp), backgroundColor:PIE_COLORS}]}} options={{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'right',labels:{color:C.dim,font:{size:11}}}}}} height={220}/>}
+            <ChartCanvas type="doughnut" data={{labels:Object.keys(catBreakdown.exp), datasets:[{data:Object.values(catBreakdown.exp), backgroundColor:PIE_COLORS, borderWidth:0}]}} options={{responsive:true,maintainAspectRatio:false,cutout:'62%',plugins:{legend:{position:'right',labels:{color:C.dim,font:{size:11},boxWidth:10,boxHeight:10}},tooltip:{enabled:!finMask.ops}}}} height={220}/>}
         </div>
         )}
       </div>
 
       {vis('stats.tagFreq') && tagFreq.length>0 && (
         <div style={S.panel}>
-          <div style={{...S.panelTitle,textTransform:'capitalize'}}>Частота тегов · {rangeLabel}</div>
-          <ChartCanvas type="bar" data={{labels:tagFreq.map(t=>t[0]), datasets:[{label:'дней', data:tagFreq.map(t=>t[1]), backgroundColor:C.cyan}]}} options={baseChartOpts()} />
+          <div style={S.panelTitle}>Частота тегов<span style={S.dimSpan}>{rangeLabel}</span></div>
+          <ChartCanvas type="bar" data={{labels:tagFreq.map(t=>t[0]), datasets:[{label:'дней', data:tagFreq.map(t=>t[1]), backgroundColor:C.amber, borderRadius:3}]}} options={baseChartOpts()} />
         </div>
       )}
 
       {vis('stats.antiTagFreq') && antiTagFreq.length>0 && (
         <div style={S.panel}>
-          <div style={{...S.panelTitle,color:C.red,textTransform:'capitalize'}}>🚫 Частота анти-тегов · {rangeLabel}</div>
-          <ChartCanvas type="bar" data={{labels:antiTagFreq.map(t=>t[0]), datasets:[{label:'дней', data:antiTagFreq.map(t=>t[1]), backgroundColor:C.red}]}} options={baseChartOpts()} />
+          <div style={{...S.panelTitle,color:C.red}}>Частота анти-тегов<span style={S.dimSpan}>{rangeLabel}</span></div>
+          <ChartCanvas type="bar" data={{labels:antiTagFreq.map(t=>t[0]), datasets:[{label:'дней', data:antiTagFreq.map(t=>t[1]), backgroundColor:C.red, borderRadius:3}]}} options={baseChartOpts()} />
         </div>
       )}
 
@@ -419,10 +426,10 @@ export function StatsTab({days, finance, budgets, incomePlans, habits=[], finMas
         <div style={S.panel}>
           <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10,flexWrap:'wrap',gap:8}}>
             <div style={{...S.panelTitle,marginBottom:0}}>План / факт по месяцу</div>
-            <div style={{display:'flex',alignItems:'center',gap:8}}>
-              <button style={S.navArrow} onClick={()=>setPfMonth(shiftMonth(pfMonth,-1))}>◀</button>
-              <span style={{fontSize:12,color:C.dim,minWidth:120,textAlign:'center',textTransform:'capitalize'}}>{monthLabelRu(pfMonth)}</span>
-              <button style={S.navArrow} onClick={()=>setPfMonth(shiftMonth(pfMonth,1))} disabled={pfMonth>=todayStr().slice(0,7)}>▶</button>
+            <div style={{display:'flex',alignItems:'center',gap:6}}>
+              <button style={S.navArrow} aria-label="Предыдущий месяц" onClick={()=>setPfMonth(shiftMonth(pfMonth,-1))}><Icon name="chevL"/></button>
+              <span style={{fontSize:13,minWidth:110,textAlign:'center',textTransform:'capitalize'}}>{monthLabelRu(pfMonth)}</span>
+              <button style={{...S.navArrow,opacity:pfMonth>=todayStr().slice(0,7)?.3:1}} aria-label="Следующий месяц" onClick={()=>setPfMonth(shiftMonth(pfMonth,1))} disabled={pfMonth>=todayStr().slice(0,7)}><Icon name="chevR"/></button>
             </div>
           </div>
           <div className="grid2" style={S.grid2}>
