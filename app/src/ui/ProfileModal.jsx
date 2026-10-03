@@ -29,7 +29,7 @@ function HealthBreakdown({ last }) {
 
 export function ProfileModal({
   onClose, rank, level, levelMax, into, needed, streak, health = 100, impulse, combo,
-  healthLastDay, achUnlockedCount, user, onOpenAchievements, onLogin, onLogout,
+  healthLastDay, achUnlockedCount, user, onOpenAchievements, onLogin, onLogout, syncPaused, onSyncCheck,
   onExportExcel, onExportJson, onImport,
 }) {
   const nr = nextRank(level);
@@ -55,6 +55,9 @@ export function ProfileModal({
       {user
         ? <button style={{ ...S.sheetRow, borderColor: C.green, color: C.green }} onClick={onLogout}>☁ Выйти{user.email ? ` · ${user.email}` : ''}</button>
         : <button style={S.sheetRow} onClick={onLogin}>☁ Войти через Google</button>}
+      {user && (syncPaused
+        ? <button style={{ ...S.sheetRow, borderColor: C.amber, color: C.amber }} onClick={onSyncCheck}>⚠ Синхронизация на паузе — выбрать данные</button>
+        : <button style={S.sheetRow} onClick={onSyncCheck}>⇅ Сверить устройство и облако</button>)}
       <div style={S.sheetSection}>Данные</div>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         <button style={S.sheetBtn} onClick={onExportExcel}>⬇ Excel</button>

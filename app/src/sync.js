@@ -12,6 +12,7 @@
 // плагинов в WebView виснет (session 014). Это нативный мост, веса он почти не добавляет.
 import { Capacitor } from '@capacitor/core';
 import { FirebaseAuthentication } from '@capacitor-firebase/authentication';
+import { clearSynced } from './lib/syncPlan.js';
 
 // Флаг «этот пользователь уже входил» — единственное, что читается на старте вместо всего SDK.
 // Хранит ровно '1', никаких данных.
@@ -94,6 +95,7 @@ export async function login() {
 
 export async function logout() {
   try { localStorage.removeItem(SIGNED_KEY); } catch (e) {}
+  clearSynced(localStorage); // после выхода устройство живёт отдельно → при следующем входе сверяемся заново
   if (Capacitor.isNativePlatform()) {
     try { await FirebaseAuthentication.signOut(); } catch (e) { /* ignore */ }
   }
@@ -119,6 +121,21 @@ export async function pushKey(uid, key, valueString) {
       value: valueString, updatedAt: f.serverTimestamp(),
     });
   } catch (e) { /* offline / transient — the persistent cache will retry */ }
+}
+
+// Снимок одной стороны перед перезаписью (session 042): users/{uid}/snapshots/{id} = {side, keys, createdAt},
+// значения — по документу на ключ в подколлекции keys (как state: один ключ ≤ 1 МиБ, весь снимок — нет).
+// Одним батчем: либо снимок целиком, либо ничего. Промис ждёт подтверждения сервера.
+export async function saveSnapshot(uid, side, values) {
+  const { db, f } = await fb();
+  const id = new Date().toISOString().replace(/[:.]/g, '-') + '_' + side;
+  const root = f.doc(db, 'users', uid, 'snapshots', id);
+  const b = f.writeBatch(db);
+  const keys = Object.keys(values);
+  b.set(root, { side, keys: keys.map(keyToName), createdAt: f.serverTimestamp() });
+  keys.forEach((k) => b.set(f.doc(root, 'keys', keyToName(k)), { value: values[k] }));
+  await b.commit();
+  return id;
 }
 
 // live subscription; calls onRemote(key, valueString) for remote changes only

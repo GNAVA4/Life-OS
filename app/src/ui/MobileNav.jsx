@@ -23,7 +23,7 @@ export function MobileBottomNav({ tabIds = [], tab, onPick, onOpenSheet }) {
   );
 }
 
-export function MobileSheet({ tabIds = [], tab, user, onPick, onClose, onLogin, onLogout, onExportExcel, onExportJson, onImport }) {
+export function MobileSheet({ tabIds = [], tab, user, onPick, onClose, onLogin, onLogout, syncPaused, onSyncCheck, onExportExcel, onExportJson, onImport }) {
   const tile = (id, icon, label) => (
     <button key={id} onClick={() => onPick(id)} style={{ ...S.sheetTile, ...(tab === id ? { borderColor: C.amber, color: C.amber } : {}) }}>
       <span style={{ fontSize: 22 }}>{icon}</span><span style={{ fontSize: 12 }}>{label}</span>
@@ -42,6 +42,9 @@ export function MobileSheet({ tabIds = [], tab, user, onPick, onClose, onLogin, 
         {user
           ? <button style={{ ...S.sheetRow, borderColor: C.green, color: C.green }} onClick={onLogout}>☁ Выйти{user.email ? ` · ${user.email}` : ''}</button>
           : <button style={S.sheetRow} onClick={onLogin}>☁ Войти через Google</button>}
+        {user && (syncPaused
+          ? <button style={{ ...S.sheetRow, borderColor: C.amber, color: C.amber }} onClick={onSyncCheck}>⚠ Синхронизация на паузе — выбрать данные</button>
+          : <button style={S.sheetRow} onClick={onSyncCheck}>⇅ Сверить устройство и облако</button>)}
         <div style={S.sheetSection}>Данные</div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <button style={S.sheetBtn} onClick={onExportExcel}>⬇ Excel</button>

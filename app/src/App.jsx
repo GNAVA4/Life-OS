@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Chart, registerables } from 'chart.js';
 // xlsx грузится лениво (динамический import в exportExcel) — иначе ~400КБ в стартовом бандле. session 022.
-import { onAuth, login, logout, getCloudState, pushKey, subscribe, LIFEOS_KEYS } from './sync.js';
+import { onAuth, login, logout, getCloudState, pushKey, subscribe, saveSnapshot, LIFEOS_KEYS } from './sync.js';
 import { saveOrShare } from './backup.js';
 import { updateTodayWidget } from './widget.js';
 import { syncNotifications, requestNotif, testNotification, notifDiagnostics } from './notifications.js';
@@ -12,7 +12,8 @@ import { S } from './lib/styles.js';
 import { DAY_CHECK_MS, NOTIF_SOFT_LIMIT, GOAL_DONE_XP, EXPENSE_DEFAULT, INCOME_DEFAULT, TAGS_DEFAULT, ANTITAGS_DEFAULT, PERIOD_SCOPES, DIFF_XP, GL_SCOPE } from './lib/constants.js';
 import { todayStr, addDays, daysAgoStr, formatDateShort, periodOf } from './lib/dates.js';
 import { maskMoney, uid } from './lib/format.js';
-import { loadKey, saveKey, setPushHook, setHiddenModules, vis } from './lib/storage.js';
+import { loadKey, saveKey, saveRaw, setPushHook, setHiddenModules, vis } from './lib/storage.js';
+import { planSync, diffSides, keysToPush, markDirty, markSynced, loadDirty, SYNCED_UID_KEY, SYNC_ACK_MS, withTimeout } from './lib/syncPlan.js';
 import { replayHealth, mergeMetaHealth, COMBO_CAP_DAYS, WEEKLY_XP, gamifyCfg, questsForDate, weeklyForPeriod, levelForXp, rankForLevel, nextRank, playLevelUpSound, playAchSound, impulsePenaltyRemaining } from './lib/gamify.js';
 import { isHabitScheduled, habitDoneOn, habitCompletedCount, habitCurrentStreak, habitBestStreak, habitChallengeDone } from './lib/habits.js';
 import { migratePlans } from './lib/finance.js';
@@ -24,6 +25,7 @@ import { RolloverModal } from './ui/RolloverModal.jsx';
 import { ToastStack } from './ui/ToastStack.jsx';
 import { LevelUpBanner } from './ui/LevelUpBanner.jsx';
 import { ProfileModal } from './ui/ProfileModal.jsx';
+import { SyncConflictModal } from './ui/SyncConflictModal.jsx';
 import { SearchModal, SEARCH_MIN_CHARS } from './ui/SearchModal.jsx';
 import { MobileBottomNav, MobileSheet } from './ui/MobileNav.jsx';
 import { useIsMobile } from './ui/useIsMobile.js';
@@ -212,36 +214,88 @@ function App(){
     } catch(e){}
   }, []);
 
+  // 🔐 Безопасный вход (session 042). Пока устройство НЕ согласовано с облаком, записи в облако не идут —
+  // вместо этого ключ помечается «записан мимо облака» (dirty). Так видно, что устройство накопило своё,
+  // и при входе облако не затрёт это молча. Хук отправки в облако поднимается только в startSync.
+  const markDirtyHook = useCallback((key) => { if(LIFEOS_KEYS.includes(key)) markDirty(localStorage, key); }, []);
+  const readLocal = () => { const o = {}; LIFEOS_KEYS.forEach(k => { const v = localStorage.getItem(k); if(v != null) o[k] = v; }); return o; };
+  const syncUnsubRef = useRef(() => {});
+  // {uid, email, plan, local, cloud, open, busy, err} — стороны расходятся, синк на паузе до решения пользователя
+  const [syncAsk, setSyncAsk] = useState(null);
+
   useEffect(() => onAuth(u => {
     setUser(u);
-    setPushHook(u ? (key, valStr) => pushKey(u.uid, key, valStr) : null);
-  }), []);
+    setPushHook(u ? null : markDirtyHook);
+    if(!u) setSyncAsk(null);
+  }), [markDirtyHook]);
+
+  // prefer 'cloud'  — по ключам, что есть в облаке, берём облако; недостающие досеваем с устройства (прежнее поведение).
+  // prefer 'device' — устройство уходит в облако по всем своим ключам; из облака берём только то, чего тут нет.
+  const startSync = useCallback(async (uid, cloud, prefer) => {
+    if(prefer === 'cloud') Object.entries(cloud).forEach(([key, valStr]) => applyRemote(key, valStr));
+    else Object.entries(cloud).forEach(([key, valStr]) => { if(localStorage.getItem(key) == null) applyRemote(key, valStr); });
+    setPushHook((key, valStr) => pushKey(uid, key, valStr));
+    // ❤ Здоровье считается по данным, а данные только что приехали из облака: пересчитываем ПОСЛЕ
+    // адопции (session 037). Идемпотентно; pushHook уже поднят, поэтому результат доезжает в облако.
+    recomputeHealth();
+    const local = readLocal();
+    const pushes = keysToPush(local, cloud, LIFEOS_KEYS, prefer).map(key => pushKey(uid, key, local[key]));
+    // ждём отправку ДО подписки: иначе первый снимок подписки принёс бы старые облачные значения обратно
+    try{ await withTimeout(Promise.all(pushes), SYNC_ACK_MS); }catch(e){ /* офлайн — записи остаются в очереди Firestore */ }
+    markSynced(localStorage, uid);
+    return subscribe(uid, applyRemote); // live updates from other devices
+  }, [applyRemote, recomputeHealth]);
 
   useEffect(() => {
     if(!user) return;
-    let unsub = () => {};
     let cancelled = false;
     (async () => {
       const uid = user.uid;
-      let cloud = {};
-      try { cloud = await getCloudState(uid); } catch(e){}
+      let cloud;
+      // Облако не прочиталось → НЕ считаем его пустым (раньше было `cloud = {}`, и устройство досевало
+      // поверх него ВСЁ своё). Остаёмся в режиме «мимо облака» до следующего запуска.
+      try { cloud = await getCloudState(uid); } catch(e){ if(!cancelled) setPushHook(markDirtyHook); return; }
       if(cancelled) return;
-      // cloud wins for keys it already has (this device adopts the shared state)
-      Object.entries(cloud).forEach(([key, valStr]) => applyRemote(key, valStr));
-      // ❤ Здоровье считается по данным, а данные только что приехали из облака: пересчитываем ПОСЛЕ
-      // адопции. Иначе стартовый реплей был холостым — облако приходит позже и всё равно его затирало
-      // (session 037). Идемпотентно: если курсор уже на сегодня, ничего не меняется и в облако не
-      // пишется лишнего; а к этому моменту pushHook уже поднят, поэтому результат наконец доезжает.
-      recomputeHealth();
-      // seed gaps: push local keys the cloud doesn't have yet (first device seeds the cloud)
-      for(const key of LIFEOS_KEYS){
-        if(!(key in cloud)){ const raw = localStorage.getItem(key); if(raw!=null){ try{ await pushKey(uid, key, raw); }catch(e){} } }
-      }
-      if(cancelled) return;
-      unsub = subscribe(uid, applyRemote); // live updates from other devices
+      const local = readLocal();
+      const plan = planSync({ uid, syncedUid: localStorage.getItem(SYNCED_UID_KEY), dirty: loadDirty(localStorage), local, cloud, keys: LIFEOS_KEYS });
+      if(plan.mode === 'ask'){ setPushHook(markDirtyHook); setSyncAsk({ uid, email: user.email, plan, local, cloud, open: true }); return; }
+      const unsub = await startSync(uid, cloud, 'cloud');
+      if(cancelled) unsub(); else syncUnsubRef.current = unsub;
     })();
-    return () => { cancelled = true; unsub(); };
-  }, [user, applyRemote, recomputeHealth]);
+    return () => { cancelled = true; syncUnsubRef.current(); syncUnsubRef.current = () => {}; };
+  }, [user, startSync, markDirtyHook]);
+
+  // Выбор в диалоге. Перед заменой копия ПРОИГРАВШЕЙ стороны сохраняется снимком в облаке
+  // (users/{uid}/snapshots); не сохранилась (нет связи) → ничего не меняем.
+  const resolveSync = async (prefer) => {
+    if(!syncAsk || syncAsk.busy) return;
+    const { uid } = syncAsk;
+    setSyncAsk(a => ({ ...a, busy: true, err: '' }));
+    let cloud;
+    try{
+      cloud = await withTimeout(getCloudState(uid), SYNC_ACK_MS);
+      await withTimeout(prefer === 'device' ? saveSnapshot(uid, 'cloud', cloud) : saveSnapshot(uid, 'device', readLocal()), SYNC_ACK_MS);
+    }catch(e){
+      setSyncAsk(a => a && ({ ...a, busy: false, err: 'Не удалось сохранить страховочную копию — похоже, нет связи. Ничего не изменено, попробуй ещё раз.' }));
+      return;
+    }
+    syncUnsubRef.current(); syncUnsubRef.current = () => {};
+    setPushHook(markDirtyHook);
+    syncUnsubRef.current = await startSync(uid, cloud, prefer);
+    setSyncAsk(null);
+  };
+  // Ручная сверка из профиля: показать различия и дать выбрать сторону, даже если устройство уже в синке.
+  const openSyncCheck = async () => {
+    if(!user) return;
+    if(syncAsk){ setSyncAsk(a => ({ ...a, open: true })); return; }
+    try{
+      const cloud = await withTimeout(getCloudState(user.uid), SYNC_ACK_MS);
+      const local = readLocal();
+      const d = diffSides(local, cloud, LIFEOS_KEYS);
+      if(d.diff.length === 0 && d.localOnly.length === 0){ setImportMsg('Устройство и облако совпадают — синхронизировать нечего.'); return; }
+      setSyncAsk({ uid: user.uid, email: user.email, plan: { mode: 'ask', ...d }, local, cloud, open: true });
+    }catch(e){ setImportMsg('Не удалось прочитать облако — похоже, нет связи.'); }
+  };
 
   const persist = {
     days: (n)=>{setDays(n); saveKey('lifeos:days',n);},
@@ -999,9 +1053,16 @@ function App(){
     };
     reader.readAsText(file);
   };
-  const applyImport = () => {
+  // Синкаемые ключи пишем через saveRaw: при входе они уходят в облако (ждём ДО reload, иначе после
+  // перезапуска облако вернуло бы старое), без входа — помечаются «мимо облака». session 042.
+  const applyImport = async () => {
     if(!importPending) return;
-    importPending.keys.forEach(k=>{ const v=importPending.data[k]; localStorage.setItem(k, typeof v==='string'? v : JSON.stringify(v)); });
+    const pushes = [];
+    importPending.keys.forEach(k=>{
+      const v=importPending.data[k]; const str = typeof v==='string'? v : JSON.stringify(v);
+      if(LIFEOS_KEYS.includes(k)) pushes.push(saveRaw(k, str)); else localStorage.setItem(k, str);
+    });
+    try{ await withTimeout(Promise.all(pushes), SYNC_ACK_MS); }catch(e){}
     location.reload();
   };
 
@@ -1054,6 +1115,11 @@ function App(){
           </div>
         </Modal>
       )}
+      {syncAsk && syncAsk.open && (
+        <SyncConflictModal ask={syncAsk}
+          onKeepDevice={()=>resolveSync('device')} onTakeCloud={()=>resolveSync('cloud')}
+          onBackup={()=>exportJson()} onLater={()=>setSyncAsk(a=>({ ...a, open:false }))} />
+      )}
       {importMsg && (
         <Modal onClose={()=>setImportMsg('')} title="Life OS">
           <div style={{fontSize:13.5,lineHeight:1.5,marginBottom:14}}>{importMsg}</div>
@@ -1069,6 +1135,7 @@ function App(){
           onOpenAchievements={()=>{ setTab('achievements'); setProfileOpen(false); }}
           onLogin={()=>{ login().catch(err=>setImportMsg('Вход не удался: '+err.message)); setProfileOpen(false); }}
           onLogout={()=>{ logout(); setProfileOpen(false); }}
+          syncPaused={!!syncAsk} onSyncCheck={()=>{ openSyncCheck(); setProfileOpen(false); }}
           onExportExcel={()=>exportExcel()} onExportJson={()=>exportJson()}
           onImport={()=>{ fileInputRef.current && fileInputRef.current.click(); setProfileOpen(false); }} />
       )}
@@ -1148,6 +1215,7 @@ function App(){
           onPick={(id)=>{ setTab(id); setSheetOpen(false); }} onClose={()=>setSheetOpen(false)}
           onLogin={()=>{ login().catch(err=>setImportMsg('Вход не удался: '+err.message)); setSheetOpen(false); }}
           onLogout={()=>{ logout(); setSheetOpen(false); }}
+          syncPaused={!!syncAsk} onSyncCheck={()=>{ openSyncCheck(); setSheetOpen(false); }}
           onExportExcel={()=>{ exportExcel(); setSheetOpen(false); }}
           onExportJson={()=>{ exportJson(); setSheetOpen(false); }}
           onImport={()=>{ fileInputRef.current && fileInputRef.current.click(); setSheetOpen(false); }} />

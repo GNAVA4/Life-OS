@@ -9,6 +9,13 @@ export function saveKey(key, value){
   try{ localStorage.setItem(key, s); }catch(e){}
   try{ if(_pushHook) _pushHook(key, s); }catch(e){}
 }
+// Запись готовой строки (импорт бэкапа): как saveKey, но возвращает промис отправки в облако —
+// чтобы дождаться его до reload, иначе после перезапуска облако перезапишет импорт обратно. session 042.
+export function saveRaw(key, s){
+  try{ localStorage.setItem(key, s); }catch(e){}
+  try{ if(_pushHook) return Promise.resolve(_pushHook(key, s)); }catch(e){}
+  return Promise.resolve();
+}
 
 // ---------- module visibility (Settings tab) ----------
 // _hidden is refreshed by App on every render (setHiddenModules); vis(id) is a plain lookup usable inline in any component.
