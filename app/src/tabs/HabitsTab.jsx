@@ -144,7 +144,7 @@ export function HabitsTab({habits, addHabit, toggleHabitDay, deleteHabit, update
                 <div style={{fontSize:12,color:C.dim,marginTop:3,display:'flex',flexWrap:'wrap',gap:'2px 8px',alignItems:'center'}}>
                   <span>{habitScheduleLabel(h)}{!todayScheduled?' · сегодня не по расписанию':''}</span>
                   {h.reminderTime && <span style={{display:'inline-flex',gap:3,alignItems:'center'}}><Icon name="bell" size={12}/>{h.reminderTime}</span>}
-                  {h.freezesPerMonth>0 && <span title="разрешённых пропусков в месяц">❄ {h.freezesPerMonth} проп./мес</span>}
+                  {h.freezesPerMonth>0 && <span title="разрешённых пропусков в месяц">можно пропустить {h.freezesPerMonth} в мес.</span>}
                   {gn.map((g,i)=><span key={i} style={{color:C.amber,display:'inline-flex',gap:3,alignItems:'center'}}><Icon name="goals" size={12}/>{g}</span>)}
                 </div>
               </button>
@@ -162,7 +162,7 @@ export function HabitsTab({habits, addHabit, toggleHabitDay, deleteHabit, update
             {h.targetDays>0 && (
               <div style={{marginTop:12}}>
                 <div style={{display:'flex',justifyContent:'space-between',fontSize:12,color:C.dim,marginBottom:5}}>
-                  <span>Челлендж · подряд{challenge?<span style={{color:C.green}}> · пройден 🎉</span>:''}</span>
+                  <span>Челлендж · подряд{challenge?<span style={{color:C.green}}> · пройден</span>:''}</span>
                   <span style={{fontVariantNumeric:'tabular-nums'}}>{run} / {h.targetDays}<span style={{opacity:.7}}> · всего {done}</span></span>
                 </div>
                 <div style={{height:4,background:C.panelAlt,borderRadius:4,overflow:'hidden'}}><div style={{height:'100%',width:`${targetPct}%`,background:challenge?C.green:C.amber,borderRadius:4}}/></div>
@@ -186,7 +186,7 @@ export function HabitsTab({habits, addHabit, toggleHabitDay, deleteHabit, update
             {[...archive].reverse().map((h,i)=>(
               <div key={h.id+'_'+h.archivedAt+'_'+i} style={S.taskRow}>
                 <div style={{flex:1,minWidth:0,overflowWrap:'anywhere',display:'flex',flexDirection:'column',gap:2}}>
-                  <span style={{fontSize:14.5,color:h.outcome==='failed'?C.red:C.text}}>{h.name}{h.outcome==='failed'?' · сдался':h.challengeDone?' · челлендж пройден 🎉':''}</span>
+                  <span style={{fontSize:14.5,color:h.outcome==='failed'?C.red:C.text}}>{h.name}{h.outcome==='failed'?' · сдался':h.challengeDone?' · челлендж пройден':''}</span>
                   <span style={{fontSize:12,color:C.dim}}>рекорд {h.bestStreak||0} · выполнено {h.completedCount||0}{h.targetDays>0?` / ${h.targetDays}`:''} дн. · в архиве с {h.archivedAt}</span>
                 </div>
                 <button style={S.btnGhost} title="вернуть в активные" onClick={()=>restoreHabit(h.id, h.archivedAt)}><Icon name="restore" size={14}/>Вернуть</button>

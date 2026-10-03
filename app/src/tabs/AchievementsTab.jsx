@@ -3,7 +3,8 @@ import { useMemo, useState } from 'react';
 import { ACHIEVEMENTS, ACH_GROUPS, ACH_TIERS, achValDisplay } from '../lib/achievements.js';
 import { formatDateRu } from '../lib/dates.js';
 import { S } from '../lib/styles.js';
-import { C } from '../lib/theme.js';
+import { C, tint } from '../lib/theme.js';
+import { Icon } from '../ui/Icon.jsx';
 
 export function AchievementsTab({stats, unlocked}){
   const [filter,setFilter] = useState('all'); // all | done | todo
@@ -36,24 +37,26 @@ export function AchievementsTab({stats, unlocked}){
     <div>
       <div style={S.panel}>
         <div style={S.panelTitle}>Достижения <span style={S.dimSpan}>{doneCount} / {total}</span></div>
-        <div style={{height:8, background:C.panelAlt, borderRadius:4, overflow:'hidden', margin:'8px 0'}}>
+        <div style={{height:6, background:C.panelAlt, borderRadius:4, overflow:'hidden', margin:'10px 0 8px'}}>
           <div style={{height:'100%', width:`${pct}%`, background:C.amber}}/>
         </div>
         <div style={S.dimSpan}>Очки славы: {points} / {maxPoints} · открыто {pct}%</div>
         <div style={{display:'flex', gap:6, marginTop:12, alignItems:'center'}}>
-          <input style={S.input} value={query} onChange={e=>setQuery(e.target.value)} placeholder="🔍 Найти достижение — название, описание, группа…"/>
-          {query && <div className="chip" onClick={()=>setQuery('')} title="сбросить поиск"
-            style={{background:C.panelAlt, color:C.dim, borderColor:C.border}}>✕</div>}
+          <div style={{position:'relative', flex:1, minWidth:0, display:'flex'}}>
+            <span style={{position:'absolute', left:11, top:'50%', transform:'translateY(-50%)', color:C.faint, display:'flex', pointerEvents:'none'}}><Icon name="search" size={15}/></span>
+            <input style={{...S.input, paddingLeft:34}} value={query} onChange={e=>setQuery(e.target.value)} placeholder="Найти достижение — название, описание, группа" aria-label="Поиск достижений"/>
+          </div>
+          {query && <button type="button" className="icon-btn" onClick={()=>setQuery('')} title="сбросить поиск" aria-label="Сбросить поиск"><Icon name="x" size={15}/></button>}
         </div>
         {q && <div style={{fontSize:11.5, color:foundCount?C.dim:C.red, marginTop:6}}>
           {foundCount ? `найдено: ${foundCount}` : 'ничего не найдено'}
         </div>}
         <div style={{display:'flex', gap:6, marginTop:12, flexWrap:'wrap', alignItems:'center'}}>
           {!byDay && [{id:'all',label:'Все'},{id:'done',label:'Полученные'},{id:'todo',label:'В процессе'}].map(f=>(
-            <div key={f.id} className="chip" onClick={()=>setFilter(f.id)} style={{background:filter===f.id?C.amber:C.panelAlt, color:filter===f.id?'#1A1200':C.dim, borderColor:filter===f.id?C.amber:C.border}}>{f.label}</div>
+            <button key={f.id} type="button" className="chip" onClick={()=>setFilter(f.id)} style={{fontFamily:'inherit', ...(filter===f.id?{background:tint(C.amber,.16),color:C.amber}:{background:C.panelAlt, color:C.dim})}}>{f.label}</button>
           ))}
-          <div className="chip" onClick={()=>setByDay(v=>!v)} title="группировать по дате открытия"
-            style={{marginLeft:byDay?0:'auto', background:byDay?C.cyan:C.panelAlt, color:byDay?'#0B0E13':C.dim, borderColor:byDay?C.cyan:C.border}}>📅 по дням</div>
+          <button type="button" className="chip" onClick={()=>setByDay(v=>!v)} title="группировать по дате открытия"
+            style={{fontFamily:'inherit', marginLeft:byDay?0:'auto', display:'inline-flex', alignItems:'center', gap:5, ...(byDay?{background:tint(C.cyan,.16), color:C.cyan}:{background:C.panelAlt, color:C.dim})}}><Icon name="calendar" size={13}/>по дням</button>
         </div>
       </div>
 
@@ -65,7 +68,7 @@ export function AchievementsTab({stats, unlocked}){
               <div style={S.panelTitle}><span style={{textTransform:'capitalize'}}>{formatDateRu(date)}</span> <span style={S.dimSpan}>{date} · +{list.length}</span></div>
               <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(230px,1fr))', gap:10}}>
                 {list.map(a=>{ const tier=ACH_TIERS[a.tier]; return (
-                  <div key={a.id} style={{border:`1px solid ${tier.c}`, background:C.panelAlt, borderRadius:8, padding:12}}>
+                  <div key={a.id} style={{border:`1px solid ${tint(tier.c,.45)}`, background:C.panelAlt, borderRadius:12, padding:12}}>
                     <div style={{display:'flex', alignItems:'center', gap:10}}>
                       <div style={{fontSize:26}}>{a.icon}</div>
                       <div style={{flex:1, minWidth:0}}>
@@ -98,14 +101,14 @@ export function AchievementsTab({stats, unlocked}){
                 const prog=Math.min(100, a.target? v/a.target*100 : 0);
                 const hidden=a.secret && !done;
                 return (
-                  <div key={a.id} style={{border:`1px solid ${done?tier.c:C.border}`, background:done?C.panelAlt:'transparent', borderRadius:8, padding:12, position:'relative'}}>
+                  <div key={a.id} style={{border:`1px solid ${done?tint(tier.c,.45):C.border}`, background:done?C.panelAlt:'transparent', borderRadius:12, padding:12, position:'relative'}}>
                     <div style={{display:'flex', alignItems:'center', gap:10}}>
                       <div style={{fontSize:26, filter:done?'none':'grayscale(1)', opacity:done?1:0.45}}>{hidden?'🔒':a.icon}</div>
                       <div style={{flex:1, minWidth:0}}>
                         <div style={{fontSize:13.5, fontWeight:700, color:done?C.text:C.dim}}>{hidden?'Секрет':a.title}</div>
                         <div style={{fontSize:10, color:tier.c, textTransform:'uppercase', letterSpacing:'.05em'}}>{tier.label}{done?` · ${unlocked[a.id]}`:''}</div>
                       </div>
-                      {done && <div style={{fontSize:15, color:tier.c}}>✓</div>}
+                      {done && <span style={{color:tier.c, display:'flex'}}><Icon name="check" size={16}/></span>}
                     </div>
                     <div style={{fontSize:11.5, color:C.dim, marginTop:8, minHeight:30}}>{hidden?'Секретное достижение — открой его сам':a.desc}</div>
                     {!done && !hidden && (

@@ -421,7 +421,7 @@ export function TodayTab({entry, selectedDate, setSelectedDate, addTask, toggleT
             <div style={{display:'flex',flexDirection:'column',gap:8}}>
               {coachInsights.map((ins,i)=>(
                 <div key={i} style={{display:'flex',gap:8,fontSize:13,lineHeight:1.45,color:ins.tone==='warn'?C.amber:C.text}}>
-                  <span style={{flex:'none'}}>{ins.icon}</span><span style={{overflowWrap:'anywhere'}}>{ins.text}</span>
+                  <span style={{flex:'none',display:'flex',paddingTop:2,color:ins.tone==='warn'?C.amber:C.dim}}><Icon name={ins.icon} size={14}/></span><span style={{overflowWrap:'anywhere'}}>{ins.text}</span>
                 </div>))}
             </div>)}
           {vis('today.quests') && quests.length>0 && gameRow('quests','check','Задания дня',`${questsDone} из ${quests.length} · +${questsXp}`,
@@ -436,7 +436,7 @@ export function TodayTab({entry, selectedDate, setSelectedDate, addTask, toggleT
             </div>)}
           {vis('today.weekly') && weekly && gameRow('weekly','achievements','Испытание недели',weekly.claimed?'пройдено':`${Math.min(weekly.cur,weekly.target)} / ${weekly.target} · +${WEEKLY_XP}`,
             <div style={{display:'flex',flexDirection:'column',gap:7}}>
-              <div style={{display:'flex',gap:8,fontSize:13}}><span>{weekly.chal.icon}</span><span style={{flex:1,overflowWrap:'anywhere'}}>{weekly.chal.label}</span></div>
+              <div style={{fontSize:13,overflowWrap:'anywhere'}}>{weekly.chal.label}</div>
               <div style={{height:4,background:C.panelAlt,borderRadius:4,overflow:'hidden'}}><div style={{height:'100%',background:weekly.done?C.green:C.amber,width:`${Math.min(100,weekly.cur/weekly.target*100)}%`}}/></div>
               <div style={{fontSize:12,color:weekly.claimed||weekly.done?C.green:C.dim}}>{weekly.claimed?`Пройдено · +${WEEKLY_XP} XP`:weekly.done?`Выполнено · +${WEEKLY_XP} XP начислено`:`Награда +${WEEKLY_XP} XP`}</div>
             </div>)}

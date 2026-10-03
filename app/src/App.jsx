@@ -7,7 +7,7 @@ import { updateTodayWidget } from './widget.js';
 import { syncNotifications, requestNotif, testNotification, notifDiagnostics } from './notifications.js';
 
 // ---------- декомпозиция: чистые константы/хелперы/стили вынесены в ./lib (session: decompose) ----------
-import { C } from './lib/theme.js';
+import { C, tint } from './lib/theme.js';
 import { S } from './lib/styles.js';
 import { DAY_CHECK_MS, NOTIF_SOFT_LIMIT, GOAL_DONE_XP, EXPENSE_DEFAULT, INCOME_DEFAULT, TAGS_DEFAULT, ANTITAGS_DEFAULT, PERIOD_SCOPES, DIFF_XP, GL_SCOPE } from './lib/constants.js';
 import { todayStr, addDays, daysAgoStr, formatDayTitle, periodOf } from './lib/dates.js';
@@ -583,8 +583,8 @@ function App(){
     setNotifMsg('⏳ Запрашиваю разрешение…');
     try {
       const r = await requestNotif();
-      if(r.reason==='web'){ setNotifMsg('⚠️ Только в приложении на телефоне (в браузере не работает).'); return; }
-      if(r.reason==='not-implemented'){ setNotifMsg('⚠️ Плагин уведомлений не найден — на телефоне СТАРЫЙ APK. Переустанови свежий.'); return; }
+      if(r.reason==='web'){ setNotifMsg('Только в приложении на телефоне (в браузере не работает).'); return; }
+      if(r.reason==='not-implemented'){ setNotifMsg('Плагин уведомлений не найден — на телефоне СТАРЫЙ APK. Переустанови свежий.'); return; }
       if(r.ok){ setSettingFlag('notifOff', false);
         const n = await syncNotifications({habits: habitsForNotif(), notes, study, goals, ongoing, bills,
           deadlineCfg: settings.deadlineNotif, morningCfg: settings.morningSummary, billsCfg: settings.billsNotif,
@@ -592,26 +592,27 @@ function App(){
           activity: activityState(), activitySettings: settings, morningBody: computeMorningBody(), enabled:true});
         // У Android есть потолок запланированных уведомлений (~500 на приложение): молча упереться в
         // него = часть напоминаний просто не встанет. Предупреждаем заранее.
-        setNotifMsg(`✅ Разрешение выдано. Запланировано уведомлений: ${n}.`
-          + (n >= NOTIF_SOFT_LIMIT ? `\n⚠️ Близко к потолку Android (~500). Уменьши число слотов просрочки / «за N дней» или отключи напоминания для целей.` : '')); }
-      else setNotifMsg('❌ Разрешение не выдано: '+(r.display||r.reason||'')+(r.message?` — ${r.message}`:''));
-    } catch(e){ setNotifMsg('💥 Ошибка при запросе: '+((e&&e.message)||String(e))); }
+        setNotifMsg(`Разрешение выдано. Запланировано уведомлений: ${n}.`
+          + (n >= NOTIF_SOFT_LIMIT ? `
+Близко к потолку Android (~500). Уменьши число слотов просрочки / «за N дней» или отключи напоминания для целей.` : '')); }
+      else setNotifMsg('Разрешение не выдано: '+(r.display||r.reason||'')+(r.message?` — ${r.message}`:''));
+    } catch(e){ setNotifMsg('Ошибка при запросе: '+((e&&e.message)||String(e))); }
   };
   const testNotif = async () => {
     setNotifMsg('⏳ Планирую тест…');
     try {
       const r = await testNotification();
-      if(r.ok) setNotifMsg('✅ Тест запланирован — сверни приложение, уведомление придёт через 5 секунд.');
-      else if(r.reason==='web') setNotifMsg('⚠️ Только на телефоне (в браузере не сработает).');
-      else if(r.reason==='not-implemented') setNotifMsg('⚠️ Старый APK без плагина — переустанови свежий.');
-      else if(r.reason==='denied') setNotifMsg('❌ Разрешение не выдано ('+(r.display||'')+'). Дай его в системных настройках приложения.');
-      else setNotifMsg('❌ Не удалось: '+((r.message||r.reason)||'?'));
-    } catch(e){ setNotifMsg('💥 Ошибка теста: '+((e&&e.message)||String(e))); }
+      if(r.ok) setNotifMsg('Тест запланирован — сверни приложение, уведомление придёт через 5 секунд.');
+      else if(r.reason==='web') setNotifMsg('Только на телефоне (в браузере не сработает).');
+      else if(r.reason==='not-implemented') setNotifMsg('Старый APK без плагина — переустанови свежий.');
+      else if(r.reason==='denied') setNotifMsg('Разрешение не выдано ('+(r.display||'')+'). Дай его в системных настройках приложения.');
+      else setNotifMsg('Не удалось: '+((r.message||r.reason)||'?'));
+    } catch(e){ setNotifMsg('Ошибка теста: '+((e&&e.message)||String(e))); }
   };
   const showNotifDiag = async () => {
     setNotifMsg('⏳ Диагностика…');
-    try { const d = await notifDiagnostics(); setNotifMsg('🔍 '+JSON.stringify(d)); }
-    catch(e){ setNotifMsg('💥 Диагностика упала: '+((e&&e.message)||String(e))); }
+    try { const d = await notifDiagnostics(); setNotifMsg(''+JSON.stringify(d)); }
+    catch(e){ setNotifMsg('Диагностика упала: '+((e&&e.message)||String(e))); }
   };
   const toggleMobileTab = (id) => {
     const cur = (settings.mobileTabs && settings.mobileTabs.length ? settings.mobileTabs : DEFAULT_MOBILE_TABS);
@@ -890,24 +891,24 @@ function App(){
     const out=[]; const t=todayStr(); const mm=(n)=>maskMoney(finMask.ops, n);
     // прогресс уровня/ранга
     if(!levelMax){ const nr=nextRank(level);
-      out.push({icon:'🏆', text: nr ? `До ранга «${nr.name}» — ${nr.min-level} ур. · до след. уровня ${needed-into} XP` : `До следующего уровня — ${needed-into} XP`}); }
+      out.push({icon:'achievements', text: nr ? `До ранга «${nr.name}» — ${nr.min-level} ур. · до след. уровня ${needed-into} XP` : `До следующего уровня — ${needed-into} XP`}); }
     // привычки под угрозой (запланирована сегодня, ещё не отмечена, стрик до вчера ≥3)
     habits.forEach(h=>{ if(isHabitScheduled(h,t) && !(h.log&&h.log[t])){ const st=habitCurrentStreak(h, addDays(t,-1));
-      if(st>=3) out.push({icon:'⚠️', tone:'warn', text:`Стрик привычки «${h.name}» под угрозой (${st} дн.) — сегодня ещё не отмечено`}); } });
+      if(st>=3) out.push({icon:'warn', tone:'warn', text:`Стрик привычки «${h.name}» под угрозой (${st} дн.) — сегодня ещё не отмечено`}); } });
     // серия/комбо
-    if(combo.streak>=3) out.push({icon:'🔥', text:`${combo.streak} дней активности подряд — комбо ×${combo.mult.toFixed(1)}. Не прерывай!`});
+    if(combo.streak>=3) out.push({icon:'flame', text:`${combo.streak} дней активности подряд — комбо ×${combo.mult.toFixed(1)}. Не прерывай!`});
     // задания дня
     const qLeft=todayQuests.filter(q=> q.deferred ? !q.claimed : !q.done ).length; // отложенные — незавершены до начисления. session 032
-    if(qLeft>0 && qLeft<todayQuests.length) out.push({icon:'🎯', text:`Осталось заданий дня: ${qLeft}`});
+    if(qLeft>0 && qLeft<todayQuests.length) out.push({icon:'goals', text:`Осталось заданий дня: ${qLeft}`});
     // сон ↔ оценка (последние 30 дней)
     { const hi=[],lo=[]; for(let i=0;i<30;i++){ const e=days[daysAgoStr(i)]; if(e&&e.rating!=null&&e.sleepHours!=null) (e.sleepHours>=7?hi:lo).push(e.rating); }
       if(hi.length>=4 && lo.length>=4){ const avg=a=>a.reduce((s,x)=>s+x,0)/a.length; const d=avg(hi)-avg(lo);
-        if(Math.abs(d)>=0.8) out.push({icon:'😴', text:`В дни со сном 7ч+ оценка ${d>0?'выше':'ниже'} на ${Math.abs(Math.round(d*10)/10)} балла — ${d>0?'высыпайся':'обрати внимание'}`}); } }
+        if(Math.abs(d)>=0.8) out.push({icon:'moon', text:`В дни со сном 7ч+ оценка ${d>0?'выше':'ниже'} на ${Math.abs(Math.round(d*10)/10)} балла — ${d>0?'высыпайся':'обрати внимание'}`}); } }
     // расходы месяца против плана
     { const ym=t.slice(0,7); const plan=Object.values(budgets[ym]||{}).reduce((s,v)=>s+(v||0),0);
       if(plan>0){ const spent=finance.transactions.filter(x=>!x.exclude&&x.type==='expense'&&x.date.slice(0,7)===ym).reduce((s,x)=>s+x.amount,0);
-        if(spent>plan) out.push({icon:'💸', tone:'warn', text:`Расходы месяца превысили план на ${mm(spent-plan)}`});
-        else if(spent>plan*0.85) out.push({icon:'💸', text:`Потрачено ${Math.round(spent/plan*100)}% месячного плана`}); } }
+        if(spent>plan) out.push({icon:'finance', tone:'warn', text:`Расходы месяца превысили план на ${mm(spent-plan)}`});
+        else if(spent>plan*0.85) out.push({icon:'finance', text:`Потрачено ${Math.round(spent/plan*100)}% месячного плана`}); } }
     // приоритет: сначала предупреждения
     return out.sort((a,b)=>(b.tone==='warn'?1:0)-(a.tone==='warn'?1:0)).slice(0,4);
   }, [days, habits, finance.transactions, budgets, combo, todayQuests, level, into, needed, levelMax, finMask.ops]);
@@ -1086,7 +1087,7 @@ function App(){
   const NAV = [
     {id:'today', label:'Сегодня'}, {id:'habits', label:'Привычки'}, {id:'goals', label:'Цели'}, {id:'study', label:'Дела'},
     {id:'notes', label:'Заметки'}, {id:'finance', label:'Финансы'}, {id:'stats', label:'Статистика'},
-    {id:'achievements', label:'🏅 Награды'}, {id:'settings', label:'⚙'},
+    {id:'achievements', label:'Награды'}, {id:'settings', label:'Настройки'},
   ];
   // нижняя навигация (телефон): выбранные в настройках вкладки; «Сегодня» всегда доступна
   const mobileTabIds = (settings.mobileTabs && settings.mobileTabs.length ? settings.mobileTabs : DEFAULT_MOBILE_TABS)
@@ -1153,9 +1154,9 @@ function App(){
       )}
 
       {lsPct>=80 && !lsWarnDismissed && (
-        <div style={{background:'#3A2417',border:`1px solid ${C.amber}`,borderRadius:8,padding:'10px 12px',marginBottom:14,display:'flex',alignItems:'center',gap:10}}>
-          <span style={{fontSize:12.5,color:C.amber,flex:1,lineHeight:1.45}}>⚠️ Хранилище почти заполнено: {lsPct}% (~{Math.round(lsBytes/1024)} КБ из ~5 МБ). Сделай бэкап (Экспорт JSON) и почисти старые данные — иначе новые записи могут не сохраниться.</span>
-          <button className="icon-btn" title="скрыть" onClick={()=>setLsWarnDismissed(true)}>✕</button>
+        <div style={{background:tint(C.amber,.1),border:'none',borderRadius:12,padding:'10px 12px',marginBottom:14,display:'flex',alignItems:'center',gap:10}}>
+          <span style={{color:C.amber,display:'flex',flex:'none'}}><Icon name="warn" size={16}/></span><span style={{fontSize:12.5,color:C.amber,flex:1,lineHeight:1.45}}>Хранилище почти заполнено: {lsPct}% (~{Math.round(lsBytes/1024)} КБ из ~5 МБ). Сделай бэкап (Экспорт JSON) и почисти старые данные — иначе новые записи могут не сохраниться.</span>
+          <button className="icon-btn" title="скрыть" onClick={()=>setLsWarnDismissed(true)}><Icon name="x" size={15}/></button>
         </div>
       )}
 

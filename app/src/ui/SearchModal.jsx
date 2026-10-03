@@ -9,7 +9,7 @@ export const SEARCH_MIN_CHARS = 2; // короче двух символов в�
 export function SearchModal({ query, setQuery, results = [], onClose, onGo }) {
   const short = query.trim().length < SEARCH_MIN_CHARS;
   return (
-    <Modal onClose={onClose} title="🔍 Поиск">
+    <Modal onClose={onClose} title="Поиск">
       <input autoFocus style={S.input} placeholder="Задачи, дела, заметки, цели, привычки…"
         value={query} onChange={e => setQuery(e.target.value)} />
       <div style={{ marginTop: 12 }}>

@@ -44,7 +44,7 @@ export function SettingsTab({hidden, toggleModule, defaults, setDefault, categor
   const toggleGroup = (name) => setOpenGroups(s=>({...s,[name]:!s[name]}));
   return (
     <div>
-      <SettingsSection title="Уведомления и звук" icon="🔔">
+      <SettingsSection title="Уведомления и звук">
         <label className="row-hover" style={{...S.taskRow, cursor:'pointer'}}>
           <input type="checkbox" checked={!soundOff} onChange={()=>setSettingFlag('soundOff', !soundOff?true:false)} />
           <div style={{flex:1}}>Звук при получении достижения</div>
@@ -60,7 +60,7 @@ export function SettingsTab({hidden, toggleModule, defaults, setDefault, categor
         </div>
         <div style={{display:'flex',gap:8,flexWrap:'wrap',marginTop:10}}>
           <button style={S.exportBtn} onClick={requestNotifs}>Разрешить уведомления</button>
-          <button style={{...S.exportBtn,borderColor:C.amber,color:C.amber}} onClick={testNotif}>🔔 Тест (через 5 сек)</button>
+          <button style={{...S.exportBtn,color:C.amber}} onClick={testNotif}><Icon name="bell" size={15}/>Тест (через 5 сек)</button>
           <button style={S.exportBtn} onClick={showNotifDiag}>Диагностика</button>
         </div>
         <div style={{marginTop:10,padding:'9px 11px',background:C.panelAlt,border:`1px solid ${C.border}`,borderRadius:8,fontSize:12.5,minHeight:20,wordBreak:'break-word',whiteSpace:'pre-wrap'}}>
@@ -83,7 +83,7 @@ export function SettingsTab({hidden, toggleModule, defaults, setDefault, categor
         <div style={{...S.dimSpan,marginLeft:0,marginTop:6,display:'block'}}>Для незакрытых дел, целей и длительных задач, у которых задан срок. Уведомление приходит в день срока и заранее.</div>
         {dlOn && (
           <div style={{display:'flex',gap:6,flexWrap:'wrap',marginTop:8}}>
-            {[{k:'goalsOff', label:'🎯 цели'}, {k:'ongoingOff', label:'📌 длительные задачи'}].map(x=>{
+            {[{k:'goalsOff', label:'цели'}, {k:'ongoingOff', label:'длительные задачи'}].map(x=>{
               const on = !(deadlineCfg && deadlineCfg[x.k]);
               return <div key={x.k} className="chip" onClick={()=>setDl({[x.k]: on})}
                 style={{background:on?C.amber:C.panelAlt,color:on?'#1A1200':C.dim,borderColor:on?C.amber:C.border}}>{x.label}</div>;
@@ -116,7 +116,7 @@ export function SettingsTab({hidden, toggleModule, defaults, setDefault, categor
                 {ovTimes.map((t,i)=>(
                   <div key={i} style={{display:'flex',alignItems:'center',gap:2}}>
                     <input style={{...S.input,maxWidth:110}} type="time" value={t} onChange={e=>setOvTime(i,e.target.value)} />
-                    {ovTimes.length>1 && <button className="icon-btn" title="убрать время" onClick={()=>delOvTime(i)}>✕</button>}
+                    {ovTimes.length>1 && <button className="icon-btn" title="убрать время" onClick={()=>delOvTime(i)}><Icon name="x" size={14}/></button>}
                   </div>
                 ))}
                 {ovTimes.length<OVERDUE_TIMES_MAX &&
@@ -148,7 +148,7 @@ export function SettingsTab({hidden, toggleModule, defaults, setDefault, categor
           <div style={{flex:1}}>Напоминать о регулярных платежах</div>
           <span style={{fontSize:11,color:C.dim}}>{billsOn?'вкл':'выкл'}</span>
         </label>
-        <div style={{...S.dimSpan,marginLeft:0,marginTop:6,display:'block'}}>Ежемесячно для платежей, у которых включён 🔔 (Финансы → Операции → Регулярные платежи). Сам список платежей можно скрыть в разделе «Что показывать» ниже.</div>
+        <div style={{...S.dimSpan,marginLeft:0,marginTop:6,display:'block'}}>Ежемесячно для платежей, у которых включено напоминание (Финансы → Операции → Регулярные платежи). Сам список платежей можно скрыть в разделе «Что показывать» ниже.</div>
         {billsOn && (
           <div style={{display:'flex',gap:10,flexWrap:'wrap',alignItems:'center',marginTop:10}}>
             <span style={{fontSize:12,color:C.dim}}>время:</span>
@@ -180,7 +180,7 @@ export function SettingsTab({hidden, toggleModule, defaults, setDefault, categor
           <span style={{fontSize:11,color:C.dim}}>{nOvOn?'вкл':'выкл'}</span>
         </label>
         <div style={{...S.dimSpan,marginLeft:0,marginTop:6,display:'block'}}>
-          Пока напоминание не отмечено ✓ «выполнено» (кнопка на карточке в Заметках), оно приходит в каждое
+          Пока напоминание не отмечено как выполненное (кнопка на карточке в Заметках), оно приходит в каждое
           из этих времён. Все просроченные — одним уведомлением на слот.
         </div>
         {nOvOn && (
@@ -188,7 +188,7 @@ export function SettingsTab({hidden, toggleModule, defaults, setDefault, categor
             {nOvTimes.map((t,i)=>(
               <div key={i} style={{display:'flex',alignItems:'center',gap:2}}>
                 <input style={{...S.input,maxWidth:110}} type="time" value={t} onChange={e=>setNote({overdueTimes: nOvTimes.map((x,k)=>k===i?e.target.value:x)})} />
-                {nOvTimes.length>1 && <button className="icon-btn" title="убрать время" onClick={()=>setNote({overdueTimes: nOvTimes.filter((_,k)=>k!==i)})}>✕</button>}
+                {nOvTimes.length>1 && <button className="icon-btn" title="убрать время" onClick={()=>setNote({overdueTimes: nOvTimes.filter((_,k)=>k!==i)})}><Icon name="x" size={14}/></button>}
               </div>
             ))}
             {nOvTimes.length<OVERDUE_TIMES_MAX &&
@@ -223,18 +223,18 @@ export function SettingsTab({hidden, toggleModule, defaults, setDefault, categor
         )}
       </SettingsSection>
 
-      <SettingsSection title="Напоминания об активности" icon="👋">
+      <SettingsSection title="Напоминания об активности">
         <div style={{...S.dimSpan,marginLeft:0,marginBottom:10,display:'block'}}>
           Уведомления о том, что тебя давно нет или день не закрыт. Работают без интернета: расписание
           пересобирается при каждом заходе в приложение, поэтому зашёл — отсчёт начался заново, и лишнее
           уведомление не придёт.
         </div>
         {[
-          {k:'evening', off:'eveningOff', time:'eveningTime', label:'🌙 Вечером — «опиши день»',
+          {k:'evening', off:'eveningOff', time:'eveningTime', label:'Вечером — «опиши день»',
            hint:'Если у сегодняшнего дня нет ни оценки, ни заметки «что было». Заполнил — уведомление снимается.'},
-          {k:'morning', off:'morningOff', time:'morningTime', label:'☀️ Утром — «вчера ноль задач»',
+          {k:'morning', off:'morningOff', time:'morningTime', label:'Утром — «вчера ноль задач»',
            hint:'Если вчера задачи были и ни одна не закрыта.'},
-          {k:'streak', off:'streakOff', time:'streakTime', label:'🔥 «Серия под угрозой»',
+          {k:'streak', off:'streakOff', time:'streakTime', label:'«Серия под угрозой»',
            hint:'Если сегодня нет никакой активности, а серия достаточно длинная.'},
         ].map(row => { const on = !act[row.off]; return (
           <div key={row.k}>
@@ -281,7 +281,7 @@ export function SettingsTab({hidden, toggleModule, defaults, setDefault, categor
         )}
       </SettingsSection>
 
-      <SettingsSection title="Геймификация" icon="🎮">
+      <SettingsSection title="Геймификация">
         <div style={{...S.dimSpan,marginLeft:0,marginBottom:10,display:'block'}}>
           Насколько сильно наказывают «провалы» и сколько даёт комбо. Показ квестов, испытания недели и анти-тегов включается в разделе «Что показывать» ниже.
         </div>
@@ -304,7 +304,7 @@ export function SettingsTab({hidden, toggleModule, defaults, setDefault, categor
               {k:'impSurrender',label:'«Сдаться» привычкой: снять импульса',min:0, max:100},
             ].map(numRow)}
             <SettingsDivider/>
-            <SubHead>Награды здоровья ❤</SubHead>
+            <SubHead>Награды здоровья</SubHead>
             {[
               {k:'hpActive',   label:'Активный день: +здоровья',            min:0, max:50},
               {k:'hpPerfect',  label:'Все задачи дня закрыты: +здоровья',   min:0, max:50},
@@ -325,7 +325,7 @@ export function SettingsTab({hidden, toggleModule, defaults, setDefault, categor
         </div>
       </SettingsSection>
 
-      <SettingsSection title="Экран и персонализация" icon="🎨">
+      <SettingsSection title="Экран и персонализация">
         <SubHead>Нижняя навигация (телефон)</SubHead>
         <div style={{...S.dimSpan,marginLeft:0,marginBottom:10,display:'block'}}>Выбери до 4 вкладок для нижней панели. Остальные — в кнопке «Ещё». Выбрано: {mobileTabs.length}/4.</div>
         <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
@@ -391,7 +391,7 @@ export function SettingsTab({hidden, toggleModule, defaults, setDefault, categor
         </label>
       </SettingsSection>
 
-      <SettingsSection title="Что показывать (модули и графики)" icon="📊">
+      <SettingsSection title="Что показывать (модули и графики)">
         <div style={{...S.dimSpan,marginLeft:0,marginBottom:10,display:'block'}}>Выключенные модули и графики скрываются из приложения. Настройка синхронизируется между устройствами. Нажми на группу, чтобы раскрыть.</div>
         {MODULE_GROUPS.map((g)=>{
           const shown = g.items.filter(it=>!hidden[it.id]).length;
@@ -400,7 +400,7 @@ export function SettingsTab({hidden, toggleModule, defaults, setDefault, categor
             <div key={g.group} style={{border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden',marginBottom:8}}>
               <div className="row-hover" onClick={()=>toggleGroup(g.group)}
                 style={{display:'flex',alignItems:'center',gap:8,padding:'10px 12px',cursor:'pointer',userSelect:'none'}}>
-                <span style={{color:C.dim,fontSize:12,transition:'transform .2s ease',transform:open?'rotate(180deg)':'none'}}>▾</span>
+                <span style={{color:C.dim,display:'flex',transition:'transform .2s ease',transform:open?'rotate(180deg)':'none'}}><Icon name="chevD" size={15}/></span>
                 <div style={{flex:1,fontWeight:600,fontSize:13}}>{g.group}</div>
                 <span style={{fontSize:11,color: shown<g.items.length?C.amber:C.dim}}>{shown}/{g.items.length}</span>
               </div>
@@ -420,22 +420,22 @@ export function SettingsTab({hidden, toggleModule, defaults, setDefault, categor
         })}
       </SettingsSection>
 
-      <SettingsSection title="О приложении" icon="ℹ️">
+      <SettingsSection title="О приложении">
         <div style={{fontSize:14,fontWeight:700,marginBottom:4}}>Life OS</div>
         <div style={{...S.dimSpan,marginLeft:0,marginBottom:12,display:'block'}}>Персональный трекер жизни: планирование, привычки, цели, финансы и рефлексия в одном месте — с геймификацией, чтобы держать ритм.</div>
 
         <SubHead>Что умеет</SubHead>
         <div style={{fontSize:12.5,lineHeight:1.7,color:C.text}}>
-          <div>📅 <b>Сегодня</b> — задачи дня (сложность→XP), ежедневные и многодневные дела, теги, оценка дня, сон, заметка. Перенос незакрытых задач и шаблоны наборов.</div>
-          <div>🔁 <b>Привычки</b> — расписание, сгорающий стрик, заморозки, челленджи, напоминания, архив.</div>
-          <div>🎯 <b>Цели</b> — год/месяц/неделя/день; ползунок/чек-лист/счётчик; периодизация с архивом; привязка задач к нескольким целям.</div>
-          <div>🗂 <b>Дела</b> — эпики, статусы, важность/срочность, дедлайны, архив.</div>
-          <div>📝 <b>Заметки</b> — заметки и напоминания (с повтором), закрепление, чек-листы.</div>
-          <div>💰 <b>Финансы</b> — операции, счета, должники, планы по месяцам, бюджет-алерты с прогнозом, графики.</div>
-          <div>📊 <b>Статистика</b> — итоги за период, дисциплин-грид, тренды, план/факт, анализ факторов оценки дня.</div>
-          <div>🏅 <b>Геймификация</b> — XP и уровень (потолок {LEVEL_CAP}) с рангами, стрик, здоровье, ⚡импульс, 🔗комбо, 🎯задания дня, 🏆испытание недели, анти-теги, ~300 достижений.</div>
-          <div>🔔 <b>Уведомления</b> — привычки, напоминания, дедлайны, утренняя сводка (на телефоне).</div>
-          <div>☁ <b>Синхронизация и бэкап</b> — Firebase (вход Google), экспорт/импорт JSON и Excel, «Поделиться» на телефоне.</div>
+          <div><b>Сегодня</b> — задачи дня (сложность→XP), ежедневные и многодневные дела, теги, оценка дня, сон, заметка. Перенос незакрытых задач и шаблоны наборов.</div>
+          <div><b>Привычки</b> — расписание, сгорающий стрик, заморозки, челленджи, напоминания, архив.</div>
+          <div><b>Цели</b> — год/месяц/неделя/день; ползунок/чек-лист/счётчик; периодизация с архивом; привязка задач к нескольким целям.</div>
+          <div><b>Дела</b> — эпики, статусы, важность/срочность, дедлайны, архив.</div>
+          <div><b>Заметки</b> — заметки и напоминания (с повтором), закрепление, чек-листы.</div>
+          <div><b>Финансы</b> — операции, счета, должники, планы по месяцам, бюджет-алерты с прогнозом, графики.</div>
+          <div><b>Статистика</b> — итоги за период, дисциплин-грид, тренды, план/факт, анализ факторов оценки дня.</div>
+          <div><b>Геймификация</b> — XP и уровень (потолок {LEVEL_CAP}) с рангами, стрик, здоровье, импульс, комбо, задания дня, испытание недели, анти-теги, ~300 достижений.</div>
+          <div><b>Уведомления</b> — привычки, напоминания, дедлайны, утренняя сводка (на телефоне).</div>
+          <div><b>Синхронизация и бэкап</b> — Firebase (вход Google), экспорт/импорт JSON и Excel, «Поделиться» на телефоне.</div>
         </div>
 
         <SettingsDivider/>

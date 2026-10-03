@@ -7,6 +7,7 @@ import { hasReminderWhen, isOneShotReminder, notePreviewOf, noteTitleOf, reminde
 import { S } from '../lib/styles.js';
 import { C } from '../lib/theme.js';
 import { ConfirmIconBtn, Modal, Select } from '../ui/primitives.jsx';
+import { Icon } from '../ui/Icon.jsx';
 
 export function NotesTab({notes, addNote, updateNote, deleteNote}){
   const [filter,setFilter] = useState('Все');
@@ -35,26 +36,26 @@ export function NotesTab({notes, addNote, updateNote, deleteNote}){
           return (
             <div key={n.id} onClick={()=>setEditing(n)} style={{...S.panel,marginBottom:0,cursor:'pointer',borderLeft:`3px solid ${col}`,...(n.pinned?{borderTop:`1px solid ${C.amber}`,borderRight:`1px solid ${C.amber}`,borderBottom:`1px solid ${C.amber}`}:{}),display:'flex',flexDirection:'column',gap:6,minHeight:110}}>
               <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:6}}>
-                <span style={{fontSize:10,color:col,letterSpacing:'.05em'}}>{n.pinned?'📌 ':''}{n.type==='Напоминание'?'⏰ НАПОМИНАНИЕ':'ЗАМЕТКА'}</span>
+                <span style={{fontSize:10,color:col,letterSpacing:'.05em',display:'inline-flex',alignItems:'center',gap:4}}>{n.pinned && <Icon name="pin" size={11}/>}{n.type==='Напоминание'?<><Icon name="bell" size={11}/>НАПОМИНАНИЕ</>:'ЗАМЕТКА'}</span>
                 <div style={{display:'flex',alignItems:'center',gap:2}}>
                   {/* ✓ у одноразового напоминания: единственный способ прекратить повторы при просрочке
                       (у дел ту же роль играет статус «Выполнено»). Запись остаётся, замолкает только звонок. */}
                   {oneShot && <button className="icon-btn" title={remDone?'вернуть в активные':'отметить выполненным'}
                     style={remDone?{color:C.green}:undefined}
-                    onClick={e=>{ e.stopPropagation(); updateNote(n.id,{remindDone:!remDone}); }}>{remDone?'✓':'○'}</button>}
-                  <button className="icon-btn" title={n.pinned?'открепить':'закрепить'} style={n.pinned?{color:C.amber}:undefined} onClick={e=>{ e.stopPropagation(); updateNote(n.id,{pinned:!n.pinned}); }}>📌</button>
+                    onClick={e=>{ e.stopPropagation(); updateNote(n.id,{remindDone:!remDone}); }}>{remDone?<Icon name="check" size={15}/>:<span style={{width:13,height:13,borderRadius:'50%',border:'1.5px solid currentColor',display:'block'}}/>}</button>}
+                  <button className="icon-btn" title={n.pinned?'открепить':'закрепить'} style={n.pinned?{color:C.amber}:undefined} onClick={e=>{ e.stopPropagation(); updateNote(n.id,{pinned:!n.pinned}); }}><Icon name="pin" size={15}/></button>
                   <ConfirmIconBtn onConfirm={()=>deleteNote(n.id)} confirmLabel="удалить?" title="удалить запись" />
                 </div>
               </div>
               <div style={{fontSize:14,fontWeight:600,color:C.text}}>{noteTitleOf(n)}</div>
               {notePreviewOf(n) && <div style={{fontSize:12,color:C.dim,flex:1,overflow:'hidden',display:'-webkit-box',WebkitLineClamp:3,WebkitBoxOrient:'vertical'}}>{notePreviewOf(n)}</div>}
               {Array.isArray(n.checklist) && n.checklist.length>0 && (
-                <div style={{fontSize:11,color:n.checklist.every(i=>i.done)?C.green:C.dim}}>☑ {n.checklist.filter(i=>i.done).length}/{n.checklist.length}</div>
+                <div style={{fontSize:11,color:n.checklist.every(i=>i.done)?C.green:C.dim,display:'flex',alignItems:'center',gap:4}}><Icon name="check" size={12}/>{n.checklist.filter(i=>i.done).length}/{n.checklist.length}</div>
               )}
               {hasReminderWhen(n) ? (
                 <div style={{fontSize:11,color:remDone?C.green:overdue?C.red:soon?C.amber:C.dim,fontWeight:overdue?700:400,
                   ...(remDone?{textDecoration:'line-through',opacity:.75}:null)}}>
-                  ⏰ {reminderWhenLabel(n)}{remDone?' · выполнено':overdue?' · просрочено':''}
+                  <Icon name="bell" size={11} style={{verticalAlign:'-1px',marginRight:4}}/>{reminderWhenLabel(n)}{remDone?' · выполнено':overdue?' · просрочено':''}
                 </div>
               ) : <div style={{fontSize:10.5,color:C.dim}}>{n.updatedAt||n.createdAt}</div>}
             </div>
@@ -99,27 +100,27 @@ export function NoteEditor({note, onSave, onDelete, onClose}){
         {NOTE_TYPES.map(t=><div key={t} className="chip" onClick={()=>setType(t)}
           style={{background:type===t?NOTE_TYPE_COLOR[t]:C.panelAlt,color:type===t?'#0B0E13':C.dim,borderColor:type===t?NOTE_TYPE_COLOR[t]:C.border}}>{t}</div>)}
         <div className="chip" onClick={()=>setPinned(p=>!p)} title="закрепить наверху"
-          style={{background:pinned?C.amber:C.panelAlt,color:pinned?'#1A1200':C.dim,borderColor:pinned?C.amber:C.border,marginLeft:'auto'}}>📌 {pinned?'закреплено':'закрепить'}</div>
+          style={{background:pinned?C.amber:C.panelAlt,color:pinned?'#1A1200':C.dim,borderColor:pinned?C.amber:C.border,marginLeft:'auto',display:'inline-flex',alignItems:'center',gap:5}}><Icon name="pin" size={13}/>{pinned?'закреплено':'закрепить'}</div>
       </div>
       <input style={{...S.input,width:'100%',fontSize:16,fontWeight:600,marginBottom:10}} placeholder="Заголовок" value={title} onChange={e=>setTitle(e.target.value)} autoFocus />
       <textarea style={{...S.textarea,minHeight:160,fontSize:14,lineHeight:1.5}} placeholder="Текст заметки…" value={body} onChange={e=>setBody(e.target.value)} />
       <div style={{marginTop:12,padding:12,background:C.panelAlt,borderRadius:8,border:`1px solid ${C.border}`}}>
-        <div style={{fontSize:12,color:C.cyan,marginBottom:8}}>☑ Чек-лист{checklist.length?` · ${checklist.filter(i=>i.done).length}/${checklist.length}`:''}</div>
+        <div style={{fontSize:12,color:C.cyan,marginBottom:8}}>Чек-лист{checklist.length?` · ${checklist.filter(i=>i.done).length}/${checklist.length}`:''}</div>
         {checklist.map(i=>(
           <div key={i.id} className="row-hover" style={{display:'flex',alignItems:'center',gap:8,padding:'3px 0'}}>
             <input type="checkbox" checked={i.done} onChange={()=>toggleItem(i.id)} />
             <div style={{flex:1,minWidth:0,fontSize:13,overflowWrap:'anywhere',textDecoration:i.done?'line-through':'none',color:i.done?C.dim:C.text}}>{i.text}</div>
-            <button className="icon-btn" onClick={()=>delItem(i.id)}>✕</button>
+            <button className="icon-btn" title="убрать пункт" aria-label="Убрать пункт" onClick={()=>delItem(i.id)}><Icon name="x" size={14}/></button>
           </div>
         ))}
         <div style={{display:'flex',gap:6,marginTop:6}}>
           <input style={{...S.input,fontSize:12,padding:'5px 8px'}} placeholder="+ пункт" value={newItem} onChange={e=>setNewItem(e.target.value)} onKeyDown={e=>{ if(e.key==='Enter') addItem(); }} />
-          <button style={{...S.iconBtnAmber,width:30,height:30,fontSize:14}} title="добавить пункт" onClick={addItem}>✓</button>
+          <button style={{...S.iconBtnAmber,width:32,height:32}} title="добавить пункт" aria-label="Добавить пункт" onClick={addItem}><Icon name="plus" size={15}/></button>
         </div>
       </div>
       {type==='Напоминание' && (
         <div style={{marginTop:12,padding:12,background:C.panelAlt,borderRadius:8,border:`1px solid ${C.border}`}}>
-          <div style={{fontSize:12,color:C.amber,marginBottom:8}}>⏰ Когда напомнить</div>
+          <div style={{fontSize:12,color:C.amber,marginBottom:8}}>Когда напомнить</div>
           <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
             <Select small style={{minWidth:150}} value={repeat} onChange={setRepeat} options={NOTE_REPEATS.map(r=>({value:r.id,label:r.label}))} />
             {repeat==='none' && <input style={{...S.input,maxWidth:150}} type="date" value={remindDate} onChange={e=>setRemindDate(e.target.value)} onClick={openDatePicker} />}
