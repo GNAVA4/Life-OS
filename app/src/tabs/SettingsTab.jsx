@@ -48,7 +48,7 @@ export function SettingsTab({user=null, syncPaused=false, onLogin, onSyncCheck, 
   const hiddenCount = Object.values(hidden||{}).filter(Boolean).length;
   return (
     <SettingsNavCtx.Provider value={{open:screen, setOpen:setScreen}}>
-    <div style={{maxWidth:720}}>
+    <div style={{maxWidth:880}}>
       {!screen && (
         <SettingsGroup title="Аккаунт">
           {user

@@ -174,7 +174,7 @@ export function GoalsTab({registerAdd, goals, addGoal, setGoalProgress, addGoalS
 
   return (
     <div>
-      <div style={{maxWidth:760}}>
+      <div>
       {(() => { const pt = periodTitle(view, today); const list = goals[view]||[];
         const avg = list.length? Math.round(list.reduce((s,g)=>s+(g.progress||0),0)/list.length) : 0;
         const doneCount = list.filter(g=>(g.progress||0)>=100).length;
@@ -212,7 +212,7 @@ export function GoalsTab({registerAdd, goals, addGoal, setGoalProgress, addGoalS
           <button style={S.btnPrimary} onClick={()=>{ setScope(view); setAddOpen(true); }}><Icon name="plus" size={15}/>Цель на {SCOPE_ACC[view]}</button>
         </div>
       ) : (
-        <div style={{marginBottom:24}}>{(goals[view]||[]).map(g=>goalItem(view,g))}</div>
+        <div className="goals-cols" style={{marginBottom:24}}>{(goals[view]||[]).map(g=>goalItem(view,g))}</div>
       )}
       {/* Архив целей — внизу, свёрнут по умолчанию */}
       {archive.length>0 && (

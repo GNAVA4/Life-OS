@@ -67,8 +67,10 @@ input,textarea{transition:border-color .15s ease,background .15s ease;}
 @media (prefers-reduced-motion:reduce){*{animation-duration:.01ms !important;animation-iteration-count:1 !important;}}
 /* Заметки: колонки-«кирпичи» на широком экране (Э5, session 046) */
 .notes-cols{column-gap:12px;}
-@media (min-width:721px){ .notes-cols{columns:300px 3;} }
+@media (min-width:721px){ .notes-cols{columns:320px;} }
 /* «Сегодня» на широком экране: правая колонка «про день» — отдельной панелью (референс Д1, session 046) */
 @media (min-width:1001px){ .today-right{border-left:1px solid #26282C;padding-left:32px;margin-left:-1px;min-height:100%;} }
 /* Настройки: разделители между строками группы (Э9) */
 .settings-group > * + *{border-top:1px solid #26282C;}
+/* Цели на широком экране: карточки целей в колонки (без пустых групп — показан один период), s048 */
+@media (min-width:1001px){ .goals-cols{display:grid;grid-template-columns:repeat(auto-fill,minmax(420px,1fr));column-gap:40px;align-items:start;} }
