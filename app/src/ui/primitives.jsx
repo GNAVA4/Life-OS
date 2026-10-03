@@ -1,6 +1,7 @@
 // Переиспользуемые UI-примитивы (WebView-safe): Select, Modal, ConfirmIconBtn, разделы настроек, статус-сегмент.
 // Редизайн «Тихий» (session 043): иконки из ui/Icon вместо символов ✕ ▾, мягкие поверхности без рамок.
 import { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { C, tint } from '../lib/theme.js';
 import { S } from '../lib/styles.js';
 import { STUDY_STATUSES } from '../lib/constants.js';
@@ -54,8 +55,10 @@ export function Select({value, onChange, options, placeholder='—', style, disa
 export function Modal({onClose, children, title, compact}){
   useEffect(()=>{ const on=(e)=>{ if(e.key==='Escape') onClose(); }; document.addEventListener('keydown',on);
     return ()=>document.removeEventListener('keydown',on); }, [onClose]);
-  return (
-    <div className="anim-fade" style={S.modalOverlay} onClick={onClose}>
+  // Портал в body: вкладка рисуется в анимированном контейнере (.anim-tab), а transform создаёт свой слой —
+  // без портала окно оказывалось ПОД нижним меню (session 046).
+  return createPortal(
+    <div className="anim-fade modal-overlay" style={S.modalOverlay} onClick={onClose}>
       <div className={(compact?'':'modal-card-mobile ')+'anim-pop'} style={compact?{...S.modalCard, maxWidth:380}:S.modalCard} onClick={e=>e.stopPropagation()}>
         <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,marginBottom:14}}>
           <div style={{fontSize:17,fontWeight:700,letterSpacing:'-.01em'}}>{title}</div>
@@ -63,7 +66,7 @@ export function Modal({onClose, children, title, compact}){
         </div>
         {children}
       </div>
-    </div>
+    </div>, document.body
   );
 }
 

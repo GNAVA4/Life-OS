@@ -35,7 +35,9 @@ input.lo-range::-moz-range-progress{height:4px;border-radius:4px;background:var(
 input.lo-range::-moz-range-thumb{width:20px;height:20px;border:none;border-radius:50%;background:var(--text);box-shadow:0 0 0 4px rgba(227,162,76,.35);}
 .sel-pop::-webkit-scrollbar{width:8px;} .sel-pop::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px;}
 /* полноэкранная модалка на телефоне */
-@media (max-width:720px){ .modal-card-mobile{max-width:100% !important;max-height:100% !important;height:100%;border-radius:0 !important;} }
+/* Телефон: окно — нижний лист по высоте содержимого (референс О5), а не экран целиком. session 046 */
+@media (max-width:720px){ .modal-overlay{align-items:flex-end !important;padding:0 !important;}
+  .modal-card-mobile{max-width:100% !important;max-height:92vh !important;border-radius:18px 18px 0 0 !important;padding-bottom:calc(22px + env(safe-area-inset-bottom, 0px)) !important;} }
 
 /* ---------- анимации ---------- */
 @keyframes lo-fade{from{opacity:0}to{opacity:1}}
@@ -66,3 +68,5 @@ input,textarea{transition:border-color .15s ease,background .15s ease;}
 /* Заметки: колонки-«кирпичи» на широком экране (Э5, session 046) */
 .notes-cols{column-gap:12px;}
 @media (min-width:721px){ .notes-cols{columns:300px 3;} }
+/* «Сегодня» на широком экране: правая колонка «про день» — отдельной панелью (референс Д1, session 046) */
+@media (min-width:1001px){ .today-right{border-left:1px solid #26282C;padding-left:32px;margin-left:-1px;min-height:100%;} }

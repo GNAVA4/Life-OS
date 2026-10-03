@@ -5,6 +5,7 @@
 // «Что показывать», модуль today.ongoing — по просьбе пользователя).
 import { useEffect, useRef, useState } from 'react';
 import { addDays, daysBetween, openDatePicker, todayStr } from '../lib/dates.js';
+import { DIFF_XP } from '../lib/constants.js';
 import { maskMoney } from '../lib/format.js';
 import { WEEKLY_XP } from '../lib/gamify.js';
 import { goalLinksOf, goalMode } from '../lib/goals.js';
@@ -14,7 +15,7 @@ import { C, tint } from '../lib/theme.js';
 import { Check } from '../ui/Check.jsx';
 import { GoalLinkPicker } from '../ui/GoalLinkPicker.jsx';
 import { Icon } from '../ui/Icon.jsx';
-import { ConfirmIconBtn } from '../ui/primitives.jsx';
+import { ConfirmIconBtn, Modal } from '../ui/primitives.jsx';
 
 const DIFFS = [{v:'easy',l:'Лёгкая',s:'Л'},{v:'medium',l:'Средняя',s:'С'},{v:'hard',l:'Тяжёлая',s:'Т'}];
 const diffShort = (d) => (DIFFS.find(x=>x.v===(d||'medium'))||DIFFS[1]).s;
@@ -50,7 +51,7 @@ export function TodayTab({entry, selectedDate, setSelectedDate, addTask, toggleT
   ongoing=[], addOngoing, finishOngoing, deleteOngoing, bills, maskOps=false,
   taskTemplates=[], saveTaskTemplate, applyTaskTemplate, deleteTaskTemplate, carryOverTasks, prevUndoneCount=0,
   isToday=true, quests=[], weekly=null, combo={streak:0,mult:1}, coachInsights=[], collapsedUI={}, onToggleUI,
-  days={}, streak=0, health=100, level=1, into=0, needed=100, levelMax=false}){
+  days={}, streak=0, health=100, level=1, into=0, needed=100, levelMax=false, isMobile=true}){
   const today = todayStr();
   // --- новая задача ---
   const [newTaskText,setNewTaskText] = useState('');
@@ -60,9 +61,22 @@ export function TodayTab({entry, selectedDate, setSelectedDate, addTask, toggleT
   const [tplOpen,setTplOpen] = useState(false);
   const [tplName,setTplName] = useState('');
   const taskInputRef = useRef(null);
-  const composing = newTaskText.length>0 || linkOpen;
+  const [sheet,setSheet] = useState(null); // null | 'task' | 'goal' | 'tpl' — лист «Новая задача» (референс О5)
+  const openSheet = (mode) => { setSheet(mode); setLinkOpen(mode==='goal'); setTplOpen(mode==='tpl'); };
+  const closeSheet = () => { setSheet(null); setNewTaskText(''); setTaskLinks([]); setLinkOpen(false); setTplOpen(false); };
   const submitTask = () => { if(!newTaskText.trim()) return; addTask(newTaskText.trim(), difficulty, taskLinks);
-    setNewTaskText(''); setTaskLinks([]); setLinkOpen(false); };
+    setNewTaskText(''); setTaskLinks([]); setLinkOpen(false); setSheet(null); };
+  // клавиша N на широком экране — «Добавить задачу» (референс Д1); не срабатывает, пока печатаешь в поле
+  useEffect(()=>{ if(isMobile) return;
+    const onKey = (e) => { const t=e.target; const typing = t && (t.tagName==='INPUT'||t.tagName==='TEXTAREA'||t.isContentEditable);
+      if(!typing && !e.ctrlKey && !e.metaKey && !e.altKey && (e.key==='n'||e.key==='N'||e.key==='т'||e.key==='Т')){ e.preventDefault(); openSheet('task'); } };
+    window.addEventListener('keydown', onKey); return ()=>window.removeEventListener('keydown', onKey); }, [isMobile]);
+  // правка задачи по долгому нажатию на строку (референс О6) или по нажатию на букву сложности
+  const pressRef = useRef(null);
+  const pressStart = (t) => { clearTimeout(pressRef.current); pressRef.current = setTimeout(()=>{ pressRef.current='fired'; startEdit(t);
+    // «fired» гасит только клик от того же отпускания пальца; дальше флаг не должен съедать нажатия
+    setTimeout(()=>{ if(pressRef.current==='fired') pressRef.current=null; }, 400); }, 500); };
+  const pressEnd = () => { if(pressRef.current!=='fired') clearTimeout(pressRef.current); };
   // --- правка задачи (название/сложность/привязки; у выполненной — перенос последствий в App.editTask) ---
   const [editId,setEditId] = useState(null);
   const [editText,setEditText] = useState('');
@@ -185,16 +199,30 @@ export function TodayTab({entry, selectedDate, setSelectedDate, addTask, toggleT
 
       {/* ---- задачи ---- */}
       <div style={S.panel}>
-        <SectionHead title={<>Задачи{entry.tasks.length?<span style={S.dimSpan}>{doneXpHint}</span>:null}</>}
-          right={<button style={{...linkBtn,color:tplOpen?C.amber:C.dim}} onClick={()=>setTplOpen(o=>!o)}><Icon name="template" size={14}/>Шаблоны</button>} />
+        <SectionHead title={<>Задачи{entry.tasks.length?<span style={S.dimSpan}>{doneXpHint}</span>:null}</>} />
 
+        {sheet && (
+          <Modal onClose={closeSheet} title="Новая задача">
+          <div style={{display:'flex',flexDirection:'column',gap:14}}>
+            <input ref={taskInputRef} autoFocus style={S.input} placeholder="Что сделать" value={newTaskText} aria-label="Новая задача"
+              onChange={e=>setNewTaskText(e.target.value)} onKeyDown={e=>{ if(e.key==='Enter') submitTask(); }} />
+            <div style={{...S.seg,display:'flex'}}>
+              {DIFFS.map(d=><button key={d.v} onClick={()=>setDifficulty(d.v)} style={{...S.segBtn,flex:1,padding:'8px 4px',background:difficulty===d.v?C.panelAlt:'transparent',color:difficulty===d.v?C.text:C.dim}}>{d.l} · {DIFF_XP[d.v]}</button>)}
+            </div>
+            <div style={{display:'flex',flexDirection:'column',gap:6}}>
+              <button style={{...linkBtn,fontFamily:'inherit',color:linkOpen||taskLinks.length?C.amber:C.dim}} onClick={()=>setLinkOpen(o=>!o)}>
+                <Icon name="goals" size={14}/>{taskLinks.length?`Цели · ${taskLinks.length}`:'Привязать к цели'}</button>
+              {(linkOpen || taskLinks.length>0) && <GoalLinkPicker goals={goals} links={taskLinks} onLinks={setTaskLinks} />}
+            </div>
+            <button style={{...S.btnPrimary,padding:'11px 14px',opacity:newTaskText.trim()?1:.5}} onClick={submitTask}>Добавить</button>
+            <button style={{...linkBtn,fontFamily:'inherit',color:tplOpen?C.amber:C.dim}} onClick={()=>setTplOpen(o=>!o)}><Icon name="template" size={14}/>Шаблоны{taskTemplates.length?` · ${taskTemplates.length}`:''}</button>
         {tplOpen && (
-          <div style={{...S.plate,margin:'6px 0 10px',display:'flex',flexDirection:'column',gap:10}}>
+          <div style={{display:'flex',flexDirection:'column',gap:10}}>
             {taskTemplates.length>0 ? (
               <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
                 {taskTemplates.map(tpl=>(
                   <div key={tpl.id} className="chip" style={{background:C.panelAlt,color:C.text,maxWidth:'100%',paddingRight:4}}>
-                    <span style={{cursor:'pointer',minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={`Добавить ${tpl.tasks.length} задач`} onClick={()=>applyTaskTemplate(tpl.id)}>{tpl.name} · {tpl.tasks.length}</span>
+                    <span style={{cursor:'pointer',minWidth:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}} title={`Добавить ${tpl.tasks.length} задач`} onClick={()=>{ applyTaskTemplate(tpl.id); closeSheet(); }}>{tpl.name} · {tpl.tasks.length}</span>
                     <ConfirmIconBtn onConfirm={()=>deleteTaskTemplate(tpl.id)} title="удалить шаблон" confirmLabel="удалить?" />
                   </div>
                 ))}
@@ -208,6 +236,9 @@ export function TodayTab({entry, selectedDate, setSelectedDate, addTask, toggleT
             </div>
             {!entry.tasks.length && <div style={{fontSize:12,color:C.dim}}>В этом дне нет задач — сохранять нечего.</div>}
           </div>
+        )}
+          </div>
+          </Modal>
         )}
 
         <div>
@@ -228,37 +259,37 @@ export function TodayTab({entry, selectedDate, setSelectedDate, addTask, toggleT
               </div>
             </div>
           ) : (
-            <div key={t.id} style={S.taskRow}>
-              <Check checked={t.done} onChange={()=>toggleTask(t.id)} label={t.text} />
+            <div key={t.id} style={{...S.taskRow,userSelect:'none',WebkitUserSelect:'none'}} title="долгое нажатие — изменить"
+              onPointerDown={()=>editTask && pressStart(t)} onPointerUp={pressEnd} onPointerLeave={pressEnd} onPointerCancel={pressEnd}
+              onContextMenu={e=>{ if(editTask){ e.preventDefault(); startEdit(t); } }}>
+              <Check checked={t.done} onChange={()=>{ if(pressRef.current==='fired'){ pressRef.current=null; return; } toggleTask(t.id); }} label={t.text} />
               <div style={{flex:1,minWidth:0,display:'flex',flexDirection:'column',gap:2}}>
                 <span style={{overflowWrap:'anywhere',textDecoration:t.done?'line-through':'none',textDecorationColor:C.faint,color:t.done?C.dim:C.text,fontSize:14.5}}>{t.text}</span>
                 {goalLinksOf(t).map((l,i)=>{ const lab=linkLabel(goals,l); return lab && (
                   <span key={i} style={{fontSize:11.5,color:t.done?C.dim:C.amber,display:'flex',gap:4,alignItems:'center',minWidth:0}}>
                     <Icon name="goals" size={12}/><span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{lab}</span></span>); })}
               </div>
-              <span title="сложность" style={{fontSize:10.5,fontWeight:600,color:C.faint,border:`1px solid ${C.border}`,borderRadius:6,padding:'1px 5px'}}>{diffShort(t.difficulty)}</span>
-              {editTask && <button className="icon-btn" title="изменить задачу" aria-label="Изменить задачу" onClick={()=>startEdit(t)}><Icon name="edit" size={15}/></button>}
+              <button title="сложность · нажми, чтобы изменить задачу" aria-label="Изменить задачу" onClick={()=>editTask && startEdit(t)}
+                style={{fontSize:10.5,fontWeight:600,color:C.faint,background:'none',border:`1px solid ${C.border}`,borderRadius:6,padding:'1px 5px',cursor:'pointer',fontFamily:'inherit'}}>{diffShort(t.difficulty)}</button>
             </div>
           ))}
           {entry.tasks.length===0 && <div style={S.emptyState}>Задач на этот день нет.</div>}
         </div>
 
-        {/* быстрое добавление: Enter — сразу добавить; при наборе появляются сложность и цели */}
-        <div style={{display:'flex',flexDirection:'column',gap:8,marginTop:10}}>
-          <div style={{display:'flex',gap:8,alignItems:'center'}}>
-            <input ref={taskInputRef} style={S.input} placeholder="Новая задача" value={newTaskText} aria-label="Новая задача"
-              onChange={e=>setNewTaskText(e.target.value)} onKeyDown={e=>{ if(e.key==='Enter') submitTask(); }} />
-            <button style={{...S.iconBtnAmber,opacity:newTaskText.trim()?1:.45}} aria-label="Добавить задачу" onClick={submitTask}><Icon name="plus" size={18}/></button>
+        {/* добавление (референс Э1/Д1): на телефоне три кнопки, на широком экране строка с клавишей N */}
+        {isMobile ? (
+          <div style={{display:'flex',gap:8,marginTop:12,flexWrap:'wrap'}}>
+            <button style={S.btnPrimary} aria-label="Добавить задачу" onClick={()=>openSheet('task')}><Icon name="plus" size={15}/>Задача</button>
+            <button style={S.btnGhost} onClick={()=>openSheet('goal')}><Icon name="goals" size={14}/>С целью</button>
+            <button style={S.btnGhost} onClick={()=>openSheet('tpl')}><Icon name="template" size={14}/>Шаблон</button>
           </div>
-          <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
-            <div style={{...S.seg}}>
-              {DIFFS.map(d=><button key={d.v} onClick={()=>setDifficulty(d.v)} style={{...S.segBtn,background:difficulty===d.v?C.panelAlt:'transparent',color:difficulty===d.v?C.text:C.dim}}>{d.l}</button>)}
-            </div>
-            <button style={{...S.btnGhost,color:linkOpen||taskLinks.length?C.amber:C.text}} onClick={()=>{ setLinkOpen(o=>!o); taskInputRef.current && taskInputRef.current.focus(); }}>
-              <Icon name="goals" size={14}/>{taskLinks.length?`Цели · ${taskLinks.length}`:'С целью'}</button>
-          </div>
-          {(linkOpen || composing && taskLinks.length>0) && <GoalLinkPicker goals={goals} links={taskLinks} onLinks={setTaskLinks} />}
-        </div>
+        ) : (
+          <button aria-label="Добавить задачу" onClick={()=>openSheet('task')}
+            style={{display:'flex',alignItems:'center',gap:10,width:'100%',background:'none',border:'none',padding:'12px 0',color:C.dim,cursor:'pointer',fontFamily:'inherit',fontSize:14,textAlign:'left'}}>
+            <Icon name="plus" size={18}/><span style={{flex:1}}>Добавить задачу</span>
+            <span style={{fontSize:12,color:C.faint,border:`1px solid ${C.border}`,borderRadius:5,padding:'0 6px'}}>N</span>
+          </button>
+        )}
       </div>
 
       {/* ---- ежедневные ---- */}
@@ -446,5 +477,5 @@ export function TodayTab({entry, selectedDate, setSelectedDate, addTask, toggleT
     </div>
   );
 
-  return <div className="grid2" style={S.grid2}>{left}{right}</div>;
+  return <div className="grid2" style={S.grid2}>{left}<div className="today-right">{right}</div></div>;
 }

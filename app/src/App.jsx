@@ -1172,7 +1172,7 @@ function App(){
       )}
 
       <div key={tab} className="anim-tab">
-      {tab==='today' && <TodayTab entry={entry} selectedDate={selectedDate} setSelectedDate={setSelectedDate}
+      {tab==='today' && <TodayTab isMobile={isMobile} entry={entry} selectedDate={selectedDate} setSelectedDate={setSelectedDate}
         addTask={addTask} toggleTask={toggleTask} deleteTask={deleteTask} editTask={editTask} updateEntry={updateEntry} goals={goals}
         maskOps={finMask.ops}
         tags={tags} toggleTagOnDay={toggleTagOnDay} addTagGlobal={addTagGlobal} removeTagGlobal={removeTagGlobal}
