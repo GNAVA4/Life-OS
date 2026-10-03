@@ -1104,7 +1104,8 @@ function App(){
       {!isMobile && (
         <DesktopSidebar tabIds={NAV.filter(n => n.id!=='settings' && (n.id==='today' || vis('tab.'+n.id))).map(n => n.id)}
           tab={tab} onPick={setTab} level={level} into={into} needed={needed} levelMax={levelMax}
-          health={meta.health ?? 100} onProfile={()=>setProfileOpen(true)} />
+          health={meta.health ?? 100} onProfile={()=>setProfileOpen(true)}
+          user={user} syncPaused={!!syncAsk} onSync={()=> user ? openSyncCheck() : login().catch(err=>setImportMsg('Вход не удался: '+err.message))} />
       )}
       <div style={isMobile ? undefined : S.deskMain}>
       {/* Шапка (редизайн session 043): на «Сегодня» — день недели и дата, на остальных — название раздела.
@@ -1207,7 +1208,7 @@ function App(){
       {tab==='stats' && <StatsTab days={days} finance={finance} budgets={budgets} incomePlans={incomePlans} habits={habits} finMask={finMask} study={study}
         studyArchive={studyArchive} habitsArchive={habitsArchive} unlocked={achievements.unlocked||{}} healthLog={meta.healthLog||{}} />}
       {tab==='achievements' && <AchievementsTab stats={achStats} unlocked={achievements.unlocked||{}} />}
-      {tab==='settings' && <SettingsTab hidden={settings.hidden||{}} toggleModule={toggleModule}
+      {tab==='settings' && <SettingsTab user={user} syncPaused={!!syncAsk} onLogin={()=>login().catch(err=>setImportMsg('Вход не удался: '+err.message))} onSyncCheck={openSyncCheck} onProfile={()=>setProfileOpen(true)} hidden={settings.hidden||{}} toggleModule={toggleModule}
         defaults={settings.defaults||{}} setDefault={setDefault} categories={categories} accounts={finance.accounts}
         mobileTabs={mobileTabIds} toggleMobileTab={toggleMobileTab}
         soundOff={!!settings.soundOff} notifOff={!!settings.notifOff}

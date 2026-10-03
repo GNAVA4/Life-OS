@@ -1,6 +1,6 @@
 // Переиспользуемые UI-примитивы (WebView-safe): Select, Modal, ConfirmIconBtn, разделы настроек, статус-сегмент.
 // Редизайн «Тихий» (session 043): иконки из ui/Icon вместо символов ✕ ▾, мягкие поверхности без рамок.
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, createContext, useContext } from 'react';
 import { createPortal } from 'react-dom';
 import { C, tint } from '../lib/theme.js';
 import { S } from '../lib/styles.js';
@@ -81,9 +81,60 @@ export function ConfirmIconBtn({onConfirm, title='удалить', icon, confirm
   return <button className="icon-btn" title={title} aria-label={title} onClick={(e)=>{ e.stopPropagation(); setArmed(true); }}>{ic}</button>;
 }
 
-// Сворачиваемый раздел настроек (сгруппированный список, Э9) + под-заголовок + разделитель.
-export function SettingsSection({title, defaultOpen=false, children}){
-  const [open,setOpen] = useState(defaultOpen);
+// Настройки (референс Э9, session 046): сгруппированный список; раздел открывается ОТДЕЛЬНЫМ экраном с «‹ Настройки».
+// SettingsNavCtx = {open, setOpen}: open — название открытого раздела или null. Без контекста раздел ведёт себя по-старому.
+export const SettingsNavCtx = createContext(null);
+const settingsRow = {display:'flex',alignItems:'center',gap:12,width:'100%',minHeight:50,padding:'12px 16px',background:'none',border:'none',
+  color:C.text,fontFamily:'inherit',fontSize:14.5,textAlign:'left',cursor:'pointer'};
+export function SettingsGroup({title, children}){
+  const nav = useContext(SettingsNavCtx);
+  if(nav && nav.open) return <>{children}</>;   // открыт подэкран — рамки групп не рисуем, рисуется только он
+  return (
+    <div style={{marginBottom:20}}>
+      {title && <div style={{fontSize:11.5,fontWeight:600,color:C.dim,letterSpacing:'.05em',textTransform:'uppercase',margin:'0 4px 8px'}}>{title}</div>}
+      <div className="settings-group" style={{background:C.panel,borderRadius:14,overflow:'hidden'}}>{children}</div>
+    </div>
+  );
+}
+// Строка группы: значок/подпись/значение справа; onClick — действие или переход.
+export function SettingsRow({icon, iconColor, label, sub, meta, onClick, chevron=true, children}){
+  const inner = (<>
+    {icon && <span style={{color:iconColor||C.dim,display:'flex',flex:'none'}}><Icon name={icon} size={18}/></span>}
+    <span style={{flex:1,minWidth:0,display:'flex',flexDirection:'column',gap:2}}>
+      <span style={{overflowWrap:'anywhere'}}>{label}</span>
+      {sub && <span style={{fontSize:12.5,color:C.dim}}>{sub}</span>}
+    </span>
+    {meta!=null && <span style={{fontSize:13,color:C.dim,flex:'none'}}>{meta}</span>}
+    {children}
+    {onClick && chevron && <span style={{color:C.faint,display:'flex',flex:'none'}}><Icon name="chevR" size={16}/></span>}
+  </>);
+  return onClick ? <button style={settingsRow} onClick={onClick}>{inner}</button> : <div style={{...settingsRow,cursor:'default'}}>{inner}</div>;
+}
+// Переключатель-«таблетка» (Э9).
+export function Toggle({on, onChange, label}){
+  return (
+    <button type="button" role="switch" aria-checked={!!on} aria-label={label} onClick={(e)=>{ e.stopPropagation(); onChange(!on); }}
+      style={{width:42,height:24,borderRadius:12,border:'none',padding:2,cursor:'pointer',flex:'none',background:on?C.amber:'#3A3D43',display:'flex',justifyContent:on?'flex-end':'flex-start',transition:'background .15s'}}>
+      <span style={{width:20,height:20,borderRadius:'50%',background:on?'#17130C':'#8A8F98',transition:'transform .15s'}}/>
+    </button>
+  );
+}
+export function SettingsSection({title, meta, defaultOpen=false, children}){
+  const nav = useContext(SettingsNavCtx);
+  const [openLocal,setOpenLocal] = useState(defaultOpen);
+  if(nav){
+    if(nav.open===title) return (
+      <div className="anim-fade">
+        <button onClick={()=>nav.setOpen(null)} style={{display:'inline-flex',alignItems:'center',gap:4,background:'none',border:'none',color:C.amber,fontFamily:'inherit',fontSize:14,cursor:'pointer',padding:'2px 0',marginBottom:10}}>
+          <Icon name="chevL" size={16}/>Настройки</button>
+        <div style={{fontSize:20,fontWeight:700,letterSpacing:'-.01em',marginBottom:16}}>{title}</div>
+        <div>{children}</div>
+      </div>
+    );
+    if(nav.open) return null;
+    return <SettingsRow label={title} meta={meta} onClick={()=>nav.setOpen(title)} />;
+  }
+  const open = openLocal, setOpen = setOpenLocal;
   return (
     <div style={{background:C.panel,borderRadius:12,padding:'0 14px',marginBottom:8}}>
       <div onClick={()=>setOpen(o=>!o)} style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,cursor:'pointer',userSelect:'none',padding:'14px 0'}}>

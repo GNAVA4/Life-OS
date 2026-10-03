@@ -70,3 +70,5 @@ input,textarea{transition:border-color .15s ease,background .15s ease;}
 @media (min-width:721px){ .notes-cols{columns:300px 3;} }
 /* «Сегодня» на широком экране: правая колонка «про день» — отдельной панелью (референс Д1, session 046) */
 @media (min-width:1001px){ .today-right{border-left:1px solid #26282C;padding-left:32px;margin-left:-1px;min-height:100%;} }
+/* Настройки: разделители между строками группы (Э9) */
+.settings-group > * + *{border-top:1px solid #26282C;}

@@ -11,7 +11,7 @@ const item = (active) => ({
   background: active ? tint(C.amber, .14) : 'transparent', color: active ? C.amber : C.dim,
 });
 
-export function DesktopSidebar({ tabIds, tab, onPick, level, into, needed, levelMax, health, onProfile }) {
+export function DesktopSidebar({ tabIds, tab, onPick, level, into, needed, levelMax, health, onProfile, user = null, syncPaused = false, onSync }) {
   const pct = levelMax ? 100 : Math.max(0, Math.min(100, needed ? into / needed * 100 : 0));
   return (
     <aside style={{ position: 'sticky', top: 0, height: '100vh', width: 216, flex: 'none', boxSizing: 'border-box',
@@ -35,7 +35,12 @@ export function DesktopSidebar({ tabIds, tab, onPick, level, into, needed, level
         </span>
         <span style={{ fontSize: 11.5, color: C.dim, fontVariantNumeric: 'tabular-nums' }}>{levelMax ? 'максимальный уровень' : `${into} / ${needed} XP`}</span>
       </button>
-      <button className="tab-btn" style={{ ...item(tab === 'settings'), marginTop: 6 }} onClick={() => onPick('settings')} aria-current={tab === 'settings' ? 'page' : undefined}>
+      {/* статус синхронизации всегда на виду (референс Д1); нажатие — сверка или вход */}
+      <button onClick={onSync} style={{ ...item(false), marginTop: 8, fontSize: 12.5, padding: '6px 12px', color: !user ? C.dim : syncPaused ? C.amber : C.dim }}>
+        <span style={{ display: 'flex', color: !user ? C.faint : syncPaused ? C.amber : C.green }}><Icon name={syncPaused ? 'warn' : 'cloud'} size={15} /></span>
+        {!user ? 'Без облака — войти' : syncPaused ? 'Синхронизация на паузе' : 'Синхронизировано'}
+      </button>
+      <button className="tab-btn" style={{ ...item(tab === 'settings'), marginTop: 2 }} onClick={() => onPick('settings')} aria-current={tab === 'settings' ? 'page' : undefined}>
         <Icon name="settings" size={18} />Настройки
       </button>
     </aside>

@@ -1,14 +1,14 @@
 // Вкладка/раздел: SettingsTab (вынесено из App.jsx, session: decompose phase 3)
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ACTIVITY_DEFAULT, ALL_MOBILE_TAB_IDS, AWAY_DAYS_MAX, BUILD_ID, GOAL_PACE_DEFAULT, NOTE_LEAD_DAYS_DEFAULT, OVERDUE_TIMES_DEFAULT, OVERDUE_TIMES_MAX, TAB_META } from '../lib/constants.js';
 import { GAMIFY_DEFAULT, LEVEL_CAP, WEEKLY_XP } from '../lib/gamify.js';
 import { MODULE_GROUPS } from '../lib/storage.js';
 import { S } from '../lib/styles.js';
 import { C, tint } from '../lib/theme.js';
-import { Select, SettingsDivider, SettingsSection, SubHead } from '../ui/primitives.jsx';
+import { Select, SettingsDivider, SettingsGroup, SettingsNavCtx, SettingsRow, SettingsSection, SubHead, Toggle } from '../ui/primitives.jsx';
 import { Icon } from '../ui/Icon.jsx';
 
-export function SettingsTab({hidden, toggleModule, defaults, setDefault, categories, accounts, mobileTabs, toggleMobileTab, soundOff, notifOff, maskNetWorth, maskDebts, maskOps, maskAllFinance, morningCfg, setSettingFlag, gamify=GAMIFY_DEFAULT, setGamify, requestNotifs, testNotif, showNotifDiag, notifMsg, deadlineCfg, showGoalDeadline=false, billsNotif=null, noteCfg=null, goalPaceCfg=null, activity=null}){
+export function SettingsTab({user=null, syncPaused=false, onLogin, onSyncCheck, onProfile, hidden, toggleModule, defaults, setDefault, categories, accounts, mobileTabs, toggleMobileTab, soundOff, notifOff, maskNetWorth, maskDebts, maskOps, maskAllFinance, morningCfg, setSettingFlag, gamify=GAMIFY_DEFAULT, setGamify, requestNotifs, testNotif, showNotifDiag, notifMsg, deadlineCfg, showGoalDeadline=false, billsNotif=null, noteCfg=null, goalPaceCfg=null, activity=null}){
   // ⏰ Напоминания в заметках: «за N дней» + просрочка (session: reminders-activity-pace)
   const nlDays = (noteCfg && noteCfg.days && noteCfg.days.length) ? noteCfg.days : NOTE_LEAD_DAYS_DEFAULT;
   const nOvOn = !(noteCfg && noteCfg.overdueOff);
@@ -42,8 +42,39 @@ export function SettingsTab({hidden, toggleModule, defaults, setDefault, categor
   // «Что показывать» — раздел большой, поэтому каждая группа модулей сворачивается (по умолчанию свёрнута)
   const [openGroups,setOpenGroups] = useState({});
   const toggleGroup = (name) => setOpenGroups(s=>({...s,[name]:!s[name]}));
+  // какой раздел открыт отдельным экраном (Э9); при переходе — наверх страницы
+  const [screen,setScreen] = useState(null);
+  useEffect(()=>{ try{ window.scrollTo(0,0); }catch(e){ /* нет окна — не важно */ } }, [screen]);
+  const hiddenCount = Object.values(hidden||{}).filter(Boolean).length;
   return (
-    <div>
+    <SettingsNavCtx.Provider value={{open:screen, setOpen:setScreen}}>
+    <div style={{maxWidth:720}}>
+      {!screen && (
+        <SettingsGroup title="Аккаунт">
+          {user
+            ? <SettingsRow icon={syncPaused?'warn':'cloud'} iconColor={syncPaused?C.amber:C.green} label={user.email||'Аккаунт Google'}
+                sub={syncPaused?'Синхронизация на паузе — выбрать данные':'Синхронизация включена'} onClick={onSyncCheck} />
+            : <SettingsRow icon="cloud" label="Войти через Google" sub="Данные только на этом устройстве" onClick={onLogin} />}
+          <SettingsRow icon="user" label="Профиль" sub="Ранг, уровень, показатели, бэкап" onClick={onProfile} />
+        </SettingsGroup>
+      )}
+      {!screen && (
+        <SettingsGroup title="Уведомления">
+          <SettingsRow label="Утренняя сводка" meta={msOn?msTime:null} chevron={false}>
+            <Toggle label="Утренняя сводка" on={msOn} onChange={v=> v ? setSettingFlag('morningSummary', {off:false, time:msTime}) : setSettingFlag('morningSummary', {...(morningCfg||{}), off:true})} />
+          </SettingsRow>
+          <SettingsRow label="Привычки и напоминания" chevron={false}>
+            <Toggle label="Привычки и напоминания" on={!notifOff} onChange={v=>setSettingFlag('notifOff', v?false:true)} />
+          </SettingsRow>
+          <SettingsRow label="Дедлайны и просрочка" chevron={false}>
+            <Toggle label="Дедлайны и просрочка" on={dlOn} onChange={v=>setDl({off:!v})} />
+          </SettingsRow>
+          <SettingsRow label="«Загляни в Life OS»" chevron={false}>
+            <Toggle label="Загляни в Life OS" on={!act.awayOff} onChange={v=>setAct({awayOff:!v})} />
+          </SettingsRow>
+        </SettingsGroup>
+      )}
+      <SettingsGroup title={screen?null:'Подробно'}>
       <SettingsSection title="Уведомления и звук">
         <label className="row-hover" style={{...S.taskRow, cursor:'pointer'}}>
           <input type="checkbox" checked={!soundOff} onChange={()=>setSettingFlag('soundOff', !soundOff?true:false)} />
@@ -222,7 +253,6 @@ export function SettingsTab({hidden, toggleModule, defaults, setDefault, categor
           </div>
         )}
       </SettingsSection>
-
       <SettingsSection title="Напоминания об активности">
         <div style={{...S.dimSpan,marginLeft:0,marginBottom:10,display:'block'}}>
           Уведомления о том, что тебя давно нет или день не закрыт. Работают без интернета: расписание
@@ -280,7 +310,9 @@ export function SettingsTab({hidden, toggleModule, defaults, setDefault, categor
           </div>
         )}
       </SettingsSection>
+      </SettingsGroup>
 
+      <SettingsGroup title={screen?null:'Приложение'}>
       <SettingsSection title="Геймификация">
         <div style={{...S.dimSpan,marginLeft:0,marginBottom:10,display:'block'}}>
           Насколько сильно наказывают «провалы» и сколько даёт комбо. Показ квестов, испытания недели и анти-тегов включается в разделе «Что показывать» ниже.
@@ -324,7 +356,6 @@ export function SettingsTab({hidden, toggleModule, defaults, setDefault, categor
           <button style={S.exportBtn} onClick={()=>setGamify && setGamify({...GAMIFY_DEFAULT})}>Сбросить к значениям по умолчанию</button>
         </div>
       </SettingsSection>
-
       <SettingsSection title="Экран и персонализация">
         <SubHead>Нижняя навигация (телефон)</SubHead>
         <div style={{...S.dimSpan,marginLeft:0,marginBottom:10,display:'block'}}>Выбери до 4 вкладок для нижней панели. Остальные — в кнопке «Ещё». Выбрано: {mobileTabs.length}/4.</div>
@@ -390,8 +421,7 @@ export function SettingsTab({hidden, toggleModule, defaults, setDefault, categor
           <span style={{fontSize:11,color:C.dim}}>{(maskAllFinance||maskOps)?'скрыто':'показано'}</span>
         </label>
       </SettingsSection>
-
-      <SettingsSection title="Что показывать (модули и графики)">
+      <SettingsSection title="Что показывать" meta={hiddenCount?`${hiddenCount} скрыто`:null}>
         <div style={{...S.dimSpan,marginLeft:0,marginBottom:10,display:'block'}}>Выключенные модули и графики скрываются из приложения. Настройка синхронизируется между устройствами. Нажми на группу, чтобы раскрыть.</div>
         {MODULE_GROUPS.map((g)=>{
           const shown = g.items.filter(it=>!hidden[it.id]).length;
@@ -419,8 +449,7 @@ export function SettingsTab({hidden, toggleModule, defaults, setDefault, categor
           );
         })}
       </SettingsSection>
-
-      <SettingsSection title="О приложении">
+      <SettingsSection title="О приложении" meta={BUILD_ID}>
         <div style={{fontSize:14,fontWeight:700,marginBottom:4}}>Life OS</div>
         <div style={{...S.dimSpan,marginLeft:0,marginBottom:12,display:'block'}}>Персональный трекер жизни: планирование, привычки, цели, финансы и рефлексия в одном месте — с геймификацией, чтобы держать ритм.</div>
 
@@ -448,6 +477,8 @@ export function SettingsTab({hidden, toggleModule, defaults, setDefault, categor
         <div style={{fontSize:12,color:C.dim}}>Версия сборки: <b style={{color:C.text}}>{BUILD_ID}</b></div>
         <div style={{fontSize:11,color:C.dim,marginTop:4}}>Данные хранятся на устройстве (localStorage) и в облаке при входе. Полный бэкап — экспорт JSON.</div>
       </SettingsSection>
+      </SettingsGroup>
     </div>
+    </SettingsNavCtx.Provider>
   );
 }
