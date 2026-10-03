@@ -30,6 +30,7 @@ import { SearchModal, SEARCH_MIN_CHARS } from './ui/SearchModal.jsx';
 import { MobileBottomNav, MobileSheet } from './ui/MobileNav.jsx';
 import { useIsMobile } from './ui/useIsMobile.js';
 import { Icon } from './ui/Icon.jsx';
+import { haptic, setHapticsEnabled } from './lib/haptics.js';
 import { DesktopSidebar } from './ui/DesktopSidebar.jsx';
 import { TAB_META } from './lib/constants.js';
 import { TodayTab } from './tabs/TodayTab.jsx';
@@ -67,6 +68,8 @@ function App(){
   const [budgets,setBudgets] = useState({});
   const [incomePlans,setIncomePlans] = useState({});
   const [settings,setSettings] = useState({hidden:{}});
+  // вибрация: переключатель в Настройках (по умолчанию включена) [user, s051]; ниже объявления settings — иначе TDZ-падение при запуске
+  useEffect(()=>{ setHapticsEnabled(!settings.hapticsOff); }, [settings.hapticsOff]);
   const [bills,setBills] = useState([]);
   const [habits,setHabits] = useState([]);
   const [finance,setFinance] = useState({transactions:[],accounts:[],debtors:[]});
@@ -365,7 +368,7 @@ function App(){
     if(up.length) setToasts(prev => [...prev, ...up.map(x=>({tid:uid(), goalDone:x.title}))]);
   };
   const contributeToGoals = (links, sign) => contributeMany([{links, sign}]);
-  const addTask = (text, difficulty, goalLinks) => updateEntry({ tasks:[...entry.tasks, {id:uid(),text,done:false,difficulty, ...(goalLinks&&goalLinks.length?{goalLinks}:{})}] });
+  const addTask = (text, difficulty, goalLinks) => haptic('tap') || updateEntry({ tasks:[...entry.tasks, {id:uid(),text,done:false,difficulty, ...(goalLinks&&goalLinks.length?{goalLinks}:{})}] });
   // ✏ Редактирование задачи: название, сложность, привязки к целям.
   // Если задача УЖЕ ВЫПОЛНЕНА, её вклад уже учтён, поэтому правка обязана перенести последствия:
   //   • привязки — снять старые и начислить новые (одной записью, см. contributeMany);
@@ -397,6 +400,7 @@ function App(){
   // Анти-тег на дне: отметка снимает XP, снятие возвращает (обратимо, как задача). Здоровье — на replay. session 024
   const toggleAntiTagOnDay = (name) => {
     const cur = entry.antiTags||[]; const on = cur.includes(name);
+    if(!on) haptic('warn');   // включение анти-тега — «предупреждение» (s051)
     updateEntry({antiTags: on ? cur.filter(x=>x!==name) : [...cur,name]});
     addXp(on ? gamify.antiXp : -gamify.antiXp);
   };
@@ -415,10 +419,10 @@ function App(){
     const d = dailyTasks.find(x=>x.id===dailyId); if(d) contributeToGoals(goalLinksOf(d), was?-1:1);
   };
   // createdAt — чтобы пересчёт здоровья не штрафовал за «пустой день» задним числом, до создания ежедневной. session 033
-  const addDailyTask = (text, goalLinks) => persist.dailyTasks([...dailyTasks, {id:uid(), text, active:true, createdAt:todayStr(), ...(goalLinks&&goalLinks.length?{goalLinks}:{})}]);
+  const addDailyTask = (text, goalLinks) => haptic('tap') || persist.dailyTasks([...dailyTasks, {id:uid(), text, active:true, createdAt:todayStr(), ...(goalLinks&&goalLinks.length?{goalLinks}:{})}]);
   const deleteDailyTask = (id) => persist.dailyTasks(dailyTasks.filter(d=>d.id!==id));
 
-  const addOngoing = (item) => persist.ongoing([{id:uid(), done:false, ...item}, ...ongoing]);
+  const addOngoing = (item) => haptic('tap') || persist.ongoing([{id:uid(), done:false, ...item}, ...ongoing]);
   const finishOngoing = (id) => { const o = ongoing.map(x=>x.id===id?{...x,done:true,doneDate:todayStr()}:x); persist.ongoing(o); addXp(15); };
   const deleteOngoing = (id) => persist.ongoing(ongoing.filter(x=>x.id!==id));
 
@@ -428,7 +432,7 @@ function App(){
   const removeAntiTagGlobal = (name) => persist.antiTags(antiTags.filter(t=>t!==name));
 
   // новая цель — БЕЗ трекера (mode:'none'); привязана к текущему периоду (нед/мес/год)
-  const addGoal = (scope,text) => persist.goals({...goals,[scope]:[...(goals[scope]||[]),{id:uid(),title:text,progress:0,mode:'none',period:periodOf(scope)}]});
+  const addGoal = (scope,text) => haptic('tap') || persist.goals({...goals,[scope]:[...(goals[scope]||[]),{id:uid(),title:text,progress:0,mode:'none',period:periodOf(scope)}]});
   const persistArchive = (n) => { setGoalsArchive(n); saveKey('lifeos:goalsArchive', n); };
   const restoreGoal = (id, archivedAt) => {
     const g = goalsArchive.find(x=>x.id===id && x.archivedAt===archivedAt); if(!g) return;
@@ -491,6 +495,7 @@ function App(){
     persist.goals({...goals,[scope]:(goals[scope]||[]).map(g=> g.id===id ? {...g, deadline: deadline||undefined} : g)});
   };
   const setGoalCounter = (scope,id,patch) => {
+    if(patch.current!=null) haptic('tap');
     const g = (goals[scope]||[]).find(x=>x.id===id); if(!g||!g.counter) return;
     const target = Math.max(1, patch.target!=null?patch.target:g.counter.target);
     const current = Math.max(0, patch.current!=null?patch.current:g.counter.current||0);
@@ -538,7 +543,7 @@ function App(){
   const renameGoal = (scope,id,title) => { const t=(title||'').trim(); if(!t) return;
     persist.goals({...goals,[scope]:(goals[scope]||[]).map(g=> g.id===id ? {...g, title:t} : g)}); };
 
-  const addStudyTask = (item) => persist.study([{id:uid(), createdAt:todayStr(), ...item}, ...study]);
+  const addStudyTask = (item) => haptic('tap') || persist.study([{id:uid(), createdAt:todayStr(), ...item}, ...study]);
   const updateStudyTask = (id,patch) => {
     const prevItem = study.find(s=>s.id===id);
     // при переходе в «Выполнено» фиксируем дату закрытия (для достижений «в срок»)
@@ -562,11 +567,11 @@ function App(){
     persistStudyArchive(studyArchive.filter(x=>!(x.id===id && x.archivedAt===archivedAt)));
   };
 
-  const addNote = (note) => { const n={id:uid(), createdAt:todayStr(), updatedAt:todayStr(), type:'Заметка', title:'', body:'', ...note}; persist.notes([n, ...notes]); return n.id; };
+  const addNote = (note) => { haptic('tap'); const n={id:uid(), createdAt:todayStr(), updatedAt:todayStr(), type:'Заметка', title:'', body:'', ...note}; persist.notes([n, ...notes]); return n.id; };
   const updateNote = (id,patch) => persist.notes(notes.map(n=>n.id===id?{...n,...patch,updatedAt:todayStr()}:n));
   const deleteNote = (id) => persist.notes(notes.filter(n=>n.id!==id));
 
-  const addTransaction = (tx) => persist.finance({...finance, transactions:[{id:uid(), ts:Date.now(), ...tx}, ...finance.transactions]});
+  const addTransaction = (tx) => haptic('tap') || persist.finance({...finance, transactions:[{id:uid(), ts:Date.now(), ...tx}, ...finance.transactions]});
   const deleteTransaction = (id) => persist.finance({...finance, transactions:finance.transactions.filter(t=>t.id!==id)});
   const addCategory = (kind,name) => { const next={...categories,[kind]:[...categories[kind],name]}; persist.categories(next); };
   const removeCategory = (kind,name) => persist.categories({...categories,[kind]:categories[kind].filter(c=>c!==name)});
@@ -629,7 +634,7 @@ function App(){
   const deleteBill = (id) => persist.bills(bills.filter(b=>b.id!==id));
   const updateBill = (id,patch) => persist.bills(bills.map(b=>b.id===id?{...b,...patch}:b));
 
-  const addHabit = (habit) => persist.habits([...habits, {id:uid(), createdAt:todayStr(), log:{}, ...habit}]);
+  const addHabit = (habit) => haptic('tap') || persist.habits([...habits, {id:uid(), createdAt:todayStr(), log:{}, ...habit}]);
   const updateHabit = (id, patch) => persist.habits(habits.map(h=>h.id===id?{...h,...patch}:h));
   const deleteHabit = (id) => persist.habits(habits.filter(h=>h.id!==id));
   const persistHabitsArchive = (n) => { setHabitsArchive(n); saveKey('lifeos:habitsArchive', n); };
@@ -660,6 +665,7 @@ function App(){
     persistHabitsArchive(habitsArchive.filter(x=>!(x.id===id && x.archivedAt===archivedAt)));
   };
   const toggleHabitDay = (id, ds) => {
+    haptic('tap');
     let delta=0; const h0 = habits.find(h=>h.id===id);
     const next = habits.map(h=>{ if(h.id!==id) return h; const log={...(h.log||{})};
       if(log[ds]){ delete log[ds]; delta=-10; } else { log[ds]=true; delta=10; } return {...h, log}; });
@@ -1211,7 +1217,7 @@ function App(){
       {tab==='settings' && <SettingsTab user={user} syncPaused={!!syncAsk} onLogin={()=>login().catch(err=>setImportMsg('Вход не удался: '+err.message))} onSyncCheck={openSyncCheck} onProfile={()=>setProfileOpen(true)} hidden={settings.hidden||{}} toggleModule={toggleModule}
         defaults={settings.defaults||{}} setDefault={setDefault} categories={categories} accounts={finance.accounts}
         mobileTabs={mobileTabIds} toggleMobileTab={toggleMobileTab}
-        soundOff={!!settings.soundOff} notifOff={!!settings.notifOff}
+        soundOff={!!settings.soundOff} notifOff={!!settings.notifOff} hapticsOff={!!settings.hapticsOff}
         maskNetWorth={!!settings.maskNetWorth} maskDebts={!!settings.maskDebts} maskOps={!!settings.maskOps} maskAllFinance={!!settings.maskAllFinance}
         morningCfg={settings.morningSummary||null} setSettingFlag={setSettingFlag}
         gamify={gamify} setGamify={(patch)=>persist.settings({...settings, gamify:{...gamify, ...patch}})}

@@ -3,12 +3,14 @@ import { useEffect, useState } from 'react';
 import { ACTIVITY_DEFAULT, ALL_MOBILE_TAB_IDS, AWAY_DAYS_MAX, BUILD_ID, GOAL_PACE_DEFAULT, NOTE_LEAD_DAYS_DEFAULT, OVERDUE_TIMES_DEFAULT, OVERDUE_TIMES_MAX, TAB_META } from '../lib/constants.js';
 import { GAMIFY_DEFAULT, LEVEL_CAP, WEEKLY_XP } from '../lib/gamify.js';
 import { MODULE_GROUPS } from '../lib/storage.js';
+import { DAY_ROLLOVER_HOUR } from '../lib/dates.js';
+import { helpSections } from '../lib/help.js';
 import { S } from '../lib/styles.js';
 import { C, tint } from '../lib/theme.js';
 import { Select, SettingsDivider, SettingsGroup, SettingsNavCtx, SettingsRow, SettingsSection, SubHead, Toggle } from '../ui/primitives.jsx';
 import { Icon } from '../ui/Icon.jsx';
 
-export function SettingsTab({user=null, syncPaused=false, onLogin, onSyncCheck, onProfile, hidden, toggleModule, defaults, setDefault, categories, accounts, mobileTabs, toggleMobileTab, soundOff, notifOff, maskNetWorth, maskDebts, maskOps, maskAllFinance, morningCfg, setSettingFlag, gamify=GAMIFY_DEFAULT, setGamify, requestNotifs, testNotif, showNotifDiag, notifMsg, deadlineCfg, showGoalDeadline=false, billsNotif=null, noteCfg=null, goalPaceCfg=null, activity=null}){
+export function SettingsTab({user=null, syncPaused=false, onLogin, onSyncCheck, onProfile, hidden, toggleModule, defaults, setDefault, categories, accounts, mobileTabs, toggleMobileTab, soundOff, notifOff, hapticsOff=false, maskNetWorth, maskDebts, maskOps, maskAllFinance, morningCfg, setSettingFlag, gamify=GAMIFY_DEFAULT, setGamify, requestNotifs, testNotif, showNotifDiag, notifMsg, deadlineCfg, showGoalDeadline=false, billsNotif=null, noteCfg=null, goalPaceCfg=null, activity=null}){
   // ⏰ Напоминания в заметках: «за N дней» + просрочка (session: reminders-activity-pace)
   const nlDays = (noteCfg && noteCfg.days && noteCfg.days.length) ? noteCfg.days : NOTE_LEAD_DAYS_DEFAULT;
   const nOvOn = !(noteCfg && noteCfg.overdueOff);
@@ -41,6 +43,7 @@ export function SettingsTab({user=null, syncPaused=false, onLogin, onSyncCheck, 
   const delOvTime = (i) => { if(ovTimes.length<=1) return; setDl({overdueTimes: ovTimes.filter((_,k)=>k!==i)}); };
   // «Что показывать» — раздел большой, поэтому каждая группа модулей сворачивается (по умолчанию свёрнута)
   const [openGroups,setOpenGroups] = useState({});
+  const [openHelp,setOpenHelp] = useState({});   // раскрытые разделы справки «Как пользоваться»
   const toggleGroup = (name) => setOpenGroups(s=>({...s,[name]:!s[name]}));
   // какой раздел открыт отдельным экраном (Э9); при переходе — наверх страницы
   const [screen,setScreen] = useState(null);
@@ -68,6 +71,9 @@ export function SettingsTab({user=null, syncPaused=false, onLogin, onSyncCheck, 
           </SettingsRow>
           <SettingsRow label="Дедлайны и просрочка" chevron={false}>
             <Toggle label="Дедлайны и просрочка" on={dlOn} onChange={v=>setDl({off:!v})} />
+          </SettingsRow>
+          <SettingsRow label="Вибрация" sub="Отметки, добавление, удаление · только на телефоне" chevron={false}>
+            <Toggle label="Вибрация" on={!hapticsOff} onChange={v=>setSettingFlag('hapticsOff', v?false:true)} />
           </SettingsRow>
           <SettingsRow label="«Загляни в Life OS»" chevron={false}>
             <Toggle label="Загляни в Life OS" on={!act.awayOff} onChange={v=>setAct({awayOff:!v})} />
@@ -451,20 +457,23 @@ export function SettingsTab({user=null, syncPaused=false, onLogin, onSyncCheck, 
       </SettingsSection>
       <SettingsSection title="О приложении" meta={BUILD_ID}>
         <div style={{fontSize:14,fontWeight:700,marginBottom:4}}>Life OS</div>
-        <div style={{...S.dimSpan,marginLeft:0,marginBottom:12,display:'block'}}>Персональный трекер жизни: планирование, привычки, цели, финансы и рефлексия в одном месте — с геймификацией, чтобы держать ритм.</div>
+        <div style={{...S.dimSpan,marginLeft:0,marginBottom:12,display:'block'}}>Персональный трекер жизни: задачи дня, привычки, цели, дела, заметки, финансы и рефлексия в одном месте — с игровыми очками, чтобы держать ритм. Ниже — коротко, как пользоваться каждым разделом.</div>
 
-        <SubHead>Что умеет</SubHead>
-        <div style={{fontSize:12.5,lineHeight:1.7,color:C.text}}>
-          <div><b>Сегодня</b> — задачи дня (сложность→XP), ежедневные и многодневные дела, теги, оценка дня, сон, заметка. Перенос незакрытых задач и шаблоны наборов.</div>
-          <div><b>Привычки</b> — расписание, сгорающий стрик, заморозки, челленджи, напоминания, архив.</div>
-          <div><b>Цели</b> — год/месяц/неделя/день; ползунок/чек-лист/счётчик; периодизация с архивом; привязка задач к нескольким целям.</div>
-          <div><b>Дела</b> — эпики, статусы, важность/срочность, дедлайны, архив.</div>
-          <div><b>Заметки</b> — заметки и напоминания (с повтором), закрепление, чек-листы.</div>
-          <div><b>Финансы</b> — операции, счета, должники, планы по месяцам, бюджет-алерты с прогнозом, графики.</div>
-          <div><b>Статистика</b> — итоги за период, дисциплин-грид, тренды, план/факт, анализ факторов оценки дня.</div>
-          <div><b>Геймификация</b> — XP и уровень (потолок {LEVEL_CAP}) с рангами, стрик, здоровье, импульс, комбо, задания дня, испытание недели, анти-теги, ~300 достижений.</div>
-          <div><b>Уведомления</b> — привычки, напоминания, дедлайны, утренняя сводка (на телефоне).</div>
-          <div><b>Синхронизация и бэкап</b> — Firebase (вход Google), экспорт/импорт JSON и Excel, «Поделиться» на телефоне.</div>
+        <SubHead>Как пользоваться</SubHead>
+        <div style={{background:C.panelAlt,borderRadius:12,overflow:'hidden',marginBottom:4}}>
+          {helpSections({levelCap:LEVEL_CAP, rolloverHour:DAY_ROLLOVER_HOUR}).map((sec,i)=>{ const open=!!openHelp[sec.t]; return (
+            <div key={sec.t} style={{borderTop:i?`1px solid ${C.border}`:'none'}}>
+              <button onClick={()=>setOpenHelp(o=>({...o,[sec.t]:!o[sec.t]}))} aria-expanded={open}
+                style={{display:'flex',alignItems:'center',gap:10,width:'100%',background:'none',border:'none',color:C.text,fontFamily:'inherit',fontSize:14.5,fontWeight:500,textAlign:'left',padding:'13px 14px',cursor:'pointer'}}>
+                <span style={{flex:1}}>{sec.t}</span>
+                <span style={{color:C.faint,display:'flex',transform:open?'rotate(90deg)':'none',transition:'transform .15s'}}><Icon name="chevR" size={15}/></span>
+              </button>
+              {open && (
+                <ul className="anim-collapse" style={{margin:0,padding:'0 16px 14px 32px',display:'flex',flexDirection:'column',gap:8,fontSize:13.5,lineHeight:1.55,color:C.text}}>
+                  {sec.items.map((it,k)=><li key={k}>{it}</li>)}
+                </ul>
+              )}
+            </div>); })}
         </div>
 
         <SettingsDivider/>

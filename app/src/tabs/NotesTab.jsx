@@ -12,6 +12,7 @@ import { S } from '../lib/styles.js';
 import { C, tint } from '../lib/theme.js';
 import { Check } from '../ui/Check.jsx';
 import { Icon } from '../ui/Icon.jsx';
+import { haptic } from '../lib/haptics.js';
 import { Select } from '../ui/primitives.jsx';
 
 const shortDate = (ds) => ds ? new Date(ds+'T00:00:00').toLocaleDateString('ru-RU',{day:'numeric',month:'short'}) : '';
@@ -175,7 +176,7 @@ export function NoteEditor({note, onSave, onDelete, onClose}){
           <span style={{flex:1}}/>
           <button className="icon-btn" aria-pressed={pinned} title={pinned?'открепить':'закрепить'} aria-label={pinned?'Открепить':'Закрепить'} onClick={()=>setPinned(p=>!p)} style={{color:pinned?C.amber:C.dim}}><Icon name="pin" size={18}/></button>
           {note.id && (confirmDel
-            ? <button style={{...S.btnGhost,color:C.red,borderColor:tint(C.red,.5)}} onClick={()=>{ onDelete(note.id); onClose(); }}>Удалить?</button>
+            ? <button style={{...S.btnGhost,color:C.red,borderColor:tint(C.red,.5)}} onClick={()=>{ haptic('warn'); onDelete(note.id); onClose(); }}>Удалить?</button>
             : <button className="icon-btn" title="удалить заметку" aria-label="Удалить заметку" onClick={()=>setConfirmDel(true)} style={{color:C.dim}}><Icon name="trash" size={18}/></button>)}
           <button style={{...S.btnPrimary,padding:'8px 18px',marginLeft:6}} onClick={save}>Готово</button>
         </div>

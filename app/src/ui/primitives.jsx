@@ -6,6 +6,7 @@ import { C, tint } from '../lib/theme.js';
 import { S } from '../lib/styles.js';
 import { STUDY_STATUSES } from '../lib/constants.js';
 import { Icon } from './Icon.jsx';
+import { haptic } from '../lib/haptics.js';
 
 // Замена нативному <select>: единый вид на десктопе и телефоне (нативный особенно уродлив в WebView).
 // options: массив строк ИЛИ {value,label}. onChange(value). Поддерживает точечную подсветку (dotColor).
@@ -75,7 +76,7 @@ export function Modal({onClose, children, title, compact}){
 export function ConfirmIconBtn({onConfirm, title='удалить', icon, confirmLabel='точно?'}){
   const [armed,setArmed] = useState(false);
   useEffect(()=>{ if(!armed) return; const t=setTimeout(()=>setArmed(false),3000); return ()=>clearTimeout(t); },[armed]);
-  if(armed) return <button className="icon-btn" style={{color:C.red,fontSize:12,fontWeight:600,whiteSpace:'nowrap',background:tint(C.red,.12),borderRadius:8,padding:'4px 9px'}} onClick={(e)=>{ e.stopPropagation(); setArmed(false); onConfirm(); }}>{confirmLabel}</button>;
+  if(armed) return <button className="icon-btn" style={{color:C.red,fontSize:12,fontWeight:600,whiteSpace:'nowrap',background:tint(C.red,.12),borderRadius:8,padding:'4px 9px'}} onClick={(e)=>{ e.stopPropagation(); setArmed(false); haptic('warn'); onConfirm(); }}>{confirmLabel}</button>;
   const ic = (!icon || icon==='✕') ? <Icon name="x" size={15}/>
     : (typeof icon==='string' && /^[a-zA-Z]+$/.test(icon)) ? <Icon name={icon} size={15}/> : icon;
   return <button className="icon-btn" title={title} aria-label={title} onClick={(e)=>{ e.stopPropagation(); setArmed(true); }}>{ic}</button>;
@@ -156,7 +157,7 @@ export function StatusSeg({value, onChange}){
   return (
     <div style={{display:'inline-flex',background:C.bg,border:`1px solid ${C.border}`,borderRadius:9,padding:2,gap:2,flexWrap:'nowrap'}}>
       {STUDY_STATUSES.map(s=>{ const active=value===s; const col=STATUS_TONE[s];
-        return <button key={s} onClick={()=>onChange(s)}
+        return <button key={s} onClick={()=>{ if(s!==value) haptic('tap'); onChange(s); }}
           style={{border:'none',cursor:'pointer',padding:'4px 9px',borderRadius:7,fontSize:11.5,fontWeight:active?600:500,whiteSpace:'nowrap',
             background:active?(s==='Не начато'?C.panelAlt:tint(col,.16)):'transparent',color:active?col:C.dim}}>{STATUS_SHORT[s]}</button>; })}
     </div>
