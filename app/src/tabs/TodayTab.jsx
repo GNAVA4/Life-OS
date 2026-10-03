@@ -276,20 +276,13 @@ export function TodayTab({entry, selectedDate, setSelectedDate, addTask, toggleT
           {entry.tasks.length===0 && <div style={S.emptyState}>Задач на этот день нет.</div>}
         </div>
 
-        {/* добавление (референс Э1/Д1): на телефоне три кнопки, на широком экране строка с клавишей N */}
-        {isMobile ? (
-          <div style={{display:'flex',gap:8,marginTop:12,flexWrap:'wrap'}}>
-            <button style={S.btnPrimary} aria-label="Добавить задачу" onClick={()=>openSheet('task')}><Icon name="plus" size={15}/>Задача</button>
-            <button style={S.btnGhost} onClick={()=>openSheet('goal')}><Icon name="goals" size={14}/>С целью</button>
-            <button style={S.btnGhost} onClick={()=>openSheet('tpl')}><Icon name="template" size={14}/>Шаблон</button>
-          </div>
-        ) : (
-          <button aria-label="Добавить задачу" onClick={()=>openSheet('task')}
-            style={{display:'flex',alignItems:'center',gap:10,width:'100%',background:'none',border:'none',padding:'12px 0',color:C.dim,cursor:'pointer',fontFamily:'inherit',fontSize:14,textAlign:'left'}}>
-            <Icon name="plus" size={18}/><span style={{flex:1}}>Добавить задачу</span>
-            <span style={{fontSize:12,color:C.faint,border:`1px solid ${C.border}`,borderRadius:5,padding:'0 6px'}}>N</span>
-          </button>
-        )}
+        {/* добавление — одна строка и на телефоне, и на ПК [user, s052: три кнопки делали одно и то же];
+            цель и шаблоны — внутри листа. Подсказка клавиши N — только на широком экране. */}
+        <button aria-label="Добавить задачу" onClick={()=>openSheet('task')}
+          style={{display:'flex',alignItems:'center',gap:10,width:'100%',background:'none',border:'none',padding:'12px 0',color:C.dim,cursor:'pointer',fontFamily:'inherit',fontSize:14,textAlign:'left'}}>
+          <Icon name="plus" size={18}/><span style={{flex:1}}>Добавить задачу</span>
+          {!isMobile && <span style={{fontSize:12,color:C.faint,border:`1px solid ${C.border}`,borderRadius:5,padding:'0 6px'}}>N</span>}
+        </button>
       </div>
 
       {/* ---- ежедневные ---- */}
