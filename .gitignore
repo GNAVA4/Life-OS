@@ -5,6 +5,8 @@ app/node_modules/
 # ---- Build output (веб-бандл содержит инлайненные ключи Firebase — НЕ коммитить) ----
 app/dist/
 dist/
+# кэш firebase deploy (session 041)
+app/.firebase/
 
 # ---- Секреты / ключи (НЕ коммитить) ----
 app/src/firebaseConfig.js
