@@ -4,7 +4,7 @@
 // регулярные платежи. Месяц просмотра общий (держит FinanceTab).
 import { useMemo, useState } from 'react';
 import { baseChartOpts } from '../../lib/charts.js';
-import { monthLabelRu, openDatePicker, shiftMonth, todayStr } from '../../lib/dates.js';
+import { addDays, monthLabelRu, openDatePicker, shiftMonth, todayStr } from '../../lib/dates.js';
 import { maskMoney } from '../../lib/format.js';
 import { vis } from '../../lib/storage.js';
 import { S } from '../../lib/styles.js';
@@ -17,6 +17,9 @@ import { PlanPanel } from './PlanPanel.jsx';
 // «Заполнить как раньше»: сколько последних дней смотреть и сколько вариантов показывать.
 // 60 дней — частые траты живут в пределах пары месяцев; 4 чипа помещаются в строку телефона.
 const REPEAT_LOOKBACK_DAYS = 60, REPEAT_MAX = 4;
+
+// чип-обёртка для системных select/date (счёт и дата операции, референс Э6)
+const CHIPBOX = {position:'relative',display:'inline-flex',alignItems:'center',gap:6,padding:'6px 12px',borderRadius:999,background:C.panelAlt,color:C.text,fontSize:13,cursor:'pointer'};
 
 export function OpsSection({part='ops', viewMonth, setViewMonth, finance, categories, budgets, incomePlans, bills, monthTx, defaults={}, finMask={}, addTransaction, deleteTransaction, addCategory, removeCategory, setBudget, removeBudget, setIncomePlan, removeIncomePlan, setBudgetsBatch, setIncomePlansBatch, addBill, deleteBill, updateBill, collapse={}, toggleCollapse, dismissedAlerts={}, dismissAlert}){
   const mo = n => maskMoney(finMask.ops, n);   // приватность: скрытие сумм операций
@@ -205,9 +208,20 @@ export function OpsSection({part='ops', viewMonth, setViewMonth, finance, catego
           </div>
         )}
         <div style={{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center'}}>
-          <Select small style={{flex:'1 1 130px'}} value={txAccountId} onChange={setTxAccountId}
-            options={[{value:'',label:'без счёта'}, ...finance.accounts.map(a=>({value:a.id,label:a.name}))]} />
-          <input style={{...S.input,flex:'0 1 140px',padding:'6px 9px',fontSize:12.5}} type="date" value={txDate} aria-label="Дата операции" onChange={e=>setTxDate(e.target.value||today)} onClick={openDatePicker} />
+          {/* счёт и дата — чипами (референс Э6): нажатие открывает системный выбор */}
+          <label style={CHIPBOX} title="счёт">
+            <Icon name="finance" size={13}/>
+            <select value={txAccountId} onChange={e=>setTxAccountId(e.target.value)} aria-label="Счёт операции"
+              style={{appearance:'none',WebkitAppearance:'none',background:'none',border:'none',color:'inherit',font:'inherit',padding:0,cursor:'pointer',maxWidth:150,outline:'none'}}>
+              <option value="">без счёта</option>
+              {finance.accounts.map(a=><option key={a.id} value={a.id}>{a.name}</option>)}
+            </select>
+          </label>
+          <label style={CHIPBOX} title="дата операции">
+            <Icon name="calendar" size={13}/>{txDate===today?'сегодня':txDate===addDays(today,-1)?'вчера':new Date(txDate+'T00:00:00').toLocaleDateString('ru-RU',{day:'numeric',month:'short'})}
+            <input type="date" value={txDate} aria-label="Дата операции" onChange={e=>setTxDate(e.target.value||today)} onClick={openDatePicker}
+              style={{position:'absolute',inset:0,opacity:0,cursor:'pointer',width:'100%'}} />
+          </label>
           {chip(showNote||!!txNote, ()=>setShowNote(v=>!v), 'комментарий', 'note', C.text)}
           {chip(txExclude, ()=>setTxExclude(v=>!v), 'не считать', 'ex')}
         </div>
@@ -228,13 +242,35 @@ export function OpsSection({part='ops', viewMonth, setViewMonth, finance, catego
         </div>
       )}
 
-      {vis('ops.safeToSpend') && safeToSpend && (() => {
-        const st = safeToSpend; const over = st.leftToday<0; const col = over?C.red:(st.leftToday< st.perDay*0.3?C.amber:C.green);
+      {/* сводка месяца двумя плитками (референс Э6): «Свободно сегодня» (если есть план) и «Расход за месяц» */}
+      {(() => {
+        const st = (vis('ops.safeToSpend') && safeToSpend) ? safeToSpend : null;
+        const monthExp = monthTx.filter(t=>t.type==='expense'&&!t.exclude).reduce((s,t)=>s+t.amount,0);
+        const monthInc = monthTx.filter(t=>t.type==='income'&&!t.exclude).reduce((s,t)=>s+t.amount,0);
+        const planSum = Object.values(budgets[today.slice(0,7)]||{}).reduce((s,v)=>s+(v||0),0);
+        const tileBox = {background:C.panel,borderRadius:14,padding:'12px 14px',minWidth:0,display:'flex',flexDirection:'column',gap:4};
+        const big = {fontSize:22,fontWeight:700,fontVariantNumeric:'tabular-nums',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'};
+        const over = st && st.leftToday<0; const col = st ? (over?C.red:(st.leftToday< st.perDay*0.3?C.amber:C.green)) : C.green;
         return (
-          <div style={{...S.plate,marginBottom:22,display:'flex',flexDirection:'column',gap:4}}>
-            <span style={{fontSize:12.5,color:C.dim}}>{over?'Дневной лимит превышен на':'Свободно сегодня'}</span>
-            <span style={{fontSize:26,fontWeight:700,color:col,fontVariantNumeric:'tabular-nums'}}>{over?'−':''}{mo(Math.abs(st.leftToday))}</span>
-            <span style={{fontSize:12,color:C.dim,lineHeight:1.5}}>лимит в день ~{mo(st.perDay)} · сегодня потрачено {mo(st.spentToday)}<br/>до конца месяца {mo(st.remaining)} на {st.remainingDays} дн. · план {mo(st.plan)}, потрачено {mo(st.spent)}</span>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(2,minmax(0,1fr))',gap:8,marginBottom:22}}>
+            {st ? (
+              <div style={tileBox} title={`до конца месяца ${mo(st.remaining)} на ${st.remainingDays} дн. · план ${mo(st.plan)}, потрачено ${mo(st.spent)}`}>
+                <span style={{fontSize:12.5,color:C.dim}}>{over?'Лимит превышен на':'Свободно сегодня'}</span>
+                <span style={{...big,color:col}}>{over?'−':''}{mo(Math.abs(st.leftToday))}</span>
+                <span style={{fontSize:12,color:C.dim}}>~{mo(st.perDay)} в день · {st.remainingDays} дн.</span>
+              </div>
+            ) : (
+              <div style={tileBox}>
+                <span style={{fontSize:12.5,color:C.dim}}>Доход за месяц</span>
+                <span style={{...big,color:C.green}}>{mo(monthInc)}</span>
+                <span style={{fontSize:12,color:C.dim}}>план расходов — в «Обзоре»</span>
+              </div>
+            )}
+            <div style={tileBox}>
+              <span style={{fontSize:12.5,color:C.dim}}>Расход за месяц</span>
+              <span style={big}>{mo(monthExp)}</span>
+              <span style={{fontSize:12,color:C.dim}}>{planSum>0?`из плана ${mo(planSum)}`:`доход ${mo(monthInc)}`}</span>
+            </div>
           </div>
         );
       })()}

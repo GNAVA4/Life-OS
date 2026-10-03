@@ -5,7 +5,6 @@
 import { useMemo, useState } from 'react';
 import { todayStr } from '../lib/dates.js';
 import { accountBalanceNow, unassignedNetOn } from '../lib/finance.js';
-import { maskMoney } from '../lib/format.js';
 import { S } from '../lib/styles.js';
 import { C } from '../lib/theme.js';
 import { Icon } from '../ui/Icon.jsx';
@@ -17,28 +16,14 @@ const SUBS = [{id:'ops',label:'Операции'},{id:'overview',label:'Обзо
 
 export function FinanceTab(props){
   const {finance, finMask={}, setSettingFlag, maskAll=false} = props;
-  const mo = n => maskMoney(finMask.ops, n);
   const [sub,setSub] = useState('ops');
   const today = todayStr();
   const [viewMonth,setViewMonth] = useState(today.slice(0,7));
   const netWorth = useMemo(()=> finance.accounts.reduce((sum,a)=> sum + accountBalanceNow(a, finance.transactions), 0) + unassignedNetOn(finance.transactions, todayStr()), [finance.accounts, finance.transactions]);
   const monthTx = useMemo(()=> finance.transactions.filter(t=>t.date.slice(0,7)===today.slice(0,7)), [finance.transactions]);
-  const monthIncome = monthTx.filter(t=>t.type==='income'&&!t.exclude).reduce((s,t)=>s+t.amount,0);
-  const monthExpense = monthTx.filter(t=>t.type==='expense'&&!t.exclude).reduce((s,t)=>s+t.amount,0);
-  const tile = (label, val, color) => (
-    <div style={{...S.statCard,padding:'10px 12px',minWidth:0}}>
-      <div style={{fontSize:11.5,color:C.dim}}>{label}</div>
-      <div style={{fontSize:16,fontWeight:700,fontVariantNumeric:'tabular-nums',color:color||C.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{val}</div>
-    </div>
-  );
 
   return (
     <div>
-      <div style={{display:'grid',gridTemplateColumns:'repeat(3,minmax(0,1fr))',gap:8,marginBottom:14}}>
-        {tile('Доход · месяц', mo(monthIncome), C.green)}
-        {tile('Расход · месяц', mo(monthExpense))}
-        {tile('Чистые активы', maskMoney(finMask.net, netWorth))}
-      </div>
       <div style={{display:'flex',gap:8,alignItems:'center',marginBottom:18}}>
         <div style={{...S.seg,flex:1}}>
           {SUBS.map(({id,label})=>(
