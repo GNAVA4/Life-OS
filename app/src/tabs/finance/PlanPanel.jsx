@@ -2,7 +2,7 @@
 // session 046 (референс Э6б): раздел всегда раскрыт — по каждой категории с планом или фактом полоса «факт / план».
 // Планы задаются по кнопке «Изменить планы» (прежняя форма: поле на категорию, «Сохранить планы», сброс крестиком).
 // Раньше раздел был свёрнут по умолчанию, и пользователь посчитал его пропавшим.
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import { maskMoney } from '../../lib/format.js';
 import { S } from '../../lib/styles.js';
 import { C } from '../../lib/theme.js';
@@ -33,9 +33,12 @@ export function PlanPanel({title, kindToggle, categories, actualByCat, plans, on
 
       {!editing && (<>
         {!hasPlans && <div style={{fontSize:13.5,color:C.dim,marginBottom:10}}>Планов {kindWord} на этот месяц нет. План по категории показывает, сколько ещё можно потратить.</div>}
+        {/* одна сетка на все строки: колонки названия и суммы общие, поэтому полосы начинаются и кончаются на одной линии
+            (раньше каждая строка была своей сеткой и ширина «0 ₽ / 500 ₽» сдвигала полосу — s050) */}
+        <div style={{display:'grid',gridTemplateColumns:'minmax(80px,max-content) minmax(80px,1fr) max-content',columnGap:16,rowGap:12,alignItems:'center'}}>
         {rows.map(c=>{ const spent=actualByCat[c]||0; const pn=plans[c]||0; const over=pn>0&&spent>pn;
           return (
-            <div key={c} style={{display:'grid',gridTemplateColumns:'minmax(70px,1fr) minmax(60px,1.4fr) auto',gap:12,alignItems:'center',padding:'6px 0'}}>
+            <Fragment key={c}>
               <span style={{fontSize:13.5,overflowWrap:'anywhere',minWidth:0}}>{c}</span>
               <span style={{height:5,background:C.panelAlt,borderRadius:3,overflow:'hidden'}}>
                 {pn>0 && <span style={{display:'block',height:'100%',width:`${Math.min(100,spent/pn*100)}%`,background: over?C.red : spent/pn>0.85?C.amber:barColor}}/>}
@@ -43,10 +46,11 @@ export function PlanPanel({title, kindToggle, categories, actualByCat, plans, on
               <span style={{fontSize:12.5,fontVariantNumeric:'tabular-nums',textAlign:'right',color:over?C.red:C.dim,whiteSpace:'nowrap'}}>
                 <span style={{color:over?C.red:C.text}}>{mo(spent)}</span>{pn>0?` / ${mo(pn)}`:' · без плана'}
               </span>
-            </div>
+            </Fragment>
           );
         })}
-        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,marginTop:10,flexWrap:'wrap'}}>
+        </div>
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,marginTop:14,flexWrap:'wrap'}}>
           {hasPlans ? <div style={{fontSize:12.5,color:C.dim}}>План {mo(totalPlan)} · {spentWord} {mo(totalSpent)}</div> : <span/>}
           <button style={S.btnGhost} onClick={()=>setEditing(true)}><Icon name="edit" size={14}/>{hasPlans?'Изменить планы':'Задать планы'}</button>
         </div>

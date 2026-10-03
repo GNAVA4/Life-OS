@@ -2,7 +2,8 @@
 // Каждая заметка — отдельная плашка: закреплённые сверху, чек-лист отмечается прямо на карточке,
 // у напоминания чип с датой и кнопка «Выполнено». Правка и удаление — в редакторе (нажатие на карточку).
 // Модель данных прежняя: {title, body, type, pinned, checklist[], remind*} — меняется только вид.
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { NOTE_REPEATS, NOTE_TYPES, NOTE_TYPE_COLOR, WEEKDAY_OPTS } from '../lib/constants.js';
 import { addDays, openDatePicker, todayStr } from '../lib/dates.js';
 import { uid } from '../lib/format.js';
@@ -11,7 +12,7 @@ import { S } from '../lib/styles.js';
 import { C, tint } from '../lib/theme.js';
 import { Check } from '../ui/Check.jsx';
 import { Icon } from '../ui/Icon.jsx';
-import { Modal, Select } from '../ui/primitives.jsx';
+import { Select } from '../ui/primitives.jsx';
 
 const shortDate = (ds) => ds ? new Date(ds+'T00:00:00').toLocaleDateString('ru-RU',{day:'numeric',month:'short'}) : '';
 const CHECK_PREVIEW = 5; // сколько пунктов чек-листа видно на карточке; остальные — «ещё N» (открывает редактор)
@@ -139,6 +140,20 @@ export function NoteEditor({note, onSave, onDelete, onClose}){
   const addItem = () => { if(!newItem.trim()) return; setChecklist([...checklist,{id:uid(),text:newItem.trim(),done:false}]); setNewItem(''); };
   const toggleItem = (id) => setChecklist(checklist.map(i=>i.id===id?{...i,done:!i.done}:i));
   const delItem = (id) => setChecklist(checklist.filter(i=>i.id!==id));
+  // Снимок исходных значений: выход «назад»/Esc сохраняет, только если что-то изменилось (длинный текст не теряется).
+  const initial = useRef(JSON.stringify({title:note.title||'', body:note.body||'', type:note.type||'Заметка', pinned:!!note.pinned,
+    checklist:Array.isArray(note.checklist)?note.checklist:[], remindDate:note.remindDate||'', remindTime:note.remindTime||'', repeat:note.repeat||'none',
+    remindWeekday:note.remindWeekday!=null?String(note.remindWeekday):'', remindDay:note.remindDay!=null?String(note.remindDay):''}));
+  const dirty = () => JSON.stringify({title, body, type, pinned, checklist, remindDate, remindTime, repeat, remindWeekday, remindDay}) !== initial.current;
+  const isEmpty = !title.trim() && !body.trim() && checklist.length===0;
+  const close = () => { if(dirty() && !(isEmpty && !note.id)) save(); else onClose(); };
+  const closeRef = useRef(close); closeRef.current = close;
+  useEffect(()=>{ const on=(e)=>{ if(e.key==='Escape') closeRef.current(); }; document.addEventListener('keydown',on);
+    const prev=document.body.style.overflow; document.body.style.overflow='hidden';   // фон не прокручивается под редактором
+    return ()=>{ document.removeEventListener('keydown',on); document.body.style.overflow=prev; }; }, []);
+  // текст растёт вместе с содержимым — никаких маленьких окошек с прокруткой внутри
+  const bodyRef = useRef(null);
+  useEffect(()=>{ const el=bodyRef.current; if(!el) return; el.style.height='auto'; el.style.height=Math.max(el.scrollHeight, window.innerHeight*0.45)+'px'; }, [body]);
   const save = () => { const rep = isRem?repeat:undefined; onSave({title:title.trim(), body, type, pinned, checklist,
     remindTime: isRem?(remindTime||undefined):undefined,
     repeat: rep,
@@ -149,20 +164,33 @@ export function NoteEditor({note, onSave, onDelete, onClose}){
     // датой молчало бы: снаружи оно выглядит как активное, а планировщик его пропускает.
     remindDone: (isRem && rep==='none' && remindDate===note.remindDate) ? note.remindDone : undefined,
   }); onClose(); };
-  return (
-    <Modal onClose={onClose} title={note.id?'Заметка':'Новая заметка'}>
-      <div style={{display:'flex',flexDirection:'column',gap:14}}>
-        <div style={{display:'flex',gap:8,alignItems:'center'}}>
-          <div style={S.seg}>
-            {NOTE_TYPES.map(t=><button key={t} style={{...S.segBtn,background:type===t?C.panelAlt:'transparent',color:type===t?(NOTE_TYPE_COLOR[t]||C.text):C.dim}} onClick={()=>setType(t)}>{t}</button>)}
-          </div>
-          <button style={{...S.btnGhost,marginLeft:'auto',...(pinned?{color:C.amber,borderColor:tint(C.amber,.4)}:null)}} aria-pressed={pinned} onClick={()=>setPinned(p=>!p)}>
-            <Icon name="pin" size={14}/>{pinned?'Закреплено':'Закрепить'}
-          </button>
+  // Заметка — отдельное окно на весь экран (запрос пользователя s050): тексты обычно длинные.
+  return createPortal(
+    <div className="anim-fade" role="dialog" aria-label={note.id?'Заметка':'Новая заметка'}
+      style={{position:'fixed',inset:0,zIndex:110,background:C.bg,overflowY:'auto',WebkitOverflowScrolling:'touch'}}>
+      <div style={{position:'sticky',top:0,zIndex:1,background:C.bg,borderBottom:`1px solid ${C.border}`,paddingTop:'env(safe-area-inset-top, 0px)'}}>
+        <div style={{maxWidth:860,margin:'0 auto',display:'flex',alignItems:'center',gap:6,padding:'10px 16px'}}>
+          <button onClick={close} title="назад (изменения сохранятся)" style={{display:'inline-flex',alignItems:'center',gap:4,background:'none',border:'none',color:C.amber,fontFamily:'inherit',fontSize:14.5,cursor:'pointer',padding:'6px 0'}}>
+            <Icon name="chevL" size={18}/>Заметки</button>
+          <span style={{flex:1}}/>
+          <button className="icon-btn" aria-pressed={pinned} title={pinned?'открепить':'закрепить'} aria-label={pinned?'Открепить':'Закрепить'} onClick={()=>setPinned(p=>!p)} style={{color:pinned?C.amber:C.dim}}><Icon name="pin" size={18}/></button>
+          {note.id && (confirmDel
+            ? <button style={{...S.btnGhost,color:C.red,borderColor:tint(C.red,.5)}} onClick={()=>{ onDelete(note.id); onClose(); }}>Удалить?</button>
+            : <button className="icon-btn" title="удалить заметку" aria-label="Удалить заметку" onClick={()=>setConfirmDel(true)} style={{color:C.dim}}><Icon name="trash" size={18}/></button>)}
+          <button style={{...S.btnPrimary,padding:'8px 18px',marginLeft:6}} onClick={save}>Готово</button>
         </div>
-        <input style={{...S.input,width:'100%',fontSize:16,fontWeight:600}} placeholder="Заголовок" value={title} onChange={e=>setTitle(e.target.value)} autoFocus aria-label="Заголовок" />
-        <textarea style={{...S.textarea,minHeight:120,fontSize:14,lineHeight:1.5}} placeholder="Текст" value={body} onChange={e=>setBody(e.target.value)} aria-label="Текст заметки" />
+      </div>
 
+      <div style={{maxWidth:860,margin:'0 auto',padding:'18px 16px calc(40px + env(safe-area-inset-bottom, 0px))',display:'flex',flexDirection:'column',gap:16}}>
+        <div style={{...S.seg,alignSelf:'flex-start'}}>
+          {NOTE_TYPES.map(t=><button key={t} style={{...S.segBtn,background:type===t?C.panelAlt:'transparent',color:type===t?(NOTE_TYPE_COLOR[t]||C.text):C.dim}} onClick={()=>setType(t)}>{t}</button>)}
+        </div>
+        <input style={{background:'none',border:'none',outline:'none',color:C.text,fontFamily:'inherit',fontSize:24,fontWeight:700,letterSpacing:'-.01em',padding:0,width:'100%'}}
+          placeholder="Заголовок" value={title} onChange={e=>setTitle(e.target.value)} autoFocus={!note.id} aria-label="Заголовок" />
+        <textarea ref={bodyRef} style={{background:'none',border:'none',outline:'none',resize:'none',color:C.text,fontFamily:'inherit',fontSize:16,lineHeight:1.65,padding:0,width:'100%',overflow:'hidden'}}
+          placeholder="Текст заметки" value={body} onChange={e=>setBody(e.target.value)} aria-label="Текст заметки" />
+
+        <div style={{borderTop:`1px solid ${C.border}`,paddingTop:16,display:'flex',flexDirection:'column',gap:16}}>
         <Field label={`Чек-лист${checklist.length?` · ${checklist.filter(i=>i.done).length} из ${checklist.length}`:''}`}>
           {checklist.map(i=>(
             <div key={i.id} style={{display:'flex',alignItems:'center',gap:10,minHeight:30}}>
@@ -190,14 +218,8 @@ export function NoteEditor({note, onSave, onDelete, onClose}){
           </Field>
         )}
 
-        <div style={{display:'flex',gap:8,justifyContent:'space-between',alignItems:'center',marginTop:4}}>
-          {note.id ? (confirmDel
-            ? <button style={{...S.btnGhost,color:C.red,borderColor:tint(C.red,.5)}} onClick={()=>{ onDelete(note.id); onClose(); }}><Icon name="trash" size={14}/>Точно удалить?</button>
-            : <button style={{...S.btnGhost,color:C.red,border:'none'}} onClick={()=>setConfirmDel(true)}><Icon name="trash" size={14}/>Удалить</button>)
-          : <span/>}
-          <button style={{...S.btnPrimary,padding:'10px 24px'}} onClick={save}>Сохранить</button>
         </div>
       </div>
-    </Modal>
+    </div>, document.body
   );
 }
