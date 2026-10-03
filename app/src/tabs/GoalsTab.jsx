@@ -1,176 +1,231 @@
-// Вкладка/раздел: GoalsTab (вынесено из App.jsx, session: decompose phase 3)
+// Вкладка «Цели» (вынесено из App.jsx, session: decompose phase 3). Редизайн «Тихий» — session 043 (Э3).
+// Функции прежние: 4 периода, создание, переименование, тип (галочка/ползунок/шаги/счётчик) и смена типа без
+// потери прогресса, счётчик ±/цель, шаги, дедлайн, темп, архив (вернуть/удалить), сворачивание групп.
+// Новое (производное, без новых данных): под целью «осталось X за N дней», в заголовке — дней до конца периода;
+// переключатель периода («Все» = прежний обзор всех четырёх групп).
 import { useState } from 'react';
 import { PERIOD_LABEL } from '../lib/constants.js';
+import { daysBetween, monthLabelRu, todayStr } from '../lib/dates.js';
+import { endOfScope, goalMode as modeOf, paceInfo } from '../lib/goals.js';
 import { S } from '../lib/styles.js';
-import { C } from '../lib/theme.js';
-import { goalMode as modeOf, paceInfo } from '../lib/goals.js';
-import { ConfirmIconBtn, Select } from '../ui/primitives.jsx';
+import { C, tint } from '../lib/theme.js';
+import { Icon } from '../ui/Icon.jsx';
+import { ConfirmIconBtn } from '../ui/primitives.jsx';
+import { Check } from '../ui/Check.jsx';
+
+const SCOPES = [{id:'day',label:'День'},{id:'week',label:'Неделя'},{id:'month',label:'Месяц'},{id:'year',label:'Год'}];
+const num = (n) => String(n).replace('.',',');
+const ddmm = (ds) => new Date(ds+'T00:00:00').toLocaleDateString('ru-RU',{day:'numeric',month:'short'});
+
+function periodTitle(scope, today){
+  const end = endOfScope(scope, today); const left = daysBetween(today, end) + 1;
+  const name = scope==='day' ? 'сегодня' : scope==='week' ? 'эта неделя' : scope==='month' ? monthLabelRu(today.slice(0,7)).replace(/\s*\d{4}.*$/,'') : today.slice(0,4)+' год';
+  return { name, left: scope==='day' ? null : left };
+}
 
 export function GoalsTab({goals, addGoal, setGoalProgress, addGoalSubtask, toggleGoalSubtask, deleteGoalSubtask, deleteGoal, renameGoal, setGoalMode, setGoalCounter, setGoalDeadline, archiveGoal, archive=[], restoreGoal, deleteArchivedGoal, showGoalDeadline=false, collapsed={}, onToggleCollapse}){
+  const today = todayStr();
+  const [view,setView] = useState('all');
+  const [addOpen,setAddOpen] = useState(false);
   const [text,setText] = useState(''); const [scope,setScope] = useState('week');
   const [subtaskInputs,setSubtaskInputs] = useState({});
   const [archiveShow,setArchiveShow] = useState(false);
-  // переименование цели (id редактируемой + черновик названия) — как ✏ у долгов
+  const [menuId,setMenuId] = useState(null);
+  const [deadlineId,setDeadlineId] = useState(null);
   const [editId,setEditId] = useState(null); const [editText,setEditText] = useState('');
   const saveRename = (sc,gid) => { if(editText.trim() && renameGoal) renameGoal(sc,gid,editText.trim()); setEditId(null); };
-  const scopes = [{id:'year',label:'Год'},{id:'month',label:'Месяц'},{id:'week',label:'Неделя'},{id:'day',label:'День'}];
-  const addFromForm = () => { if(text.trim()){ addGoal(scope,text.trim()); setText(''); } };
-  // modeOf импортирован из lib/goals (goalMode) — единый источник, чтобы привязка/вклад и UI совпадали
-  // endOfScope/paceInfo переехали в lib/goals.js: тем же расчётом пользуются уведомления о темпе целей,
-  // а две копии одной формулы разъезжаются (session: goal-pace-notif). Поведение не менялось.
+  const addFromForm = () => { if(text.trim()){ addGoal(scope,text.trim()); setText(''); setAddOpen(false); } };
+  const addStep = (sc,g) => { const v=(subtaskInputs[g.id]||'').trim(); if(v){ addGoalSubtask(sc,g.id,v); setSubtaskInputs({...subtaskInputs,[g.id]:''}); } };
+  const shown = view==='all' ? SCOPES : SCOPES.filter(s=>s.id===view);
+
+  const goalItem = (sc, g) => {
+    const mode = modeOf(g); const done = (g.progress||0)>=100;
+    const p = paceInfo(g, sc, today);
+    // сколько осталось — в единицах трекера
+    let leftTxt = null;
+    if(!done){
+      if(mode==='counter' && g.counter) leftTxt = `осталось ${Math.max(0,(g.counter.target||0)-(g.counter.current||0))} шт.`;
+      else if(mode==='subtasks') { const st=g.subtasks||[]; leftTxt = st.length ? `осталось ${st.filter(s=>!s.done).length} из ${st.length} шагов` : null; }
+      else if(mode==='slider') leftTxt = `осталось ${100-(g.progress||0)}%`;
+    }
+    const showPace = p && !p.done && (mode!=='none' || g.deadline);
+    const behind = p && !p.done && !p.overdue && p.need>0 && mode==='counter' && p.need>=1;
+    const menuOpen = menuId===g.id;
+    return (
+      <div key={g.id} style={{padding:'12px 0',borderBottom:`1px solid ${C.border}`,display:'flex',flexDirection:'column',gap:9}}>
+        {editId===g.id ? (
+          <div style={{display:'flex',gap:8,alignItems:'center'}}>
+            <input style={S.input} value={editText} autoFocus aria-label="Название цели" onChange={e=>setEditText(e.target.value)}
+              onKeyDown={e=>{ if(e.key==='Enter') saveRename(sc,g.id); if(e.key==='Escape') setEditId(null); }} />
+            <button style={S.btnPrimary} onClick={()=>saveRename(sc,g.id)}>Сохранить</button>
+            <button className="icon-btn" aria-label="Отмена" onClick={()=>setEditId(null)}><Icon name="x" size={16}/></button>
+          </div>
+        ) : (
+          <div style={{display:'flex',alignItems:'flex-start',gap:10}}>
+            {mode==='none' && <Check checked={done} onChange={()=>setGoalProgress(sc,g.id,done?0:100)} label={g.title} color={C.green} />}
+            <div style={{flex:1,minWidth:0,fontSize:14.5,fontWeight:500,color:done?C.dim:C.text,textDecoration:done?'line-through':'none',textDecorationColor:C.faint,overflowWrap:'anywhere',paddingTop:mode==='none'?2:0}}>{g.title}</div>
+            {mode==='counter' && g.counter && (
+              <div style={{display:'flex',alignItems:'center',gap:6,flex:'none'}}>
+                <button className="cnt-btn" style={S.counterBtn} aria-label="минус" onClick={()=>setGoalCounter(sc,g.id,{current:(g.counter.current||0)-1})}><Icon name="minus" size={15}/></button>
+                <span style={{fontVariantNumeric:'tabular-nums',minWidth:52,textAlign:'center',fontWeight:600,color:done?C.green:C.text}}>{g.counter.current||0}<span style={{color:C.dim,fontWeight:500}}> / {g.counter.target}</span></span>
+                <button className="cnt-btn" style={S.counterBtn} aria-label="плюс" onClick={()=>setGoalCounter(sc,g.id,{current:(g.counter.current||0)+1})}><Icon name="plus" size={15}/></button>
+              </div>
+            )}
+            {mode==='subtasks' && <span style={{fontSize:12.5,color:C.dim,fontVariantNumeric:'tabular-nums',flex:'none',paddingTop:2}}>{(g.subtasks||[]).filter(s=>s.done).length} / {(g.subtasks||[]).length}</span>}
+            {mode==='slider' && <span style={{fontSize:12.5,color:done?C.green:C.dim,fontVariantNumeric:'tabular-nums',flex:'none',paddingTop:2}}>{g.progress||0}%</span>}
+            {done && g.completedAt && <span style={{fontSize:11.5,color:C.green,background:tint(C.green,.12),borderRadius:20,padding:'2px 8px',flex:'none'}}>{ddmm(g.completedAt)}</span>}
+            <button className="icon-btn" aria-label="Действия с целью" aria-expanded={menuOpen} onClick={()=>setMenuId(menuOpen?null:g.id)}><Icon name="more" size={18}/></button>
+          </div>
+        )}
+
+        {menuOpen && editId!==g.id && (
+          <div className="anim-collapse" style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+            <button style={S.btnGhost} onClick={()=>{ setEditText(g.title||''); setEditId(g.id); setMenuId(null); }}><Icon name="edit" size={14}/>Переименовать</button>
+            {mode!=='none' && <button style={S.btnGhost} onClick={()=>{ setGoalMode(sc,g.id,'none'); setMenuId(null); }}>Сменить тип</button>}
+            <button style={S.btnGhost} onClick={()=>{ setDeadlineId(deadlineId===g.id?null:g.id); }}><Icon name="clock" size={14}/>Дедлайн</button>
+            <ConfirmIconBtn onConfirm={()=>{ setMenuId(null); archiveGoal(sc,g.id); }} icon={<span style={S.btnGhost}><Icon name="archive" size={14}/>В архив</span>} confirmLabel="в архив?" title="в архив (сохранить)" />
+            <ConfirmIconBtn onConfirm={()=>{ setMenuId(null); deleteGoal(sc,g.id); }} icon="trash" confirmLabel="удалить навсегда?" title="удалить безвозвратно" />
+          </div>
+        )}
+
+        {mode==='none' && !done && (
+          <div style={{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center',paddingLeft:32}}>
+            <span style={{fontSize:12,color:C.dim}}>Добавить трекер:</span>
+            {[['slider','Ползунок'],['subtasks','Шаги'],['counter','Счётчик']].map(([m,l])=>(
+              <button key={m} className="chip" style={{background:C.panelAlt,color:C.text,fontFamily:'inherit'}} onClick={()=>setGoalMode(sc,g.id,m)}>{l}</button>))}
+          </div>
+        )}
+
+        {mode==='counter' && g.counter && (
+          <div style={{display:'flex',alignItems:'center',gap:10}}>
+            <div style={{flex:1,height:4,background:C.panelAlt,borderRadius:4,overflow:'hidden'}}><div style={{height:'100%',background:done?C.green:C.amber,width:`${g.progress||0}%`,borderRadius:4}}/></div>
+            <label style={{display:'flex',alignItems:'center',gap:5,fontSize:12,color:C.dim}}>цель
+              <input key={g.counter.target} style={{...S.input,fontSize:12.5,padding:'4px 6px',width:56,flex:'none',textAlign:'center'}} type="number" inputMode="numeric" aria-label="Цель, штук"
+                defaultValue={g.counter.target} onBlur={e=>setGoalCounter(sc,g.id,{target:parseInt(e.target.value,10)||1})} /></label>
+          </div>
+        )}
+
+        {mode==='slider' && (
+          <input type="range" className="lo-range" min="0" max="100" step="1" value={g.progress||0} aria-label={`Прогресс: ${g.title}`}
+            style={{width:'100%','--p':`${g.progress||0}%`}} onChange={e=>setGoalProgress(sc,g.id,parseInt(e.target.value,10))} />
+        )}
+
+        {mode==='subtasks' && (
+          <div style={{display:'flex',flexDirection:'column',gap:6,paddingLeft:2}}>
+            {(g.subtasks||[]).map(s=>(
+              <div key={s.id} style={{display:'flex',alignItems:'center',gap:10}}>
+                <Check checked={s.done} onChange={()=>toggleGoalSubtask(sc,g.id,s.id)} label={s.text} />
+                <span style={{flex:1,minWidth:0,fontSize:13.5,color:s.done?C.dim:C.text,textDecoration:s.done?'line-through':'none',textDecorationColor:C.faint,overflowWrap:'anywhere'}}>{s.text}</span>
+                <ConfirmIconBtn onConfirm={()=>deleteGoalSubtask(sc,g.id,s.id)} title="удалить шаг" confirmLabel="удалить?" />
+              </div>
+            ))}
+            <div style={{display:'flex',gap:6}}>
+              <input style={{...S.input,fontSize:13,padding:'7px 10px'}} placeholder="Новый шаг" value={subtaskInputs[g.id]||''} aria-label="Новый шаг"
+                onChange={e=>setSubtaskInputs({...subtaskInputs,[g.id]:e.target.value})} onKeyDown={e=>{ if(e.key==='Enter') addStep(sc,g); }} />
+              <button style={{...S.iconBtnAmber,width:34,height:34,opacity:(subtaskInputs[g.id]||'').trim()?1:.45}} aria-label="Добавить шаг" onClick={()=>addStep(sc,g)}><Icon name="plus" size={16}/></button>
+            </div>
+          </div>
+        )}
+
+        {(leftTxt || showPace) && !done && (
+          <div style={{display:'flex',justifyContent:'space-between',gap:10,flexWrap:'wrap',fontSize:12,color:C.dim}}>
+            <span>{leftTxt}{leftTxt && p && p.daysLeft ? ` за ${p.daysLeft} дн.` : ''}</span>
+            {showPace && (p.overdue
+              ? <span style={{color:C.red}}>срок прошёл</span>
+              : p.need>0 && mode!=='none' && <span style={{color:behind?C.red:C.amber}}>нужно {num(p.need)}{p.unit==='%'?'%':' шт'}/день</span>)}
+          </div>
+        )}
+
+        {(g.deadline || deadlineId===g.id || (showGoalDeadline && mode!=='none' && !done)) && (
+          <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
+            {g.deadline && deadlineId!==g.id ? (
+              <button className="chip" onClick={()=>setDeadlineId(g.id)} style={{fontFamily:'inherit',background:p&&p.overdue?tint(C.red,.14):C.panelAlt,color:p&&p.overdue?C.red:C.dim}}>
+                <Icon name="clock" size={12}/>дедлайн {ddmm(g.deadline)}{!done && g.deadline>=today ? ` · ${daysBetween(today,g.deadline)+1} дн.`:''}
+              </button>
+            ) : (
+              <>
+                <span style={{fontSize:12,color:C.dim}}>Дедлайн</span>
+                <input type="date" value={g.deadline||''} aria-label="Дедлайн цели" onChange={e=>{ setGoalDeadline(sc,g.id,e.target.value); }}
+                  style={{...S.input,fontSize:12.5,padding:'5px 8px',width:150,flex:'none'}} />
+                {g.deadline && <button className="icon-btn" aria-label="Убрать дедлайн" onClick={()=>{ setGoalDeadline(sc,g.id,''); setDeadlineId(null); }}><Icon name="x" size={14}/></button>}
+                {deadlineId===g.id && <button style={S.btnGhost} onClick={()=>setDeadlineId(null)}>Готово</button>}
+              </>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div>
-      <div style={S.panel}>
-        <div style={S.panelTitle}>Новая цель</div>
-        <div style={S.inputRow}>
-          <Select style={{minWidth:110}} value={scope} onChange={setScope} options={scopes.map(s=>({value:s.id,label:s.label}))} />
-          <input style={S.input} placeholder="Формулировка цели" value={text} onChange={e=>setText(e.target.value)}
-            onKeyDown={e=>{ if(e.key==='Enter') addFromForm(); }} />
-          <button style={S.iconBtnAmber} onClick={addFromForm}>+</button>
+      <div style={{display:'flex',gap:10,alignItems:'center',marginBottom:18,flexWrap:'wrap'}}>
+        <div style={{...S.seg,flex:'1 1 260px'}}>
+          {[{id:'all',label:'Все'},...SCOPES].map(o=>(
+            <button key={o.id} onClick={()=>setView(o.id)} style={{...S.segBtn,flex:1,background:view===o.id?C.panelAlt:'transparent',color:view===o.id?C.text:C.dim}}>{o.label}</button>))}
         </div>
+        <button style={S.btnPrimary} onClick={()=>{ if(view!=='all') setScope(view); setAddOpen(o=>!o); }} aria-expanded={addOpen}><Icon name={addOpen?'x':'plus'} size={16}/>{addOpen?'Закрыть':'Цель'}</button>
       </div>
-      <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(210px,1fr))', gap:16}}>
-        {scopes.map(({id,label})=>{
+
+      {addOpen && (
+        <div style={{...S.plate,display:'flex',flexDirection:'column',gap:10,marginBottom:22}}>
+          <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+            {SCOPES.map(s=><button key={s.id} className="chip" onClick={()=>setScope(s.id)} style={{fontFamily:'inherit',background:scope===s.id?tint(C.amber,.16):C.panelAlt,color:scope===s.id?C.amber:C.dim}}>{s.label}</button>)}
+          </div>
+          <div style={{display:'flex',gap:8}}>
+            <input autoFocus style={{...S.input,background:C.bg}} placeholder="Формулировка цели" value={text} aria-label="Формулировка цели"
+              onChange={e=>setText(e.target.value)} onKeyDown={e=>{ if(e.key==='Enter') addFromForm(); }} />
+            <button style={{...S.iconBtnAmber,opacity:text.trim()?1:.45}} aria-label="Добавить цель" onClick={addFromForm}><Icon name="plus" size={18}/></button>
+          </div>
+          <span style={{fontSize:12,color:C.dim}}>Тип трекера (ползунок, шаги, счётчик) выбирается у цели после создания.</span>
+        </div>
+      )}
+
+      <div style={view==='all'?{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(min(100%,300px),1fr))',gap:'0 32px'}:{}}>
+        {shown.map(({id,label})=>{
           const list = goals[id]||[];
-          const avg = list.length? Math.round(list.reduce((s,g)=>s+g.progress,0)/list.length) : 0;
-          const isC = !!collapsed[id]; const doneCount = list.filter(g=>(g.progress||0)>=100).length;
+          const avg = list.length? Math.round(list.reduce((s,g)=>s+(g.progress||0),0)/list.length) : 0;
+          const doneCount = list.filter(g=>(g.progress||0)>=100).length;
+          const isC = view==='all' && !!collapsed[id];
+          const pt = periodTitle(id, today);
           return (
-            <div key={id} style={S.panel}>
-              <div style={{...S.panelTitle,cursor:'pointer',display:'flex',alignItems:'center',marginBottom:isC?0:10}} onClick={()=>onToggleCollapse && onToggleCollapse(id)}>
-                <span style={{marginRight:6}}>{isC?'▶':'▼'}</span>{label} <span style={S.dimSpan}>{avg}%{list.length?` · ${doneCount}/${list.length}`:''}</span>
-              </div>
-              {!isC && list.length===0 && <div style={S.emptyState}>Целей пока нет</div>}
-              {!isC && list.map(g=>{ const mode=modeOf(g); const done=(g.progress||0)>=100;
-                return (
-                <div key={g.id} style={{marginBottom:14, paddingBottom:10, borderBottom:`1px solid ${C.border}`}}>
-                  {editId===g.id ? (
-                    <div style={{display:'flex',alignItems:'center',gap:6}}>
-                      <input style={{...S.input,flex:1,minWidth:0}} value={editText} autoFocus
-                        onChange={e=>setEditText(e.target.value)}
-                        onKeyDown={e=>{ if(e.key==='Enter') saveRename(id,g.id); if(e.key==='Escape') setEditId(null); }} />
-                      <button style={{...S.iconBtnAmber,width:34,height:34,fontSize:14,flex:'none'}} title="сохранить название"
-                        onClick={()=>saveRename(id,g.id)}>💾</button>
-                      <button className="icon-btn" title="отмена" onClick={()=>setEditId(null)}>✕</button>
-                    </div>
-                  ) : (
-                  <div style={{display:'flex',alignItems:'flex-start',gap:8}}>
-                    <div style={{flex:1,minWidth:0,fontSize:13.5,color:done?C.dim:C.text,textDecoration:done?'line-through':'none',overflowWrap:'anywhere',wordBreak:'break-word'}}>{g.title}</div>
-                    <button className="icon-btn" title="переименовать" onClick={()=>{ setEditText(g.title||''); setEditId(g.id); }}>✏</button>
-                    <ConfirmIconBtn onConfirm={()=>archiveGoal(id,g.id)} icon="🏁" confirmLabel="в архив?" title="в архив (сохранить)" />
-                    <ConfirmIconBtn onConfirm={()=>deleteGoal(id,g.id)} confirmLabel="удалить?" title="удалить безвозвратно" />
-                  </div>
-                  )}
-
-                  {mode==='none' && (
-                    <div style={{marginTop:6}}>
-                      <label style={{display:'flex',alignItems:'center',gap:8,cursor:'pointer'}}>
-                        <input type="checkbox" checked={done} onChange={()=>setGoalProgress(id,g.id,done?0:100)} />
-                        <span style={{fontSize:12.5,color:done?C.green:C.dim}}>{done?'✓ Выполнено':'Отметить выполненной'}</span>
-                      </label>
-                      <div style={{display:'flex',gap:6,marginTop:8,flexWrap:'wrap',alignItems:'center'}}>
-                        <span style={{fontSize:10.5,color:C.dim}}>+ трекер:</span>
-                        <div className="chip" style={{background:C.panelAlt,color:C.cyan,borderColor:C.border,padding:'4px 10px',fontSize:11}} onClick={()=>setGoalMode(id,g.id,'slider')}>Ползунок</div>
-                        <div className="chip" style={{background:C.panelAlt,color:C.cyan,borderColor:C.border,padding:'4px 10px',fontSize:11}} onClick={()=>setGoalMode(id,g.id,'subtasks')}>Шаги</div>
-                        <div className="chip" style={{background:C.panelAlt,color:C.amber,borderColor:C.border,padding:'4px 10px',fontSize:11}} onClick={()=>setGoalMode(id,g.id,'counter')}>Счётчик</div>
-                      </div>
-                    </div>
-                  )}
-
-                  {mode==='counter' && g.counter && (
-                    <div style={{marginTop:8}}>
-                      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:8,flexWrap:'wrap'}}>
-                        <div style={{display:'flex',alignItems:'center',background:C.panelAlt,border:`1px solid ${C.border}`,borderRadius:8,overflow:'hidden'}}>
-                          <button className="cnt-btn" onClick={()=>setGoalCounter(id,g.id,{current:(g.counter.current||0)-1})} style={S.counterBtn} aria-label="минус">−</button>
-                          <div style={{fontVariantNumeric:'tabular-nums',minWidth:58,textAlign:'center',display:'flex',alignItems:'baseline',justifyContent:'center',gap:2}}>
-                            <span style={{fontSize:14,fontWeight:700,color:done?C.green:C.text}}>{g.counter.current||0}</span>
-                            <span style={{color:C.dim,fontSize:12.5,fontWeight:500}}>/ {g.counter.target}</span>
-                          </div>
-                          <button className="cnt-btn" onClick={()=>setGoalCounter(id,g.id,{current:(g.counter.current||0)+1})} style={S.counterBtn} aria-label="плюс">+</button>
-                        </div>
-                        <label style={{display:'flex',alignItems:'center',gap:5,fontSize:11,color:C.dim}}>цель
-                          <input key={g.counter.target} style={{...S.input,fontSize:12,padding:'5px 6px',width:54,minWidth:0,textAlign:'center',flex:'none'}} type="number"
-                            defaultValue={g.counter.target} onBlur={e=>setGoalCounter(id,g.id,{target:parseInt(e.target.value,10)||1})} /></label>
-                      </div>
-                      <div style={{height:5,background:C.panelAlt,borderRadius:3,overflow:'hidden',marginTop:8}}><div style={{height:'100%',background:done?C.green:C.amber,width:`${g.progress||0}%`}}/></div>
-                    </div>
-                  )}
-
-                  {mode==='subtasks' && (
-                    <div style={{marginTop:6}}>
-                      {(g.subtasks||[]).map(s=>(
-                        <div key={s.id} className="row-hover" style={{display:'flex',alignItems:'center',gap:6,padding:'3px 0'}}>
-                          <input type="checkbox" checked={s.done} onChange={()=>toggleGoalSubtask(id,g.id,s.id)} />
-                          <div style={{flex:1,minWidth:0,fontSize:12.5,textDecoration:s.done?'line-through':'none',color:s.done?C.dim:C.text,overflowWrap:'anywhere'}}>{s.text}</div>
-                          <button className="icon-btn" onClick={()=>deleteGoalSubtask(id,g.id,s.id)}>✕</button>
-                        </div>
-                      ))}
-                      <div style={{display:'flex',gap:6,marginTop:4}}>
-                        <input style={{...S.input,fontSize:12,padding:'5px 8px'}} placeholder="+ шаг" value={subtaskInputs[g.id]||''}
-                          onChange={e=>setSubtaskInputs({...subtaskInputs,[g.id]:e.target.value})}
-                          onKeyDown={e=>{ if(e.key==='Enter' && (subtaskInputs[g.id]||'').trim()){ addGoalSubtask(id,g.id,subtaskInputs[g.id].trim()); setSubtaskInputs({...subtaskInputs,[g.id]:''}); } }} />
-                        <button title="добавить шаг" style={{...S.iconBtnAmber,width:30,height:30,fontSize:14}}
-                          onClick={()=>{ if((subtaskInputs[g.id]||'').trim()){ addGoalSubtask(id,g.id,subtaskInputs[g.id].trim()); setSubtaskInputs({...subtaskInputs,[g.id]:''}); } }}>✓</button>
-                      </div>
-                    </div>
-                  )}
-
-                  {mode==='slider' && (
-                    <div style={{display:'flex',alignItems:'center',gap:8,marginTop:4}}>
-                      <input type="range" min="0" max="100" step="1" value={g.progress||0} style={{flex:1,minWidth:0}} onChange={e=>setGoalProgress(id,g.id,parseInt(e.target.value,10))} />
-                      <div style={{fontVariantNumeric:'tabular-nums',fontSize:11.5,color:C.dim,minWidth:34,textAlign:'right'}}>{g.progress||0}%</div>
-                    </div>
-                  )}
-
-                  {/* дедлайн + темп (session 025; скрытие дедлайна — goal-deadline-hide).
-                      Дата-инпут показывается только при settings.showGoalDeadline; темп считается всегда
-                      по неявному дедлайну (конец недели/месяца/года), кроме простых целей-галочек без явного дедлайна. */}
-                  {(() => { const p=paceInfo(g, id); const showPace = p && (mode!=='none' || g.deadline);
-                    if(!showGoalDeadline && !showPace) return null;
-                    return (
-                    <div style={{marginTop:8,display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
-                      {showGoalDeadline && <>
-                        <span style={{fontSize:10.5,color:C.dim}}>⏰ дедлайн</span>
-                        <input type="date" value={g.deadline||''} onChange={e=>setGoalDeadline(id,g.id,e.target.value)}
-                          style={{...S.input,fontSize:11,padding:'4px 6px',minWidth:0,flex:'none',width:140}} />
-                        {g.deadline && <span className="icon-btn" style={{fontSize:11,color:C.dim,cursor:'pointer'}} onClick={()=>setGoalDeadline(id,g.id,'')}>✕</span>}
-                      </>}
-                      {showPace && (p.done
-                        ? <span style={{fontSize:10.5,color:C.green}}>✓ выполнено</span>
-                        : p.overdue
-                          ? <span style={{fontSize:10.5,color:C.red}}>просрочено</span>
-                          : <span style={{fontSize:10.5,color:p.need<=0?C.green:C.amber}}>нужно +{p.need}{p.unit}/день · {p.daysLeft} дн.</span>)}
-                    </div>
-                  ); })()}
-
-                  {mode!=='none' && (
-                    <div style={{display:'flex',gap:10,marginTop:6,flexWrap:'wrap'}}>
-                      <span style={{fontSize:10.5,color:C.dim,cursor:'pointer'}} onClick={()=>setGoalMode(id,g.id,'none')}>сменить тип</span>
-                    </div>
-                  )}
+            <div key={id} style={{marginBottom:24}}>
+              <button onClick={()=>view==='all' && onToggleCollapse && onToggleCollapse(id)} aria-expanded={!isC}
+                style={{display:'flex',alignItems:'center',gap:8,width:'100%',background:'none',border:'none',padding:'0 0 6px',cursor:view==='all'?'pointer':'default',color:C.text,fontFamily:'inherit',textAlign:'left'}}>
+                {view==='all' && <span style={{color:C.dim,display:'flex',transform:isC?'none':'rotate(90deg)',transition:'transform .15s'}}><Icon name="chevR" size={14}/></span>}
+                <span style={{...S.panelTitle,marginBottom:0,flex:1}}>{label}<span style={S.dimSpan}>{pt.name}{pt.left!=null?` · осталось ${pt.left} дн.`:''}</span></span>
+                {list.length>0 && <span style={{fontSize:12,color:C.dim,fontVariantNumeric:'tabular-nums'}}>{doneCount} / {list.length} · {avg}%</span>}
+              </button>
+              {!isC && list.length===0 && (
+                <div style={{...S.emptyState,display:'flex',alignItems:'center',justifyContent:'space-between',gap:10}}>
+                  <span>Целей на {label.toLowerCase()==='день'?'день':label.toLowerCase()==='год'?'год':label.toLowerCase()==='неделя'?'неделю':'месяц'} нет.</span>
+                  <button style={S.btnGhost} onClick={()=>{ setScope(id); setAddOpen(true); }}><Icon name="plus" size={14}/>Добавить</button>
                 </div>
-              );})}
+              )}
+              {!isC && <div style={{borderTop:list.length?`1px solid ${C.border}`:'none'}}>{list.map(g=>goalItem(id,g))}</div>}
             </div>
           );
         })}
       </div>
-      {/* Архив целей — внизу, свёрнут по умолчанию (инлайн, как у привычек/дел) */}
+
+      {/* Архив целей — внизу, свёрнут по умолчанию */}
       {archive.length>0 && (
-        <div style={{marginTop:18}}>
-          <div onClick={()=>setArchiveShow(s=>!s)} style={{display:'flex',alignItems:'center',justifyContent:'space-between',cursor:'pointer',userSelect:'none',padding:'6px 2px'}}>
-            <span style={{fontSize:12.5,color:C.dim}}>🗄 Архив целей · {archive.length}</span>
-            <span style={{color:C.dim,fontSize:12,transition:'transform .2s ease',transform:archiveShow?'rotate(180deg)':'none'}}>▾</span>
-          </div>
+        <div style={{marginTop:6}}>
+          <button onClick={()=>setArchiveShow(s=>!s)} aria-expanded={archiveShow}
+            style={{display:'flex',alignItems:'center',gap:8,width:'100%',background:'none',border:'none',color:C.dim,cursor:'pointer',padding:'8px 0',fontFamily:'inherit',fontSize:13}}>
+            <Icon name="archive" size={15}/><span style={{flex:1,textAlign:'left'}}>Архив целей · {archive.length}</span>
+            <span style={{display:'flex',transform:archiveShow?'rotate(90deg)':'none',transition:'transform .15s'}}><Icon name="chevR" size={14}/></span>
+          </button>
           {archiveShow && (
-            <div className="anim-collapse" style={{marginTop:8}}>
+            <div className="anim-collapse">
               {[...archive].reverse().map((g,i)=>(
-                <div key={g.id+'_'+g.archivedAt+'_'+i} className="row-hover" style={{display:'flex',alignItems:'center',gap:8,padding:'8px 0',borderBottom:`1px solid ${C.border}`}}>
-                  <div style={{flex:1,minWidth:0,overflowWrap:'anywhere'}}>
-                    <div style={{fontSize:13,color:(g.progress||0)>=100?C.green:C.text}}>{(g.progress||0)>=100?'✓ ':''}{g.title}</div>
-                    <div style={{fontSize:10.5,color:C.dim}}>{PERIOD_LABEL[g.scope]||g.scope} · {g.period||'—'} · {g.progress||0}%{g.completedAt?` · ✅ выполнено ${g.completedAt}`:''} · архив {g.archivedAt}</div>
+                <div key={g.id+'_'+g.archivedAt+'_'+i} style={S.taskRow}>
+                  <div style={{flex:1,minWidth:0,overflowWrap:'anywhere',display:'flex',flexDirection:'column',gap:2}}>
+                    <span style={{fontSize:14,color:(g.progress||0)>=100?C.green:C.text}}>{g.title}</span>
+                    <span style={{fontSize:12,color:C.dim}}>{PERIOD_LABEL[g.scope]||g.scope} · {g.period||'—'} · {g.progress||0}%{g.completedAt?` · выполнена ${g.completedAt}`:''} · в архиве с {g.archivedAt}</span>
                   </div>
-                  <button className="icon-btn" title="вернуть в активные" style={{color:C.cyan}} onClick={()=>restoreGoal(g.id, g.archivedAt)}>↩</button>
-                  <ConfirmIconBtn onConfirm={()=>deleteArchivedGoal(g.id, g.archivedAt)} title="удалить из архива" />
+                  <button style={S.btnGhost} onClick={()=>restoreGoal(g.id, g.archivedAt)}><Icon name="restore" size={14}/>Вернуть</button>
+                  <ConfirmIconBtn onConfirm={()=>deleteArchivedGoal(g.id, g.archivedAt)} title="удалить из архива" confirmLabel="удалить?" icon="trash" />
                 </div>
               ))}
             </div>

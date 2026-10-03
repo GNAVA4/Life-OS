@@ -326,6 +326,13 @@ function App(){
     sub[key] = !sub[key]; c[kind] = sub;
     persist.settings({...settings, collapse:c});
   };
+  // Свернуть/развернуть сразу несколько групп ОДНОЙ записью: вызывать toggleCollapse в цикле нельзя —
+  // каждый вызов стартует от одного и того же settings из замыкания и затирает предыдущий. session 043.
+  const setCollapseAll = (kind, keys, value) => {
+    const c = {...(settings.collapse||{})}; const sub = {...(c[kind]||{})};
+    keys.forEach(k => { sub[k] = !!value; }); c[kind] = sub;
+    persist.settings({...settings, collapse:c});
+  };
   // Скрыть конкретный бюджет-алерт (по месяцу+категории — на следующий месяц вернётся). session 024
   const dismissAlert = (key) => { const d={...(settings.dismissedAlerts||{})}; d[key]=true; persist.settings({...settings, dismissedAlerts:d}); };
 
@@ -1185,7 +1192,7 @@ function App(){
         collapsed={collapseState.goals||{}} onToggleCollapse={(sc)=>toggleCollapse('goals',sc)}
         archive={goalsArchive} restoreGoal={restoreGoal} deleteArchivedGoal={deleteArchivedGoal} />}
       {tab==='study' && <StudyTab study={study} addStudyTask={addStudyTask} updateStudyTask={updateStudyTask} deleteStudyTask={deleteStudyTask} archiveStudyTask={archiveStudyTask} archive={studyArchive} deleteArchivedStudy={deleteArchivedStudy} restoreStudy={restoreStudy}
-        collapsed={collapseState.study||{}} onToggleCollapse={(epic)=>toggleCollapse('study',epic)} />}
+        collapsed={collapseState.study||{}} onToggleCollapse={(epic)=>toggleCollapse('study',epic)} onSetCollapseAll={(keys,v)=>setCollapseAll('study',keys,v)} />}
       {tab==='notes' && <NotesTab notes={notes} addNote={addNote} updateNote={updateNote} deleteNote={deleteNote} />}
       {tab==='finance' && <FinanceTab finance={finance} categories={categories} budgets={budgets} incomePlans={incomePlans} bills={bills} defaults={settings.defaults||{}}
         finMask={finMask} setSettingFlag={setSettingFlag}

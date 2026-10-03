@@ -11,6 +11,7 @@ import { goalLinksOf, goalMode } from '../lib/goals.js';
 import { vis } from '../lib/storage.js';
 import { S } from '../lib/styles.js';
 import { C, tint } from '../lib/theme.js';
+import { Check } from '../ui/Check.jsx';
 import { GoalLinkPicker } from '../ui/GoalLinkPicker.jsx';
 import { Icon } from '../ui/Icon.jsx';
 import { ConfirmIconBtn } from '../ui/primitives.jsx';
@@ -23,16 +24,6 @@ const WD = ['пн','вт','ср','чт','пт','сб','вс'];
 const SLEEP_STEP = 0.5, SLEEP_START = 8;
 const fmt1 = (n) => n.toLocaleString('ru-RU',{minimumFractionDigits:1,maximumFractionDigits:1});
 
-// Круглая отметка выполнения (замена нативному чекбоксу).
-export function Check({checked, onChange, label, color=C.amber}){
-  return (
-    <button type="button" role="checkbox" aria-checked={!!checked} aria-label={label} onClick={onChange}
-      style={{width:22,height:22,borderRadius:'50%',flex:'none',cursor:'pointer',padding:0,display:'grid',placeItems:'center',
-        border:`1.6px solid ${checked?color:'#4A4E55'}`,background:checked?color:'transparent',color:C.bg}}>
-      {checked && <Icon name="check" size={13} stroke={3}/>}
-    </button>
-  );
-}
 
 // Название цели по привязке {scope, goalId, amount}.
 function linkLabel(goals, l){
