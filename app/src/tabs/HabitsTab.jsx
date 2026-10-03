@@ -2,7 +2,7 @@
 // Функции прежние: создание (расписание, челлендж, заморозки, напоминание, цели), отметка любого из 7 дней и
 // «Отметить сегодня», серия/рекорд, челлендж, напоминание, завершить/сдаться/удалить, архив с возвратом.
 // Новое: «подробно» — месяц целиком, можно отметить и давние дни (toggleHabitDay и раньше принимал любую дату).
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { addDays, monthLabelRu, shiftMonth, todayStr } from '../lib/dates.js';
 import { goalLinksOf, goalMode } from '../lib/goals.js';
 import { HABIT_WD, habitBestStreak, habitChallengeDone, habitChallengeRun, habitCompletedCount, habitCurrentStreak, habitDoneOn, habitScheduleLabel, isHabitScheduled } from '../lib/habits.js';
@@ -13,7 +13,10 @@ import { Icon } from '../ui/Icon.jsx';
 import { ConfirmIconBtn, Modal } from '../ui/primitives.jsx';
 
 const WD_ORDER = [1,2,3,4,5,6,0]; // Пн..Вс
+const CELL = 36; // сторона клетки дня, px: 7 клеток + промежутки помещаются в 360px экрана (референс Э2)
 const daysWord = (n) => { const a=Math.abs(n)%100, b=a%10; return (a>10&&a<20)?'дней':b===1?'день':(b>=2&&b<=4)?'дня':'дней'; };
+
+const FORM_IN = {...S.input, width:120, flex:'none', background:C.bg, textAlign:'right'};
 
 function goalNames(goals, h){
   return goalLinksOf(h).map(l=>{ const g=(goals[l.scope]||[]).find(x=>x.id===l.goalId); return g ? `${g.title} +${l.amount}${goalMode(g)==='counter'?'':'%'}` : null; }).filter(Boolean);
@@ -25,9 +28,9 @@ function DayCell({ds, h, today, onToggle, showWd}){
   const can = sched && !fut;
   return (
     <button type="button" disabled={!can} onClick={()=>can && onToggle(ds)} aria-pressed={done} aria-label={`${ds}${done?' — отмечено':''}`}
-      style={{display:'flex',flexDirection:'column',alignItems:'center',gap:3,background:'none',border:'none',padding:0,cursor:can?'pointer':'default',fontFamily:'inherit',minWidth:0}}>
-      {showWd && <span style={{fontSize:10,color:isT?C.amber:C.faint}}>{HABIT_WD[new Date(ds+'T00:00:00').getDay()]}</span>}
-      <span style={{width:'100%',height:30,borderRadius:8,display:'grid',placeItems:'center',fontSize:12,fontWeight:done?600:500,fontVariantNumeric:'tabular-nums',
+      style={{display:'flex',flexDirection:'column',alignItems:'center',gap:4,background:'none',border:'none',padding:0,cursor:can?'pointer':'default',fontFamily:'inherit',minWidth:0}}>
+      {showWd && <span style={{fontSize:10.5,color:isT?C.amber:C.faint}}>{HABIT_WD[new Date(ds+'T00:00:00').getDay()].toLowerCase()}</span>}
+      <span style={{width:CELL,height:CELL,borderRadius:9,display:'grid',placeItems:'center',fontSize:12,fontWeight:done?600:500,fontVariantNumeric:'tabular-nums',
         background:done?C.amber:(sched&&!fut?C.panelAlt:'transparent'),color:done?'#17130C':(sched&&!fut?C.dim:C.faint),
         outline:isT?`1.5px solid ${C.amber}`:'none',outlineOffset:isT&&done?2:0,opacity:sched?1:.5}}>
         {parseInt(ds.slice(8),10)}
@@ -36,7 +39,7 @@ function DayCell({ds, h, today, onToggle, showWd}){
   );
 }
 
-export function HabitsTab({habits, addHabit, toggleHabitDay, deleteHabit, updateHabit, archiveHabit, abandonHabit, archive=[], deleteArchivedHabit, restoreHabit, goals={}, notifsOn}){
+export function HabitsTab({registerAdd, habits, addHabit, toggleHabitDay, deleteHabit, updateHabit, archiveHabit, abandonHabit, archive=[], deleteArchivedHabit, restoreHabit, goals={}, notifsOn}){
   const [view,setView] = useState('active');
   const [addOpen,setAddOpen] = useState(false);
   const [name,setName] = useState('');
@@ -50,6 +53,8 @@ export function HabitsTab({habits, addHabit, toggleHabitDay, deleteHabit, update
   const [detailId,setDetailId] = useState(null);
   const [detailMonth,setDetailMonth] = useState(null);
   const today = todayStr();
+  // «+» в шапке приложения открывает форму новой привычки
+  useEffect(()=>{ if(!registerAdd) return; registerAdd(()=>{ setView('active'); setAddOpen(true); }); return ()=>registerAdd(null); }, [registerAdd]);
 
   const submit = () => {
     if(!name.trim()){ setFormErr('Введи название привычки.'); return; }
@@ -73,19 +78,19 @@ export function HabitsTab({habits, addHabit, toggleHabitDay, deleteHabit, update
   return (
     <div>
       <div style={{display:'flex',gap:10,alignItems:'center',marginBottom:18}}>
-        <div style={{...S.seg,flex:1}}>
+        <div style={{...S.seg,flex:1,display:'flex'}}>
           {[{id:'active',l:`Активные · ${habits.length}`},{id:'archive',l:`Архив · ${archive.length}`}].map(o=>(
             <button key={o.id} onClick={()=>setView(o.id)} style={{...S.segBtn,flex:1,background:view===o.id?C.panelAlt:'transparent',color:view===o.id?C.text:C.dim}}>{o.l}</button>
           ))}
         </div>
-        {view==='active' && <button style={S.btnPrimary} onClick={()=>setAddOpen(o=>!o)} aria-expanded={addOpen}><Icon name={addOpen?'x':'plus'} size={16}/>{addOpen?'Закрыть':'Привычка'}</button>}
       </div>
 
-      {view==='active' && addOpen && (
-        <div style={{...S.plate,display:'flex',flexDirection:'column',gap:12,marginBottom:22}}>
-          <input autoFocus style={{...S.input,background:C.bg}} placeholder="Например: 10 минут медитации" value={name} onChange={e=>{ setName(e.target.value); setFormErr(''); }} onKeyDown={e=>e.key==='Enter'&&submit()} aria-label="Название привычки" />
+      {addOpen && (
+        <Modal onClose={()=>{ setAddOpen(false); setFormErr(''); }} title="Новая привычка">
+        <div style={{display:'flex',flexDirection:'column',gap:16}}>
+          <input autoFocus style={S.input} placeholder="Например: 10 минут медитации" value={name} onChange={e=>{ setName(e.target.value); setFormErr(''); }} onKeyDown={e=>e.key==='Enter'&&submit()} aria-label="Название привычки" />
           <div style={{display:'flex',flexDirection:'column',gap:8}}>
-            <span style={{fontSize:12,color:C.dim}}>Расписание</span>
+            <span style={{fontSize:12.5,color:C.dim}}>Расписание</span>
             <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
               {chipBtn(schedType==='daily', ()=>setSchedType('daily'), 'Каждый день', 'd')}
               {chipBtn(schedType==='weekdays', ()=>setSchedType('weekdays'), 'Дни недели', 'w')}
@@ -98,22 +103,25 @@ export function HabitsTab({habits, addHabit, toggleHabitDay, deleteHabit, update
               </div>
             )}
           </div>
-          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))',gap:8}}>
-            <label style={{display:'flex',flexDirection:'column',gap:5,fontSize:12,color:C.dim}}>Челлендж, дней подряд
-              <input style={{...S.input,background:C.bg}} type="number" min="0" inputMode="numeric" placeholder="без челленджа" value={target} onChange={e=>setTarget(e.target.value)} /></label>
-            <label style={{display:'flex',flexDirection:'column',gap:5,fontSize:12,color:C.dim}}>Пропусков в месяц без срыва
-              <input style={{...S.input,background:C.bg}} type="number" min="0" inputMode="numeric" placeholder="0" value={freezes} onChange={e=>setFreezes(e.target.value)} /></label>
-            <label style={{display:'flex',flexDirection:'column',gap:5,fontSize:12,color:C.dim}}>Напоминание
-              <input style={{...S.input,background:C.bg}} type="time" value={reminder} onChange={e=>setReminder(e.target.value)} /></label>
+          <div style={{background:C.panelAlt,borderRadius:12,padding:'2px 14px'}}>
+            {[
+              {l:'Челлендж, дней подряд', el:<input style={FORM_IN} type="number" min="0" inputMode="numeric" placeholder="нет" value={target} onChange={e=>setTarget(e.target.value)} aria-label="Челлендж, дней подряд" />},
+              {l:'Пропусков в месяц', el:<input style={FORM_IN} type="number" min="0" inputMode="numeric" placeholder="0" value={freezes} onChange={e=>setFreezes(e.target.value)} aria-label="Пропусков в месяц" />},
+              {l:'Напоминание', el:<input style={FORM_IN} type="time" value={reminder} onChange={e=>setReminder(e.target.value)} aria-label="Напоминание" />},
+            ].map((r,i)=>(
+              <label key={i} style={{display:'flex',alignItems:'center',gap:12,padding:'10px 0',borderTop:i?`1px solid ${C.border}`:'none',fontSize:14,fontWeight:400,color:C.text}}>
+                <span style={{flex:1,minWidth:0}}>{r.l}</span>{r.el}
+              </label>))}
           </div>
-          {reminder && <span style={{fontSize:12,color:C.dim,marginTop:-4}}>{notifsOn?'Придёт на телефон в это время.':'Уведомления выключены — включи их в Настройках.'}</span>}
+          {reminder && <span style={{fontSize:12.5,color:C.dim,marginTop:-8}}>{notifsOn?'Придёт на телефон в это время.':'Уведомления выключены — включи их в Настройках.'}</span>}
           <div style={{display:'flex',flexDirection:'column',gap:2}}>
-            <span style={{fontSize:12,color:C.dim}}>Цели (вклад при отметке)</span>
+            <span style={{fontSize:12.5,color:C.dim}}>Цели (вклад при отметке)</span>
             <GoalLinkPicker goals={goals} links={habitLinks} onLinks={setHabitLinks} />
           </div>
           {formErr && <span style={{fontSize:12.5,color:C.red}}>{formErr}</span>}
-          <button style={S.btnPrimary} onClick={submit}>Добавить привычку</button>
+          <button style={{...S.btnPrimary,padding:'11px 14px'}} onClick={submit}>Добавить привычку</button>
         </div>
+        </Modal>
       )}
 
       {view==='active' && habits.length===0 && !addOpen && (
@@ -130,7 +138,6 @@ export function HabitsTab({habits, addHabit, toggleHabitDay, deleteHabit, update
         const best = habitBestStreak(h, today);
         const done = habitCompletedCount(h);
         const todayScheduled = isHabitScheduled(h, today);
-        const todayDone = habitDoneOn(h, today);
         // Прогресс челленджа = ТЕКУЩАЯ серия (с учётом разрешённых пропусков), а не сумма отметок. См. lib/habits.js.
         const run = habitChallengeRun(h, today);
         const targetPct = h.targetDays>0 ? Math.min(100, run/h.targetDays*100) : 0;
@@ -155,7 +162,7 @@ export function HabitsTab({habits, addHabit, toggleHabitDay, deleteHabit, update
               <button className="icon-btn" aria-label="Подробно и действия" title="Подробно" onClick={()=>openDetail(h)}><Icon name="more" size={18}/></button>
             </div>
 
-            <div style={{display:'grid',gridTemplateColumns:'repeat(7,minmax(0,1fr))',gap:5}}>
+            <div style={{display:'flex',justifyContent:'space-between',gap:4,maxWidth:7*CELL+6*14}}>
               {last7.map(ds=><DayCell key={ds} ds={ds} h={h} today={today} showWd onToggle={(d)=>toggleHabitDay(h.id, d)} />)}
             </div>
 
@@ -169,12 +176,6 @@ export function HabitsTab({habits, addHabit, toggleHabitDay, deleteHabit, update
               </div>
             )}
 
-            {todayScheduled && (
-              <button onClick={()=>toggleHabitDay(h.id, today)}
-                style={{...(todayDone?S.btnGhost:S.btnPrimary),marginTop:12,width:'100%',padding:'10px'}}>
-                {todayDone ? <><Icon name="check" size={15}/>Сегодня отмечено · отменить</> : 'Отметить сегодня'}
-              </button>
-            )}
           </div>
         );
       })}

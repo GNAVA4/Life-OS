@@ -20,7 +20,6 @@ const REPEAT_LOOKBACK_DAYS = 60, REPEAT_MAX = 4;
 
 export function OpsSection({part='ops', viewMonth, setViewMonth, finance, categories, budgets, incomePlans, bills, monthTx, defaults={}, finMask={}, addTransaction, deleteTransaction, addCategory, removeCategory, setBudget, removeBudget, setIncomePlan, removeIncomePlan, setBudgetsBatch, setIncomePlansBatch, addBill, deleteBill, updateBill, collapse={}, toggleCollapse, dismissedAlerts={}, dismissAlert}){
   const mo = n => maskMoney(finMask.ops, n);   // приватность: скрытие сумм операций
-  const [planOpen,setPlanOpen] = useState(false);
   const [planKind,setPlanKind] = useState('expense');
   // категория по умолчанию: из настроек, если валидна, иначе первая в списке
   const defExpenseCat = categories.expense.includes(defaults.expenseCat) ? defaults.expenseCat : categories.expense[0];
@@ -345,7 +344,7 @@ export function OpsSection({part='ops', viewMonth, setViewMonth, finance, catego
           </div>
         );
         return (
-          <PlanPanel title="План / факт" kindToggle={kindToggle} open={planOpen} setOpen={setPlanOpen} planSwitcher={null} resetKey={viewMonth+'_'+effKind} mask={finMask.ops}
+          <PlanPanel title="План / факт" kindToggle={kindToggle} kindWord={isExp?'расходов':'доходов'} resetKey={viewMonth+'_'+effKind} mask={finMask.ops}
             categories={isExp?categories.expense:categories.income}
             actualByCat={isExp?planExpenseByCat:planIncomeByCat}
             plans={isExp?monthBudgets:monthIncomePlans}

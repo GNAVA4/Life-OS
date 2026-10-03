@@ -63,3 +63,6 @@ button:active,.chip:active{transform:scale(.96);}
 input,textarea{transition:border-color .15s ease,background .15s ease;}
 .row-hover{transition:background .12s ease;}
 @media (prefers-reduced-motion:reduce){*{animation-duration:.01ms !important;animation-iteration-count:1 !important;}}
+/* Заметки: колонки-«кирпичи» на широком экране (Э5, session 046) */
+.notes-cols{column-gap:12px;}
+@media (min-width:721px){ .notes-cols{columns:300px 3;} }

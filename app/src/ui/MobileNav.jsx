@@ -24,7 +24,7 @@ export function MobileBottomNav({ tabIds = [], tab, onPick, onOpenSheet }) {
   );
 }
 
-export function MobileSheet({ tabIds = [], tab, user, onPick, onClose, onLogin, onLogout, syncPaused, onSyncCheck, onExportExcel, onExportJson, onImport }) {
+export function MobileSheet({ tabIds = [], tab, user, onProfile, onPick, onClose, onLogin, onLogout, syncPaused, onSyncCheck, onExportExcel, onExportJson, onImport }) {
   const tile = (id, icon, label) => (
     <button key={id} onClick={() => onPick(id)} style={{ ...S.sheetTile, ...(tab === id ? { borderColor: C.amber, color: C.amber } : {}) }}>
       <Icon name={icon} size={20} /><span style={{ fontSize: 12.5 }}>{label}</span>
@@ -39,6 +39,7 @@ export function MobileSheet({ tabIds = [], tab, user, onPick, onClose, onLogin, 
           {tile('settings', 'settings', 'Настройки')}
         </div>
         <div style={S.sheetSection}>Аккаунт</div>
+        <button style={S.sheetRow} onClick={onProfile}><Icon name="user" /><span style={{ flex: 1 }}>Профиль · уровень и показатели</span><Icon name="chevR" size={15} /></button>
         {user
           ? <button style={S.sheetRow} onClick={onLogout}><span style={{ color: C.green, display: 'flex' }}><Icon name="cloud" /></span><span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>Выйти{user.email ? ` · ${user.email}` : ''}</span></button>
           : <button style={S.sheetRow} onClick={onLogin}><Icon name="cloud" /><span>Войти через Google</span></button>}

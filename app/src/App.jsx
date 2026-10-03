@@ -50,6 +50,9 @@ Chart.register(...registerables);
 // ============================================================
 function App(){
   const [tab,setTab] = useState('today');
+  // «+» в шапке (референс Э2–Э5): вкладка сама регистрирует, что открывает её «+». Нет обработчика — нет кнопки.
+  const [addFn,setAddFn] = useState(null);
+  const registerAdd = useCallback((fn)=>setAddFn(()=>fn), []);
   const isMobile = useIsMobile();
   const [sheetOpen,setSheetOpen] = useState(false);
   const [days,setDays] = useState({});
@@ -1109,14 +1112,14 @@ function App(){
       <div style={S.header}>
         <div style={{minWidth:0}}>
           {tab==='today'
-            ? <><div style={S.eyebrow}>{formatDayTitle(selectedDate).weekday}</div><div style={S.h1}>{formatDayTitle(selectedDate).date}</div></>
+            ? <><div style={S.eyebrow}>{formatDayTitle(selectedDate).weekday} · {dayOfYear(selectedDate)}-й день</div><div style={S.h1}>{formatDayTitle(selectedDate).date}</div></>
             : <div style={{...S.h1,paddingTop:4}}>{tab==='settings'?'Настройки':(TAB_META[tab]?.label||'')}</div>}
         </div>
         <div style={{display:'flex',alignItems:'center',gap:10}}>
-          {isMobile && tab!=='today' && <div style={S.miniGauge} title="Здоровье"><Icon name="heart" size={14}/><span>{meta.health ?? 100}</span></div>}
-          {isMobile && tab!=='today' && <div style={S.miniGauge} title={`Уровень · ${into}/${needed} XP`}><span>ур. {level}</span></div>}
           <button onClick={()=>setSearchOpen(true)} title="Поиск" aria-label="Поиск" style={S.profileBtn}><Icon name="search" size={18}/></button>
-          <button onClick={()=>setProfileOpen(true)} title="Профиль" aria-label="Профиль" style={S.avatarBtn}><Icon name="user" size={16}/></button>
+          {tab==="today"
+            ? <button onClick={()=>setProfileOpen(true)} title="Профиль" aria-label="Профиль" style={S.avatarBtn}>{user&&user.email ? user.email[0].toUpperCase() : <Icon name="user" size={16}/>}</button>
+            : addFn && <button onClick={()=>addFn()} title="Добавить" aria-label="Добавить" style={S.profileBtn}><Icon name="plus" size={20}/></button>}
         </div>
         <input ref={fileInputRef} type="file" accept="application/json,.json" style={{display:'none'}}
           onChange={e=>{ const f=e.target.files[0]; if(f) importJson(f); e.target.value=''; }} />
@@ -1181,17 +1184,17 @@ function App(){
         isToday={selectedDate===todayStr()} quests={todayQuests} weekly={weekly} combo={combo} coachInsights={coachInsights}
         collapsedUI={collapseState.ui||{}} onToggleUI={(key)=>toggleCollapse('ui',key)}
         days={days} streak={streak} health={meta.health ?? 100} level={level} into={into} needed={needed} levelMax={levelMax} />}
-      {tab==='habits' && <HabitsTab habits={habits} addHabit={addHabit} toggleHabitDay={toggleHabitDay} deleteHabit={deleteHabit} updateHabit={updateHabit} archiveHabit={archiveHabit} abandonHabit={abandonHabit} archive={habitsArchive} deleteArchivedHabit={deleteArchivedHabit} restoreHabit={restoreHabit} goals={goals} notifsOn={!settings.notifOff} />}
-      {tab==='goals' && <GoalsTab goals={goals} addGoal={addGoal} setGoalProgress={setGoalProgress}
+      {tab==='habits' && <HabitsTab registerAdd={registerAdd} habits={habits} addHabit={addHabit} toggleHabitDay={toggleHabitDay} deleteHabit={deleteHabit} updateHabit={updateHabit} archiveHabit={archiveHabit} abandonHabit={abandonHabit} archive={habitsArchive} deleteArchivedHabit={deleteArchivedHabit} restoreHabit={restoreHabit} goals={goals} notifsOn={!settings.notifOff} />}
+      {tab==='goals' && <GoalsTab registerAdd={registerAdd} goals={goals} addGoal={addGoal} setGoalProgress={setGoalProgress}
         addGoalSubtask={addGoalSubtask} toggleGoalSubtask={toggleGoalSubtask}
         deleteGoalSubtask={deleteGoalSubtask} deleteGoal={deleteGoal} renameGoal={renameGoal}
         setGoalMode={setGoalMode} setGoalCounter={setGoalCounter} setGoalDeadline={setGoalDeadline} archiveGoal={archiveGoal}
         showGoalDeadline={!!settings.showGoalDeadline}
         collapsed={collapseState.goals||{}} onToggleCollapse={(sc)=>toggleCollapse('goals',sc)}
         archive={goalsArchive} restoreGoal={restoreGoal} deleteArchivedGoal={deleteArchivedGoal} />}
-      {tab==='study' && <StudyTab study={study} addStudyTask={addStudyTask} updateStudyTask={updateStudyTask} deleteStudyTask={deleteStudyTask} archiveStudyTask={archiveStudyTask} archive={studyArchive} deleteArchivedStudy={deleteArchivedStudy} restoreStudy={restoreStudy}
+      {tab==='study' && <StudyTab registerAdd={registerAdd} study={study} addStudyTask={addStudyTask} updateStudyTask={updateStudyTask} deleteStudyTask={deleteStudyTask} archiveStudyTask={archiveStudyTask} archive={studyArchive} deleteArchivedStudy={deleteArchivedStudy} restoreStudy={restoreStudy}
         collapsed={collapseState.study||{}} onToggleCollapse={(epic)=>toggleCollapse('study',epic)} onSetCollapseAll={(keys,v)=>setCollapseAll('study',keys,v)} />}
-      {tab==='notes' && <NotesTab notes={notes} addNote={addNote} updateNote={updateNote} deleteNote={deleteNote} />}
+      {tab==='notes' && <NotesTab registerAdd={registerAdd} notes={notes} addNote={addNote} updateNote={updateNote} deleteNote={deleteNote} />}
       {tab==='finance' && <FinanceTab finance={finance} categories={categories} budgets={budgets} incomePlans={incomePlans} bills={bills} defaults={settings.defaults||{}}
         finMask={finMask} setSettingFlag={setSettingFlag} maskAll={!!settings.maskAllFinance}
         collapse={collapseState} toggleCollapse={toggleCollapse} dismissedAlerts={settings.dismissedAlerts||{}} dismissAlert={dismissAlert}
@@ -1222,7 +1225,7 @@ function App(){
       )}
 
       {isMobile && sheetOpen && (
-        <MobileSheet tabIds={sheetTabIds} tab={tab} user={user}
+        <MobileSheet tabIds={sheetTabIds} tab={tab} user={user} onProfile={()=>{ setProfileOpen(true); setSheetOpen(false); }}
           onPick={(id)=>{ setTab(id); setSheetOpen(false); }} onClose={()=>setSheetOpen(false)}
           onLogin={()=>{ login().catch(err=>setImportMsg('Вход не удался: '+err.message)); setSheetOpen(false); }}
           onLogout={()=>{ logout(); setSheetOpen(false); }}
@@ -1255,5 +1258,8 @@ function App(){
 }
 
 // ============================================================ Today
+
+// Номер дня в году для подписи «суббота · 276-й день» (референс Э1).
+function dayOfYear(ds){ const d=new Date(ds+'T00:00:00'); return Math.round((d-new Date(d.getFullYear(),0,1))/864e5)+1; }
 
 export default App;

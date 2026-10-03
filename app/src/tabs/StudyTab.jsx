@@ -4,13 +4,13 @@
 // Новое: важность/срочность — цветные метки словами + полоса слева; статус всегда виден под названием
 // (раньше на телефоне переключатель уезжал); «свернуть/развернуть все»; правка дела после создания
 // (поля те же — updateStudyTask и раньше принимал патч).
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { BASE_EPICS, IMPORTANCE_COLOR, STUDY_IMPORTANCE, STUDY_STATUSES, STUDY_URGENCY, URGENCY_COLOR } from '../lib/constants.js';
 import { daysBetween, openDatePicker, todayStr } from '../lib/dates.js';
 import { S } from '../lib/styles.js';
 import { C, tint } from '../lib/theme.js';
 import { Icon } from '../ui/Icon.jsx';
-import { ConfirmIconBtn, Select, StatusSeg } from '../ui/primitives.jsx';
+import { ConfirmIconBtn, Modal, Select, StatusSeg } from '../ui/primitives.jsx';
 
 const SORTS = [{value:'createdAt',label:'по дате'},{value:'importance',label:'по важности'},{value:'urgency',label:'по срочности'},{value:'deadline',label:'по дедлайну'}];
 const ddmm = (ds) => new Date(ds+'T00:00:00').toLocaleDateString('ru-RU',{day:'numeric',month:'short'});
@@ -28,7 +28,7 @@ function deadlineText(t, today){
 }
 
 // Поля дела (создание и правка): эпик, название, важность, срочность, дедлайн.
-function StudyForm({init, epicOptions, onSubmit, onCancel, submitLabel}){
+function StudyForm({init, epicOptions, onSubmit, onCancel, submitLabel, onArchive, onDelete}){
   const [epic,setEpic] = useState(init.epic||''); const [task,setTask] = useState(init.task||'');
   const [importance,setImportance] = useState(init.importance||STUDY_IMPORTANCE[1]); const [urgency,setUrgency] = useState(init.urgency||STUDY_URGENCY[1]);
   const [deadline,setDeadline] = useState(init.deadline||'');
@@ -55,16 +55,23 @@ function StudyForm({init, epicOptions, onSubmit, onCancel, submitLabel}){
       <div style={{display:'flex',gap:8}}>
         <button style={{...S.btnPrimary,opacity:task.trim()?1:.45}} onClick={submit}>{submitLabel}</button>
         {onCancel && <button style={S.exportBtn} onClick={onCancel}>Отмена</button>}
+        {(onArchive || onDelete) && (
+          <span style={{marginLeft:'auto',display:'flex',gap:2,alignItems:'center'}}>
+            {onArchive && <ConfirmIconBtn onConfirm={onArchive} icon="archive" confirmLabel="в архив?" title="в архив (сохранить)" />}
+            {onDelete && <ConfirmIconBtn onConfirm={onDelete} icon="trash" confirmLabel="удалить?" title="удалить безвозвратно" />}
+          </span>)}
       </div>
     </div>
   );
 }
 
-export function StudyTab({study, addStudyTask, updateStudyTask, deleteStudyTask, archiveStudyTask, archive=[], deleteArchivedStudy, restoreStudy, collapsed={}, onToggleCollapse, onSetCollapseAll}){
+export function StudyTab({registerAdd, study, addStudyTask, updateStudyTask, deleteStudyTask, archiveStudyTask, archive=[], deleteArchivedStudy, restoreStudy, collapsed={}, onToggleCollapse, onSetCollapseAll}){
   const [addOpen,setAddOpen] = useState(false);
   const [archiveShow,setArchiveShow] = useState(false);
   const [filterStatus,setFilterStatus] = useState('Все'); const [sortBy,setSortBy] = useState('createdAt');
   const [editId,setEditId] = useState(null);
+  // «+» в шапке приложения — новое дело во всплывающем окне (референс Э4)
+  useEffect(()=>{ if(!registerAdd) return; registerAdd(()=>setAddOpen(true)); return ()=>registerAdd(null); }, [registerAdd]);
   const today = todayStr();
 
   const customEpics = [...new Set(study.map(s=>s.epic))].filter(e=>e && !BASE_EPICS.includes(e));
@@ -91,23 +98,24 @@ export function StudyTab({study, addStudyTask, updateStudyTask, deleteStudyTask,
   return (
     <div>
       <div style={{display:'flex',gap:10,alignItems:'center',marginBottom:14,flexWrap:'wrap'}}>
-        <div style={{...S.seg,flex:'1 1 100%',order:2}}>
+        <div style={{...S.seg,flex:'1 1 100%',display:'flex'}}>
           {['Все',...STUDY_STATUSES].map(s=>(
             <button key={s} onClick={()=>setFilterStatus(s)} style={{...S.segBtn,flex:1,whiteSpace:'nowrap',padding:'6px 4px',background:filterStatus===s?C.panelAlt:'transparent',color:filterStatus===s?C.text:C.dim}}>
               {s==='Все'?'Все':STATUS_SHORT[s]} <span style={{opacity:.65,fontWeight:500}}>{counts[s]}</span></button>))}
         </div>
-        <button style={{...S.btnPrimary,marginLeft:'auto',order:1}} onClick={()=>setAddOpen(o=>!o)} aria-expanded={addOpen}><Icon name={addOpen?'x':'plus'} size={16}/>{addOpen?'Закрыть':'Новое дело'}</button>
       </div>
 
       {addOpen && (
-        <div style={{marginBottom:20}}>
-          <StudyForm init={{}} epicOptions={epicOptions} submitLabel="Добавить дело" onCancel={()=>setAddOpen(false)}
+        <Modal onClose={()=>setAddOpen(false)} title="Новое дело">
+          <StudyForm init={{}} epicOptions={epicOptions} submitLabel="Добавить дело"
             onSubmit={(v)=>{ addStudyTask({...v, status:'Не начато', note:''}); setAddOpen(false); }} />
-        </div>
+        </Modal>
       )}
 
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:10,marginBottom:10}}>
-        <Select small style={{width:170}} value={sortBy} onChange={setSortBy} options={SORTS} />
+        <button title="сменить сортировку" style={{background:'none',border:'none',padding:'4px 0',color:C.dim,fontSize:13,cursor:'pointer',fontFamily:'inherit',display:'inline-flex',alignItems:'center',gap:4}}
+          onClick={()=>{ const i=SORTS.findIndex(s=>s.value===sortBy); setSortBy(SORTS[(i+1)%SORTS.length].value); }}>
+          сортировка: <span style={{color:C.text}}>{(SORTS.find(s=>s.value===sortBy)||SORTS[0]).label.toLowerCase()}</span><Icon name="chevR" size={13}/></button>
         {epicNames.length>1 && onSetCollapseAll && (
           <button style={{background:'none',border:'none',color:C.dim,fontSize:12.5,cursor:'pointer',fontFamily:'inherit'}}
             onClick={()=>onSetCollapseAll(epicNames, !allCollapsed)}>{allCollapsed?'Развернуть все':'Свернуть все'}</button>
@@ -140,7 +148,8 @@ export function StudyTab({study, addStudyTask, updateStudyTask, deleteStudyTask,
               if(editId===t.id) return (
                 <div key={t.id} style={{margin:'4px 0 10px'}}>
                   <StudyForm init={t} epicOptions={epicOptions} submitLabel="Сохранить" onCancel={()=>setEditId(null)}
-                    onSubmit={(v)=>{ updateStudyTask(t.id, v); setEditId(null); }} />
+                    onSubmit={(v)=>{ updateStudyTask(t.id, v); setEditId(null); }}
+                    onArchive={()=>{ archiveStudyTask(t.id); setEditId(null); }} onDelete={()=>{ deleteStudyTask(t.id); setEditId(null); }} />
                 </div>
               );
               return (
@@ -148,8 +157,8 @@ export function StudyTab({study, addStudyTask, updateStudyTask, deleteStudyTask,
                   <span title={`Важность: ${t.importance||'—'}`} style={{width:3,borderRadius:3,flex:'none',background:done?C.panelAlt:(IMPORTANCE_COLOR[t.importance]||C.panelAlt)}}/>
                   <div style={{flex:1,minWidth:0,display:'flex',flexDirection:'column',gap:7}}>
                     <div style={{display:'flex',gap:8,alignItems:'flex-start'}}>
-                      <span style={{flex:1,minWidth:0,fontSize:14.5,color:done?C.dim:C.text,textDecoration:done?'line-through':'none',textDecorationColor:C.faint,overflowWrap:'anywhere'}}>{t.task}</span>
-                      <button className="icon-btn" aria-label="Изменить дело" title="изменить" onClick={()=>setEditId(t.id)}><Icon name="edit" size={15}/></button>
+                      <button aria-label={`Изменить дело: ${t.task}`} title="изменить, в архив, удалить" onClick={()=>setEditId(t.id)}
+                        style={{flex:1,minWidth:0,background:'none',border:'none',padding:0,textAlign:'left',cursor:'pointer',fontFamily:'inherit',fontSize:14.5,color:done?C.dim:C.text,textDecoration:done?'line-through':'none',textDecorationColor:C.faint,overflowWrap:'anywhere'}}>{t.task}</button>
                     </div>
                     {!done && (t.importance || t.urgency || dl) && (
                       <div style={{display:'flex',gap:5,flexWrap:'wrap',alignItems:'center'}}>
@@ -160,10 +169,6 @@ export function StudyTab({study, addStudyTask, updateStudyTask, deleteStudyTask,
                     )}
                     <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
                       <StatusSeg value={t.status} onChange={v=>updateStudyTask(t.id,{status:v})} />
-                      <span style={{marginLeft:'auto',display:'flex',gap:2}}>
-                        <ConfirmIconBtn onConfirm={()=>archiveStudyTask(t.id)} icon="archive" confirmLabel="в архив?" title="в архив (сохранить)" />
-                        <ConfirmIconBtn onConfirm={()=>deleteStudyTask(t.id)} icon="trash" confirmLabel="удалить?" title="удалить безвозвратно" />
-                      </span>
                     </div>
                   </div>
                 </div>
