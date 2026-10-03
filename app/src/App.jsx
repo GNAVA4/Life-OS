@@ -1093,12 +1093,12 @@ function App(){
       <div style={S.header}>
         <div style={{minWidth:0}}>
           {tab==='today'
-            ? <><div style={S.eyebrow}>{formatDayTitle(todayStr()).weekday}</div><div style={S.h1}>{formatDayTitle(todayStr()).date}</div></>
+            ? <><div style={S.eyebrow}>{formatDayTitle(selectedDate).weekday}</div><div style={S.h1}>{formatDayTitle(selectedDate).date}</div></>
             : <div style={{...S.h1,paddingTop:4}}>{tab==='settings'?'Настройки':(TAB_META[tab]?.label||'')}</div>}
         </div>
         <div style={{display:'flex',alignItems:'center',gap:10}}>
-          <div style={S.miniGauge} title="Здоровье"><Icon name="heart" size={14}/><span>{meta.health ?? 100}</span></div>
-          <div style={S.miniGauge} title={`Уровень · ${into}/${needed} XP`}><span>ур. {level}</span></div>
+          {tab!=='today' && <div style={S.miniGauge} title="Здоровье"><Icon name="heart" size={14}/><span>{meta.health ?? 100}</span></div>}
+          {tab!=='today' && <div style={S.miniGauge} title={`Уровень · ${into}/${needed} XP`}><span>ур. {level}</span></div>}
           <button onClick={()=>setSearchOpen(true)} title="Поиск" aria-label="Поиск" style={S.profileBtn}><Icon name="search" size={18}/></button>
           <button onClick={()=>setProfileOpen(true)} title="Профиль" aria-label="Профиль" style={S.avatarBtn}><Icon name="user" size={16}/></button>
         </div>
@@ -1174,7 +1174,8 @@ function App(){
         bills={bills} taskTemplates={taskTemplates} saveTaskTemplate={saveTaskTemplate} applyTaskTemplate={applyTaskTemplate} deleteTaskTemplate={deleteTaskTemplate}
         carryOverTasks={carryOverTasks} prevUndoneCount={prevUndoneTasks.length}
         isToday={selectedDate===todayStr()} quests={todayQuests} weekly={weekly} combo={combo} coachInsights={coachInsights}
-        collapsedUI={collapseState.ui||{}} onToggleUI={(key)=>toggleCollapse('ui',key)} />}
+        collapsedUI={collapseState.ui||{}} onToggleUI={(key)=>toggleCollapse('ui',key)}
+        days={days} streak={streak} health={meta.health ?? 100} level={level} into={into} needed={needed} levelMax={levelMax} />}
       {tab==='habits' && <HabitsTab habits={habits} addHabit={addHabit} toggleHabitDay={toggleHabitDay} deleteHabit={deleteHabit} updateHabit={updateHabit} archiveHabit={archiveHabit} abandonHabit={abandonHabit} archive={habitsArchive} deleteArchivedHabit={deleteArchivedHabit} restoreHabit={restoreHabit} goals={goals} notifsOn={!settings.notifOff} />}
       {tab==='goals' && <GoalsTab goals={goals} addGoal={addGoal} setGoalProgress={setGoalProgress}
         addGoalSubtask={addGoalSubtask} toggleGoalSubtask={toggleGoalSubtask}

@@ -24,6 +24,13 @@ input[type=range]{accent-color:var(--amber);}
 /* grid-колонки должны уметь сжиматься уже своего содержимого — иначе 1fr(=minmax(auto,1fr)) распирает сетку шире экрана */
 @media (max-width:720px){ .grid2{grid-template-columns:minmax(0,1fr) !important;} .grid3{grid-template-columns:minmax(0,1fr) !important;} }
 .grid2>*,.grid3>*{min-width:0;}
+/* ползунок оценки дня (редизайн session 043) */
+input.lo-range{-webkit-appearance:none;appearance:none;height:28px;background:transparent;cursor:pointer;margin:0;}
+input.lo-range::-webkit-slider-runnable-track{height:4px;border-radius:4px;background:linear-gradient(var(--amber),var(--amber)) 0/var(--p,50%) 100% no-repeat,var(--panel-alt);}
+input.lo-range::-webkit-slider-thumb{-webkit-appearance:none;width:20px;height:20px;border-radius:50%;background:var(--text);margin-top:-8px;box-shadow:0 0 0 4px rgba(227,162,76,.35);}
+input.lo-range::-moz-range-track{height:4px;border-radius:4px;background:var(--panel-alt);}
+input.lo-range::-moz-range-progress{height:4px;border-radius:4px;background:var(--amber);}
+input.lo-range::-moz-range-thumb{width:20px;height:20px;border:none;border-radius:50%;background:var(--text);box-shadow:0 0 0 4px rgba(227,162,76,.35);}
 .sel-pop::-webkit-scrollbar{width:8px;} .sel-pop::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px;}
 /* полноэкранная модалка на телефоне */
 @media (max-width:720px){ .modal-card-mobile{max-width:100% !important;max-height:100% !important;height:100%;border-radius:0 !important;} }
