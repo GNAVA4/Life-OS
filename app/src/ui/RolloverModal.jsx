@@ -18,7 +18,7 @@ export function RolloverModal({scopes, onApply, onClose}){
             <div style={{fontSize:13,fontWeight:700,marginBottom:8}}>{PERIOD_LABEL[sc]||sc}</div>
             <div style={{display:'flex',gap:6}}>
               {[{id:'carry',label:'Перенести незавершённые'},{id:'fresh',label:'Начать заново'}].map(({id,label})=>(
-                <button key={id} type="button" className="chip" onClick={()=>setChoices(c=>({...c,[sc]:id}))}
+                <button key={id} type="button" className="chip" aria-pressed={choices[sc]===id} onClick={()=>setChoices(c=>({...c,[sc]:id}))}
                   style={{flex:1,textAlign:'center',fontFamily:'inherit',...(choices[sc]===id?{background:tint(C.amber,.16),color:C.amber}:{background:C.bg,color:C.dim})}}>{label}</button>
               ))}
             </div>

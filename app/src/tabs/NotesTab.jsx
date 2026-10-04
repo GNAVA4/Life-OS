@@ -36,7 +36,7 @@ export function NotesTab({notes, addNote, updateNote, deleteNote, registerAdd}){
     <div>
       {hasReminders && (
         <div style={{...S.seg,marginBottom:14}}>
-          {FILTERS.map(f=><button key={f.id} style={{...S.segBtn,background:filter===f.id?C.panelAlt:'transparent',color:filter===f.id?C.text:C.dim}} onClick={()=>setFilter(f.id)}>{f.l}</button>)}
+          {FILTERS.map(f=><button key={f.id} aria-pressed={filter===f.id} style={{...S.segBtn,background:filter===f.id?C.panelAlt:'transparent',color:filter===f.id?C.text:C.dim}} onClick={()=>setFilter(f.id)}>{f.l}</button>)}
         </div>
       )}
       {filtered.length===0 && (
@@ -184,7 +184,7 @@ export function NoteEditor({note, onSave, onDelete, onClose}){
 
       <div style={{maxWidth:860,margin:'0 auto',padding:'18px 16px calc(40px + env(safe-area-inset-bottom, 0px))',display:'flex',flexDirection:'column',gap:16}}>
         <div style={{...S.seg,alignSelf:'flex-start'}}>
-          {NOTE_TYPES.map(t=><button key={t} style={{...S.segBtn,background:type===t?C.panelAlt:'transparent',color:type===t?(NOTE_TYPE_COLOR[t]||C.text):C.dim}} onClick={()=>setType(t)}>{t}</button>)}
+          {NOTE_TYPES.map(t=><button key={t} aria-pressed={type===t} style={{...S.segBtn,background:type===t?C.panelAlt:'transparent',color:type===t?(NOTE_TYPE_COLOR[t]||C.text):C.dim}} onClick={()=>setType(t)}>{t}</button>)}
         </div>
         <input style={{background:'none',border:'none',outline:'none',color:C.text,fontFamily:'inherit',fontSize:24,fontWeight:700,letterSpacing:'-.01em',padding:0,width:'100%'}}
           placeholder="Заголовок" value={title} onChange={e=>setTitle(e.target.value)} autoFocus={!note.id} aria-label="Заголовок" />

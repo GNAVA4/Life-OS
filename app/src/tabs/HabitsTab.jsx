@@ -71,7 +71,7 @@ export function HabitsTab({registerAdd, habits, addHabit, toggleHabitDay, delete
   const openDetail = (h) => { setDetailId(h.id); setDetailMonth(today.slice(0,7)); };
 
   const chipBtn = (on, onClick, children, key) => (
-    <button key={key} type="button" className="chip" onClick={onClick}
+    <button key={key} type="button" className="chip" aria-pressed={!!on} onClick={onClick}
       style={{background:on?tint(C.amber,.16):C.panelAlt,color:on?C.amber:C.dim,fontFamily:'inherit'}}>{children}</button>
   );
 
@@ -80,7 +80,7 @@ export function HabitsTab({registerAdd, habits, addHabit, toggleHabitDay, delete
       <div style={{display:'flex',gap:10,alignItems:'center',marginBottom:18}}>
         <div style={{...S.seg,flex:1,display:'flex'}}>
           {[{id:'active',l:`Активные · ${habits.length}`},{id:'archive',l:`Архив · ${archive.length}`}].map(o=>(
-            <button key={o.id} onClick={()=>setView(o.id)} style={{...S.segBtn,flex:1,background:view===o.id?C.panelAlt:'transparent',color:view===o.id?C.text:C.dim}}>{o.l}</button>
+            <button key={o.id} onClick={()=>setView(o.id)} aria-pressed={view===o.id} style={{...S.segBtn,flex:1,background:view===o.id?C.panelAlt:'transparent',color:view===o.id?C.text:C.dim}}>{o.l}</button>
           ))}
         </div>
       </div>

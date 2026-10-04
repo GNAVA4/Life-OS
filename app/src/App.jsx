@@ -30,7 +30,7 @@ import { SearchModal, SEARCH_MIN_CHARS } from './ui/SearchModal.jsx';
 import { MobileBottomNav, MobileSheet } from './ui/MobileNav.jsx';
 import { useIsMobile } from './ui/useIsMobile.js';
 import { Icon } from './ui/Icon.jsx';
-import { haptic, setHapticsEnabled } from './lib/haptics.js';
+import { haptic, installSwitchHaptics, setHapticsEnabled } from './lib/haptics.js';
 import { DesktopSidebar } from './ui/DesktopSidebar.jsx';
 import { TAB_META } from './lib/constants.js';
 import { TodayTab } from './tabs/TodayTab.jsx';
@@ -50,7 +50,9 @@ Chart.register(...registerables);
 
 // ============================================================
 function App(){
-  const [tab,setTab] = useState('today');
+  const [tab,setTabRaw] = useState('today');
+  // смена вкладки — лёгкая вибрация (s053); один вход для меню, поиска, тостов
+  const setTab = (id) => { if(id!==tab) haptic('tap'); setTabRaw(id); };
   // «+» в шапке (референс Э2–Э5): вкладка сама регистрирует, что открывает её «+». Нет обработчика — нет кнопки.
   const [addFn,setAddFn] = useState(null);
   const registerAdd = useCallback((fn)=>setAddFn(()=>fn), []);
@@ -70,6 +72,7 @@ function App(){
   const [settings,setSettings] = useState({hidden:{}});
   // вибрация: переключатель в Настройках (по умолчанию включена) [user, s051]; ниже объявления settings — иначе TDZ-падение при запуске
   useEffect(()=>{ setHapticsEnabled(!settings.hapticsOff); }, [settings.hapticsOff]);
+  useEffect(()=>installSwitchHaptics(), []);   // переключатели (aria-pressed / role=switch) — вибрация (s053)
   const [bills,setBills] = useState([]);
   const [habits,setHabits] = useState([]);
   const [finance,setFinance] = useState({transactions:[],accounts:[],debtors:[]});

@@ -38,7 +38,7 @@ function StudyForm({init, epicOptions, onSubmit, onCancel, submitLabel, onArchiv
       <input autoFocus style={{...S.input,background:C.bg}} placeholder="Что нужно сделать" value={task} aria-label="Что нужно сделать"
         onChange={e=>setTask(e.target.value)} onKeyDown={e=>{ if(e.key==='Enter') submit(); if(e.key==='Escape' && onCancel) onCancel(); }} />
       <div style={{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center'}}>
-        {epicOptions.map(e=><button key={e} className="chip" onClick={()=>setEpic(e)} style={{fontFamily:'inherit',background:epic===e?tint(C.amber,.16):C.bg,color:epic===e?C.amber:C.dim}}>{e}</button>)}
+        {epicOptions.map(e=><button key={e} className="chip" aria-pressed={epic===e} onClick={()=>setEpic(e)} style={{fontFamily:'inherit',background:epic===e?tint(C.amber,.16):C.bg,color:epic===e?C.amber:C.dim}}>{e}</button>)}
         <input style={{...S.input,background:C.bg,flex:'0 1 150px',padding:'5px 10px',fontSize:12.5}} placeholder="Новый эпик" value={epicOptions.includes(epic)?'':epic} aria-label="Новый эпик" onChange={e=>setEpic(e.target.value)} />
       </div>
       <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(130px,1fr))',gap:8}}>
@@ -100,7 +100,7 @@ export function StudyTab({registerAdd, study, addStudyTask, updateStudyTask, del
       <div style={{display:'flex',gap:10,alignItems:'center',marginBottom:14,flexWrap:'wrap'}}>
         <div style={{...S.seg,flex:'1 1 100%',display:'flex'}}>
           {['Все',...STUDY_STATUSES].map(s=>(
-            <button key={s} onClick={()=>setFilterStatus(s)} style={{...S.segBtn,flex:1,whiteSpace:'nowrap',padding:'6px 4px',background:filterStatus===s?C.panelAlt:'transparent',color:filterStatus===s?C.text:C.dim}}>
+            <button key={s} onClick={()=>setFilterStatus(s)} aria-pressed={filterStatus===s} style={{...S.segBtn,flex:1,whiteSpace:'nowrap',padding:'6px 4px',background:filterStatus===s?C.panelAlt:'transparent',color:filterStatus===s?C.text:C.dim}}>
               {s==='Все'?'Все':STATUS_SHORT[s]} <span style={{opacity:.65,fontWeight:500}}>{counts[s]}</span></button>))}
         </div>
       </div>

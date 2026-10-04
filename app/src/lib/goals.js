@@ -1,9 +1,10 @@
 // Привязка «выполнил → вклад в цель»: опции пикера, поиск цели по ключу, нормализация ссылок.
 import { GL_SCOPE, GOAL_PACE_DEFAULT } from './constants.js';
 import { todayStr, toLocalISODate, daysBetween } from './dates.js';
+import { vis } from './storage.js';
 
 export const goalLinkOptions = (goals) => { const out=[{value:'',label:'— без привязки —'}];
-  ['year','month','week','day'].forEach(sc=>(goals[sc]||[]).forEach(g=>out.push({value:`${sc}|${g.id}`,
+  ['year','month','week','day'].filter(sc=>vis('goals.'+sc)).forEach(sc=>(goals[sc]||[]).forEach(g=>out.push({value:`${sc}|${g.id}`,
     label:`${GL_SCOPE[sc]}: ${g.title}${goalMode(g)==='counter'&&g.counter?` (${g.counter.current||0}/${g.counter.target})`:''}`}))); return out; };
 export const goalByKey = (goals, key) => { if(!key) return null; const [sc,gid]=key.split('|'); return (goals[sc]||[]).find(g=>g.id===gid)||null; };
 // нормализация: новая модель goalLinks (массив) ИЛИ легаси goalLink (один) → всегда массив. session 015.

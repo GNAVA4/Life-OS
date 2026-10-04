@@ -79,7 +79,7 @@ export function DebtsSection({debtors=[], transactions=[], accounts=[], mask=fal
         <div style={{...S.plate,display:'flex',flexDirection:'column',gap:10,marginBottom:20}}>
           <div style={{...S.seg,background:C.bg,display:'flex'}}>
             {[{v:'owed_to_me',l:'Мне должны (дал)'},{v:'i_owe',l:'Я должен (взял)'}].map(o=>(
-              <button key={o.v} onClick={()=>setDir(o.v)} style={{...S.segBtn,flex:1,background:dir===o.v?C.panelAlt:'transparent',color:dir===o.v?C.text:C.dim}}>{o.l}</button>))}
+              <button key={o.v} onClick={()=>setDir(o.v)} aria-pressed={dir===o.v} style={{...S.segBtn,flex:1,background:dir===o.v?C.panelAlt:'transparent',color:dir===o.v?C.text:C.dim}}>{o.l}</button>))}
           </div>
           <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
             <input autoFocus style={{...S.input,background:C.bg,flex:'1 1 150px'}} placeholder="Кто / кому" value={name} aria-label="Имя" onChange={e=>setName(e.target.value)} onKeyDown={e=>e.key==='Enter'&&submit()} />

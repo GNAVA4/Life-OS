@@ -53,9 +53,9 @@ export function AchievementsTab({stats, unlocked}){
         </div>}
         <div style={{display:'flex', gap:6, marginTop:12, flexWrap:'wrap', alignItems:'center'}}>
           {!byDay && [{id:'all',label:'Все'},{id:'done',label:'Полученные'},{id:'todo',label:'В процессе'}].map(f=>(
-            <button key={f.id} type="button" className="chip" onClick={()=>setFilter(f.id)} style={{fontFamily:'inherit', ...(filter===f.id?{background:tint(C.amber,.16),color:C.amber}:{background:C.panelAlt, color:C.dim})}}>{f.label}</button>
+            <button key={f.id} type="button" className="chip" aria-pressed={filter===f.id} onClick={()=>setFilter(f.id)} style={{fontFamily:'inherit', ...(filter===f.id?{background:tint(C.amber,.16),color:C.amber}:{background:C.panelAlt, color:C.dim})}}>{f.label}</button>
           ))}
-          <button type="button" className="chip" onClick={()=>setByDay(v=>!v)} title="группировать по дате открытия"
+          <button type="button" className="chip" aria-pressed={byDay} onClick={()=>setByDay(v=>!v)} title="группировать по дате открытия"
             style={{fontFamily:'inherit', marginLeft:byDay?0:'auto', display:'inline-flex', alignItems:'center', gap:5, ...(byDay?{background:tint(C.cyan,.16), color:C.cyan}:{background:C.panelAlt, color:C.dim})}}><Icon name="calendar" size={13}/>по дням</button>
         </div>
       </div>

@@ -169,7 +169,7 @@ export function OpsSection({part='ops', viewMonth, setViewMonth, finance, catego
     </div>
   );
   const chip = (on, onClick, children, key, tone=C.amber) => (
-    <button key={key} type="button" className="chip" onClick={onClick} style={{fontFamily:'inherit',background:on?tint(tone,.16):C.panelAlt,color:on?tone:C.dim}}>{children}</button>
+    <button key={key} type="button" className="chip" aria-pressed={!!on} onClick={onClick} style={{fontFamily:'inherit',background:on?tint(tone,.16):C.panelAlt,color:on?tone:C.dim}}>{children}</button>
   );
 
   // ---------------- ОПЕРАЦИИ ----------------
@@ -180,7 +180,7 @@ export function OpsSection({part='ops', viewMonth, setViewMonth, finance, catego
       <div style={{...S.plate,display:'flex',flexDirection:'column',gap:12,marginBottom:14}}>
         <div style={{...S.seg,background:C.bg,display:'flex'}}>
           {[{v:'expense',l:'Расход',c:C.red},{v:'income',l:'Доход',c:C.green}].map(o=>(
-            <button key={o.v} onClick={()=>{ setTxType(o.v); setTxCat(o.v==='expense'?defExpenseCat:defIncomeCat); }}
+            <button key={o.v} onClick={()=>{ setTxType(o.v); setTxCat(o.v==='expense'?defExpenseCat:defIncomeCat); }} aria-pressed={txType===o.v}
               style={{...S.segBtn,flex:1,fontSize:13.5,padding:'8px',background:txType===o.v?C.panelAlt:'transparent',color:txType===o.v?o.c:C.dim}}>{o.v==='expense'?'− ':'+ '}{o.l}</button>))}
         </div>
         <div style={{display:'flex',alignItems:'baseline',gap:8,borderBottom:`1px solid ${C.border}`,paddingBottom:6}}>

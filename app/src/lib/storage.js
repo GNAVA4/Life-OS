@@ -45,6 +45,14 @@ export const MODULE_GROUPS = [
     {id:'today.sleep', label:'Сон'},
     {id:'today.note', label:'Что было · почему'},
   ]},
+  // Периоды целей (s053, запрос пользователя): скрытый период пропадает со вкладки «Цели» и из выбора цели
+  // для привязки; сами цели не удаляются и возвращаются при включении.
+  {group:'Цели — периоды', items:[
+    {id:'goals.day', label:'Цели на день'},
+    {id:'goals.week', label:'Цели на неделю'},
+    {id:'goals.month', label:'Цели на месяц'},
+    {id:'goals.year', label:'Цели на год'},
+  ]},
   {group:'Финансы — операции', items:[
     {id:'ops.planExpense', label:'Планируемые расходы'},
     {id:'ops.planIncome', label:'Планируемые доходы'},

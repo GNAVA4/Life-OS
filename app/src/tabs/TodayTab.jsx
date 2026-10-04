@@ -207,7 +207,7 @@ export function TodayTab({entry, selectedDate, setSelectedDate, addTask, toggleT
             <input ref={taskInputRef} autoFocus style={S.input} placeholder="Что сделать" value={newTaskText} aria-label="Новая задача"
               onChange={e=>setNewTaskText(e.target.value)} onKeyDown={e=>{ if(e.key==='Enter') submitTask(); }} />
             <div style={{...S.seg,display:'flex'}}>
-              {DIFFS.map(d=><button key={d.v} onClick={()=>setDifficulty(d.v)} style={{...S.segBtn,flex:1,padding:'8px 4px',background:difficulty===d.v?C.panelAlt:'transparent',color:difficulty===d.v?C.text:C.dim}}>{d.l} · {DIFF_XP[d.v]}</button>)}
+              {DIFFS.map(d=><button key={d.v} onClick={()=>setDifficulty(d.v)} aria-pressed={difficulty===d.v} style={{...S.segBtn,flex:1,padding:'8px 4px',background:difficulty===d.v?C.panelAlt:'transparent',color:difficulty===d.v?C.text:C.dim}}>{d.l} · {DIFF_XP[d.v]}</button>)}
             </div>
             <div style={{display:'flex',flexDirection:'column',gap:6}}>
               <button style={{...linkBtn,fontFamily:'inherit',color:linkOpen||taskLinks.length?C.amber:C.dim}} onClick={()=>setLinkOpen(o=>!o)}>
@@ -247,7 +247,7 @@ export function TodayTab({entry, selectedDate, setSelectedDate, addTask, toggleT
               <input style={{...S.input,background:C.bg}} autoFocus value={editText} onChange={e=>setEditText(e.target.value)}
                 onKeyDown={e=>{ if(e.key==='Enter') saveEdit(t.id); if(e.key==='Escape') cancelEdit(); }} aria-label="Название задачи" />
               <div style={{...S.seg,background:C.bg,display:'flex'}}>
-                {DIFFS.map(d=><button key={d.v} onClick={()=>setEditDiff(d.v)} style={{...S.segBtn,flex:1,background:editDiff===d.v?C.panelAlt:'transparent',color:editDiff===d.v?C.text:C.dim}}>{d.l}</button>)}
+                {DIFFS.map(d=><button key={d.v} onClick={()=>setEditDiff(d.v)} aria-pressed={editDiff===d.v} style={{...S.segBtn,flex:1,background:editDiff===d.v?C.panelAlt:'transparent',color:editDiff===d.v?C.text:C.dim}}>{d.l}</button>)}
               </div>
               <div style={{fontSize:12,color:C.dim}}>Цели</div>
               <GoalLinkPicker goals={goals} links={editLinks} onLinks={setEditLinks} />
@@ -349,7 +349,7 @@ export function TodayTab({entry, selectedDate, setSelectedDate, addTask, toggleT
   const tagChips = (list, activeList, toggle, remove, editing, kind) => list.map(tg=>{ const active=activeList.includes(tg);
     const on = kind==='anti' ? {background:tint(C.red,.18),color:C.red} : {background:tint(C.amber,.16),color:C.amber};
     return (
-      <div key={tg} className="chip" style={{...(active?on:{background:C.panelAlt,color:C.dim}),paddingRight:editing?4:11}} onClick={()=>!editing && toggle(tg)}>
+      <div key={tg} className="chip" aria-pressed={!!active} style={{...(active?on:{background:C.panelAlt,color:C.dim}),paddingRight:editing?4:11}} onClick={()=>!editing && toggle(tg)}>
         <span>{tg}</span>
         {editing && <ConfirmIconBtn onConfirm={()=>remove(tg)} title={kind==='anti'?'удалить анти-тег':'удалить тег'} confirmLabel="удалить?" />}
       </div>

@@ -72,7 +72,7 @@ export function SettingsTab({user=null, syncPaused=false, onLogin, onSyncCheck, 
           <SettingsRow label="Дедлайны и просрочка" chevron={false}>
             <Toggle label="Дедлайны и просрочка" on={dlOn} onChange={v=>setDl({off:!v})} />
           </SettingsRow>
-          <SettingsRow label="Вибрация" sub="Отметки, добавление, удаление · только на телефоне" chevron={false}>
+          <SettingsRow label="Вибрация" sub="Отметки, переключатели, вкладки, удаление · только на телефоне" chevron={false}>
             <Toggle label="Вибрация" on={!hapticsOff} onChange={v=>setSettingFlag('hapticsOff', v?false:true)} />
           </SettingsRow>
           <SettingsRow label="«Загляни в Life OS»" chevron={false}>
@@ -122,7 +122,7 @@ export function SettingsTab({user=null, syncPaused=false, onLogin, onSyncCheck, 
           <div style={{display:'flex',gap:6,flexWrap:'wrap',marginTop:8}}>
             {[{k:'goalsOff', label:'цели'}, {k:'ongoingOff', label:'длительные задачи'}].map(x=>{
               const on = !(deadlineCfg && deadlineCfg[x.k]);
-              return <div key={x.k} className="chip" onClick={()=>setDl({[x.k]: on})}
+              return <div key={x.k} className="chip" aria-pressed={on} onClick={()=>setDl({[x.k]: on})}
                 style={{background:on?C.amber:C.panelAlt,color:on?'#1A1200':C.dim,borderColor:on?C.amber:C.border}}>{x.label}</div>;
             })}
             <span style={{fontSize:11,color:C.dim,alignSelf:'center'}}>дела — всегда</span>
@@ -133,7 +133,7 @@ export function SettingsTab({user=null, syncPaused=false, onLogin, onSyncCheck, 
             <div style={{fontSize:12,color:C.dim,marginBottom:6}}>Напоминать заранее (дней до дедлайна) + в сам день:</div>
             <div style={{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center'}}>
               {[7,3,1].map(d=>{ const on=dlDays.includes(d); return (
-                <div key={d} className="chip" onClick={()=>toggleDlDay(d)}
+                <div key={d} className="chip" aria-pressed={on} onClick={()=>toggleDlDay(d)}
                   style={{background:on?C.amber:C.panelAlt,color:on?'#1A1200':C.dim,borderColor:on?C.amber:C.border}}>за {d} дн.</div>
               ); })}
               <span style={{fontSize:12,color:C.dim,marginLeft:8}}>время:</span>
@@ -206,7 +206,7 @@ export function SettingsTab({user=null, syncPaused=false, onLogin, onSyncCheck, 
         <div style={{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center'}}>
           <span style={{fontSize:12,color:C.dim}}>напоминать заранее:</span>
           {[7,3,1].map(d=>{ const on=nlDays.includes(d); return (
-            <div key={d} className="chip" onClick={()=>toggleNlDay(d)}
+            <div key={d} className="chip" aria-pressed={on} onClick={()=>toggleNlDay(d)}
               style={{background:on?C.amber:C.panelAlt,color:on?'#1A1200':C.dim,borderColor:on?C.amber:C.border}}>за {d} дн.</div>
           ); })}
           <span style={{fontSize:11,color:C.dim}}>в сам день — всегда</span>
@@ -307,7 +307,7 @@ export function SettingsTab({user=null, syncPaused=false, onLogin, onSyncCheck, 
         {!act.awayOff && (
           <div style={{display:'flex',gap:6,flexWrap:'wrap',alignItems:'center',marginTop:8}}>
             {[1,2,3,5,7,14,30,60].map(d=>{ const on=(act.awayDays||[]).includes(d); return (
-              <div key={d} className="chip" onClick={()=>{ const cur=act.awayDays||[];
+              <div key={d} className="chip" aria-pressed={on} onClick={()=>{ const cur=act.awayDays||[];
                   const next = on ? cur.filter(x=>x!==d) : [...cur,d].sort((a,b)=>a-b);
                   if(next.length>AWAY_DAYS_MAX) return; setAct({awayDays:next}); }}
                 style={{background:on?C.amber:C.panelAlt,color:on?'#1A1200':C.dim,borderColor:on?C.amber:C.border}}>{d} дн.</div>
@@ -367,7 +367,7 @@ export function SettingsTab({user=null, syncPaused=false, onLogin, onSyncCheck, 
         <div style={{...S.dimSpan,marginLeft:0,marginBottom:10,display:'block'}}>Выбери до 4 вкладок для нижней панели. Остальные — в кнопке «Ещё». Выбрано: {mobileTabs.length}/4.</div>
         <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
           {ALL_MOBILE_TAB_IDS.map(id=>{ const on=mobileTabs.includes(id); const full=mobileTabs.length>=4; const m=TAB_META[id];
-            return <div key={id} className="chip" onClick={()=>toggleMobileTab(id)}
+            return <div key={id} className="chip" aria-pressed={on} onClick={()=>toggleMobileTab(id)}
               style={{background:on?tint(C.amber,.16):C.panelAlt,color:on?C.amber:C.dim,opacity:(!on&&full)?0.5:1}}>
               <Icon name={m.icon} size={14}/>{m.label}</div>;
           })}
