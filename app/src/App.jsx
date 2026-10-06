@@ -548,7 +548,11 @@ function App(){
   const renameGoal = (scope,id,title) => { const t=(title||'').trim(); if(!t) return;
     persist.goals({...goals,[scope]:(goals[scope]||[]).map(g=> g.id===id ? {...g, title:t} : g)}); };
 
-  const addStudyTask = (item) => haptic('tap') || persist.study([{id:uid(), createdAt:todayStr(), ...item}, ...study]);
+  const addStudyTask = (item) => {
+    haptic('tap');
+    const status = statusFromChecklist(item.status, item.checklist||[]);
+    persist.study([{id:uid(), createdAt:todayStr(), ...item, status, ...(status==='Выполнено'?{completedAt:todayStr()}:{})}, ...study]);
+  };
   const updateStudyTask = (id,patch) => {
     const prevItem = study.find(s=>s.id===id);
     // при переходе в «Выполнено» фиксируем дату закрытия (для достижений «в срок»)
@@ -556,6 +560,14 @@ function App(){
     const next = study.map(s=>s.id===id?{...s,...patch}:s); persist.study(next);
     if(patch.status==='Выполнено' && prevItem && prevItem.status!=='Выполнено') addXp(15);
     if(patch.status && patch.status!=='Выполнено' && prevItem && prevItem.status==='Выполнено') addXp(-15);
+  };
+  // чек-лист внутри дела (s056): каждая правка пунктов пересчитывает статус — все отмечены → «Выполнено»,
+  // первая галочка у «Не начато» или неполный список у «Выполнено» → «В процессе». Без пунктов статус не трогаем.
+  // extra — остальные поля формы правки, чтобы сохранить всё одной записью.
+  const setStudyChecklist = (id, checklist, extra={}) => {
+    const t = study.find(s=>s.id===id); if(!t) return;
+    const status = statusFromChecklist(t.status, checklist);
+    updateStudyTask(id, status!==t.status ? {...extra, checklist, status} : {...extra, checklist});
   };
   const deleteStudyTask = (id) => persist.study(study.filter(s=>s.id!==id));
   const persistStudyArchive = (n) => { setStudyArchive(n); saveKey('lifeos:studyArchive', n); };
@@ -937,7 +949,7 @@ function App(){
     Object.entries(days).forEach(([ds,e])=>{ (e.tasks||[]).forEach(t=>{ if(hit(t.text)) push({type:'Задача',label:t.text,sub:ds,go:()=>{ setSelectedDate(ds); setTab('today'); }}); }); });
     dailyTasks.forEach(d=>{ if(hit(d.text)) push({type:'Ежедневная',label:d.text,sub:'',go:()=>setTab('today')}); });
     ongoing.forEach(o=>{ if(hit(o.text)) push({type:'Долгое дело',label:o.text,sub:o.startDate||'',go:()=>setTab('today')}); });
-    study.forEach(s=>{ if(hit(s.task)||hit(s.epic)) push({type:'Дело',label:s.task||s.epic||'—',sub:s.epic||'',go:()=>setTab('study')}); });
+    study.forEach(s=>{ if(hit(s.task)||hit(s.epic)||(s.checklist||[]).some(c=>hit(c.text))) push({type:'Дело',label:s.task||s.epic||'—',sub:s.epic||'',go:()=>setTab('study')}); });
     notes.forEach(n=>{ if(hit(n.title)||hit(n.body)) push({type:n.type||'Заметка',label:n.title||(n.body||'').slice(0,40)||'—',sub:'',go:()=>setTab('notes')}); });
     ['year','month','week','day'].forEach(sc=>{ (goals[sc]||[]).forEach(g=>{ if(hit(g.title)) push({type:'Цель · '+GL_SCOPE[sc],label:g.title,sub:'',go:()=>setTab('goals')}); }); });
     habits.forEach(h=>{ if(hit(h.name)) push({type:'Привычка',label:h.name,sub:'',go:()=>setTab('habits')}); });
@@ -1041,7 +1053,7 @@ function App(){
     const goalRows = [];
     ['year','month','week','day'].forEach(scope => (goals[scope]||[]).forEach(g => goalRows.push({scope, title:g.title, progress:g.progress, subtasks:(g.subtasks||[]).map(s=>`${s.done?'[x]':'[ ]'} ${s.text}`).join('; ')})));
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(goalRows), 'Цели');
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(study), 'Учёба');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(study.map(s => s.checklist ? {...s, checklist:s.checklist.map(c=>`${c.done?'[x]':'[ ]'} ${c.text}`).join('; ')} : s)), 'Учёба');
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(notes), 'Заметки');
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(finance.transactions), 'Операции');
     const snapRows = [];
@@ -1204,7 +1216,7 @@ function App(){
         showGoalDeadline={!!settings.showGoalDeadline}
         collapsed={collapseState.goals||{}} onToggleCollapse={(sc)=>toggleCollapse('goals',sc)}
         archive={goalsArchive} restoreGoal={restoreGoal} deleteArchivedGoal={deleteArchivedGoal} />}
-      {tab==='study' && <StudyTab registerAdd={registerAdd} study={study} addStudyTask={addStudyTask} updateStudyTask={updateStudyTask} deleteStudyTask={deleteStudyTask} archiveStudyTask={archiveStudyTask} archive={studyArchive} deleteArchivedStudy={deleteArchivedStudy} restoreStudy={restoreStudy}
+      {tab==='study' && <StudyTab registerAdd={registerAdd} study={study} addStudyTask={addStudyTask} updateStudyTask={updateStudyTask} setStudyChecklist={setStudyChecklist} deleteStudyTask={deleteStudyTask} archiveStudyTask={archiveStudyTask} archive={studyArchive} deleteArchivedStudy={deleteArchivedStudy} restoreStudy={restoreStudy}
         collapsed={collapseState.study||{}} onToggleCollapse={(epic)=>toggleCollapse('study',epic)} onSetCollapseAll={(keys,v)=>setCollapseAll('study',keys,v)} />}
       {tab==='notes' && <NotesTab registerAdd={registerAdd} notes={notes} addNote={addNote} updateNote={updateNote} deleteNote={deleteNote} />}
       {tab==='finance' && <FinanceTab finance={finance} categories={categories} budgets={budgets} incomePlans={incomePlans} bills={bills} defaults={settings.defaults||{}}
@@ -1272,6 +1284,12 @@ function App(){
 // ============================================================ Today
 
 // Номер дня в году для подписи «суббота · 276-й день» (референс Э1).
+function statusFromChecklist(status, list){
+  const n = list.filter(c=>c.done).length;
+  if(list.length && n===list.length) return 'Выполнено';
+  if(list.length && (status==='Выполнено' || (n>0 && status==='Не начато'))) return 'В процессе';
+  return status;
+}
 function dayOfYear(ds){ const d=new Date(ds+'T00:00:00'); return Math.round((d-new Date(d.getFullYear(),0,1))/864e5)+1; }
 
 export default App;

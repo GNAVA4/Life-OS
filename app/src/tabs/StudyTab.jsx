@@ -5,11 +5,14 @@
 // (раньше на телефоне переключатель уезжал); «свернуть/развернуть все»; правка дела после создания
 // (поля те же — updateStudyTask и раньше принимал патч).
 // s055: на телефоне строку можно смахнуть вправо (в архив) или влево (удалить) — с подтверждением кнопкой.
+// s056: чек-лист внутри дела — счётчик «2 / 5» в строке раскрывает пункты; галочки двигают статус (логика в App).
 import { useEffect, useMemo, useState } from 'react';
 import { BASE_EPICS, IMPORTANCE_COLOR, STUDY_IMPORTANCE, STUDY_STATUSES, STUDY_URGENCY, URGENCY_COLOR } from '../lib/constants.js';
 import { daysBetween, openDatePicker, todayStr } from '../lib/dates.js';
+import { uid } from '../lib/format.js';
 import { S } from '../lib/styles.js';
 import { C, tint } from '../lib/theme.js';
+import { Check } from '../ui/Check.jsx';
 import { Icon } from '../ui/Icon.jsx';
 import { ConfirmIconBtn, Modal, Select, StatusSeg } from '../ui/primitives.jsx';
 import { SwipeRow } from '../ui/SwipeRow.jsx';
@@ -29,12 +32,34 @@ function deadlineText(t, today){
   return {txt:`${ddmm(t.deadline)} · через ${d} дн.`, col:C.dim};
 }
 
-// Поля дела (создание и правка): эпик, название, важность, срочность, дедлайн.
+// Пункты чек-листа: отметить, удалить, добавить. В строке дела меняет сразу, в форме — до «Сохранить».
+function Checklist({items, onChange, inputBg}){
+  const [text,setText] = useState('');
+  const add = () => { const v=text.trim(); if(!v) return; onChange([...items,{id:uid(),text:v,done:false}]); setText(''); };
+  return (
+    <div style={{display:'flex',flexDirection:'column',gap:6}}>
+      {items.map(c=>(
+        <div key={c.id} style={{display:'flex',alignItems:'center',gap:10}}>
+          <Check size={20} checked={c.done} onChange={()=>onChange(items.map(x=>x.id===c.id?{...x,done:!x.done}:x))} label={c.text} />
+          <span style={{flex:1,minWidth:0,fontSize:13.5,color:c.done?C.dim:C.text,textDecoration:c.done?'line-through':'none',textDecorationColor:C.faint,overflowWrap:'anywhere'}}>{c.text}</span>
+          <ConfirmIconBtn onConfirm={()=>onChange(items.filter(x=>x.id!==c.id))} title="удалить пункт" confirmLabel="удалить?" />
+        </div>
+      ))}
+      <div style={{display:'flex',gap:6}}>
+        <input style={{...S.input,background:inputBg||S.input.background,fontSize:13,padding:'7px 10px'}} placeholder="Новый пункт" value={text} aria-label="Новый пункт чек-листа"
+          onChange={e=>setText(e.target.value)} onKeyDown={e=>{ if(e.key==='Enter') add(); }} />
+        <button style={{...S.iconBtnAmber,width:34,height:34,flex:'none',opacity:text.trim()?1:.45}} aria-label="Добавить пункт" onClick={add}><Icon name="plus" size={16}/></button>
+      </div>
+    </div>
+  );
+}
+
+// Поля дела (создание и правка): эпик, название, важность, срочность, дедлайн, чек-лист.
 function StudyForm({init, epicOptions, onSubmit, onCancel, submitLabel, onArchive, onDelete}){
   const [epic,setEpic] = useState(init.epic||''); const [task,setTask] = useState(init.task||'');
   const [importance,setImportance] = useState(init.importance||STUDY_IMPORTANCE[1]); const [urgency,setUrgency] = useState(init.urgency||STUDY_URGENCY[1]);
-  const [deadline,setDeadline] = useState(init.deadline||'');
-  const submit = () => { if(!task.trim()) return; onSubmit({epic:epic.trim()||'Входящие', task:task.trim(), importance, urgency, deadline:deadline||undefined}); };
+  const [deadline,setDeadline] = useState(init.deadline||''); const [checklist,setChecklist] = useState(init.checklist||[]);
+  const submit = () => { if(!task.trim()) return; onSubmit({epic:epic.trim()||'Входящие', task:task.trim(), importance, urgency, deadline:deadline||undefined, checklist}); };
   return (
     <div style={{...S.plate,display:'flex',flexDirection:'column',gap:10}}>
       <input autoFocus style={{...S.input,background:C.bg}} placeholder="Что нужно сделать" value={task} aria-label="Что нужно сделать"
@@ -54,6 +79,10 @@ function StudyForm({init, epicOptions, onSubmit, onCancel, submitLabel, onArchiv
             {deadline && <button className="icon-btn" aria-label="Убрать дедлайн" onClick={()=>setDeadline('')}><Icon name="x" size={14}/></button>}
           </div></label>
       </div>
+      <div style={{display:'flex',flexDirection:'column',gap:6}}>
+        <span style={{fontSize:12,color:C.dim}}>Чек-лист</span>
+        <Checklist items={checklist} onChange={setChecklist} inputBg={C.bg} />
+      </div>
       <div style={{display:'flex',gap:8}}>
         <button style={{...S.btnPrimary,opacity:task.trim()?1:.45}} onClick={submit}>{submitLabel}</button>
         {onCancel && <button style={S.exportBtn} onClick={onCancel}>Отмена</button>}
@@ -67,11 +96,12 @@ function StudyForm({init, epicOptions, onSubmit, onCancel, submitLabel, onArchiv
   );
 }
 
-export function StudyTab({registerAdd, study, addStudyTask, updateStudyTask, deleteStudyTask, archiveStudyTask, archive=[], deleteArchivedStudy, restoreStudy, collapsed={}, onToggleCollapse, onSetCollapseAll}){
+export function StudyTab({registerAdd, study, addStudyTask, updateStudyTask, setStudyChecklist, deleteStudyTask, archiveStudyTask, archive=[], deleteArchivedStudy, restoreStudy, collapsed={}, onToggleCollapse, onSetCollapseAll}){
   const [addOpen,setAddOpen] = useState(false);
   const [archiveShow,setArchiveShow] = useState(false);
   const [filterStatus,setFilterStatus] = useState('Все'); const [sortBy,setSortBy] = useState('createdAt');
   const [editId,setEditId] = useState(null);
+  const [chkOpen,setChkOpen] = useState({}); // раскрытые чек-листы: {id:true}
   // свайп строки дела: вправо — в архив, влево — удалить; открыта не больше одной строки (s055)
   const [swiped,setSwiped] = useState(null); const [swipedSide,setSwipedSide] = useState(null);
   // «+» в шапке приложения — новое дело во всплывающем окне (референс Э4)
@@ -112,7 +142,7 @@ export function StudyTab({registerAdd, study, addStudyTask, updateStudyTask, del
       {addOpen && (
         <Modal onClose={()=>setAddOpen(false)} title="Новое дело">
           <StudyForm init={{}} epicOptions={epicOptions} submitLabel="Добавить дело"
-            onSubmit={(v)=>{ addStudyTask({...v, status:'Не начато', note:''}); setAddOpen(false); }} />
+            onSubmit={({checklist,...v})=>{ addStudyTask({...v, ...(checklist.length?{checklist}:{}), status:'Не начато', note:''}); setAddOpen(false); }} />
         </Modal>
       )}
 
@@ -149,10 +179,11 @@ export function StudyTab({registerAdd, study, addStudyTask, updateStudyTask, del
             {!isC && tasks.map(t=>{
               const done = t.status==='Выполнено';
               const dl = deadlineText(t, today);
+              const chk = t.checklist||[]; const chkDone = chk.filter(c=>c.done).length;
               if(editId===t.id) return (
                 <div key={t.id} style={{margin:'4px 0 10px'}}>
                   <StudyForm init={t} epicOptions={epicOptions} submitLabel="Сохранить" onCancel={()=>setEditId(null)}
-                    onSubmit={(v)=>{ updateStudyTask(t.id, v); setEditId(null); }}
+                    onSubmit={({checklist,...v})=>{ setStudyChecklist(t.id, checklist, v); setEditId(null); }}
                     onArchive={()=>{ archiveStudyTask(t.id); setEditId(null); }} onDelete={()=>{ deleteStudyTask(t.id); setEditId(null); }} />
                 </div>
               );
@@ -176,7 +207,18 @@ export function StudyTab({registerAdd, study, addStudyTask, updateStudyTask, del
                     )}
                     <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
                       <StatusSeg value={t.status} onChange={v=>updateStudyTask(t.id,{status:v})} />
+                      {chk.length>0 && (
+                        <button aria-expanded={!!chkOpen[t.id]} aria-label={`Чек-лист: ${chkDone} из ${chk.length}`} onClick={()=>setChkOpen(o=>({...o,[t.id]:!o[t.id]}))}
+                          style={{background:'none',border:'none',padding:'4px 2px',cursor:'pointer',fontFamily:'inherit',fontSize:12.5,fontVariantNumeric:'tabular-nums',
+                            color:chkDone===chk.length?C.green:C.dim,display:'inline-flex',alignItems:'center',gap:4}}>
+                          <Icon name="check" size={13}/>{chkDone} / {chk.length}
+                          <span style={{display:'flex',transform:chkOpen[t.id]?'rotate(90deg)':'none',transition:'transform .15s'}}><Icon name="chevR" size={12}/></span>
+                        </button>
+                      )}
                     </div>
+                    {chk.length>0 && chkOpen[t.id] && (
+                      <div className="anim-collapse"><Checklist items={chk} onChange={list=>setStudyChecklist(t.id, list)} /></div>
+                    )}
                   </div>
                 </div>
                 </SwipeRow>
