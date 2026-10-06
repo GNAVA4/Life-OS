@@ -408,11 +408,13 @@ function App(){
     addXp(on ? gamify.antiXp : -gamify.antiXp);
   };
   // 🔁 перенос невыполненных задач с предыдущего дня в текущий (selectedDate). session 019.
-  const prevUndoneTasks = ((days[addDays(selectedDate,-1)]?.tasks)||[]).filter(t=>!t.done);
+  // Считаем только ещё НЕ перенесённые (по тексту, как дедуп ниже): иначе после «Перенести» плашка висела —
+  // вчерашние задачи остаются невыполненными во вчерашнем дне (s055, репорт пользователя).
+  const curTaskTexts = new Set((entry.tasks||[]).map(t=>t.text));
+  const prevUndoneTasks = ((days[addDays(selectedDate,-1)]?.tasks)||[]).filter(t=>!t.done && !curTaskTexts.has(t.text));
   const carryOverTasks = () => {
     if(!prevUndoneTasks.length) return;
-    const existing = new Set((entry.tasks||[]).map(t=>t.text));
-    const add = prevUndoneTasks.filter(t=>!existing.has(t.text)).map(t=>({id:uid(), text:t.text, done:false, difficulty:t.difficulty||'medium', ...(goalLinksOf(t).length?{goalLinks:goalLinksOf(t)}:{})}));
+    const add = prevUndoneTasks.map(t=>({id:uid(), text:t.text, done:false, difficulty:t.difficulty||'medium', ...(goalLinksOf(t).length?{goalLinks:goalLinksOf(t)}:{})}));
     if(add.length) updateEntry({ tasks:[...entry.tasks, ...add] });
   };
 
