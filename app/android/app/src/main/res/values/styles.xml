@@ -13,6 +13,9 @@
         <item name="windowActionBar">false</item>
         <item name="windowNoTitle">true</item>
         <item name="android:background">@null</item>
+        <!-- Полосы под строкой состояния и жестовой панелью = фон приложения, а не серый фон темы (s057).
+             Capacitor 8 SystemBars красит decorView в windowBackground и сдвигает WebView на высоту полос. -->
+        <item name="android:windowBackground">@color/ic_launcher_background</item>
     </style>
 
 
