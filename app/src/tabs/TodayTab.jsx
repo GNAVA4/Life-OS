@@ -9,6 +9,7 @@ import { DIFF_XP } from '../lib/constants.js';
 import { maskMoney } from '../lib/format.js';
 import { WEEKLY_XP } from '../lib/gamify.js';
 import { goalLinksOf, goalMode } from '../lib/goals.js';
+import { haptic } from '../lib/haptics.js';
 import { vis } from '../lib/storage.js';
 import { S } from '../lib/styles.js';
 import { C, tint } from '../lib/theme.js';
@@ -16,6 +17,7 @@ import { Check } from '../ui/Check.jsx';
 import { GoalLinkPicker } from '../ui/GoalLinkPicker.jsx';
 import { Icon } from '../ui/Icon.jsx';
 import { ConfirmIconBtn, Modal } from '../ui/primitives.jsx';
+import { RatingSlider } from '../ui/RatingSlider.jsx';
 
 const DIFFS = [{v:'easy',l:'Лёгкая',s:'Л'},{v:'medium',l:'Средняя',s:'С'},{v:'hard',l:'Тяжёлая',s:'Т'}];
 const diffShort = (d) => (DIFFS.find(x=>x.v===(d||'medium'))||DIFFS[1]).s;
@@ -23,6 +25,9 @@ const WD = ['пн','вт','ср','чт','пт','сб','вс'];
 // Сон: шаг кнопок и стартовое значение, если за день ещё ничего не записано (8 ч — частая рекомендация;
 // дальше пользователь двигает ±0,5). Поле можно и просто ввести вручную, как раньше.
 const SLEEP_STEP = 0.5, SLEEP_START = 8;
+// Минимальный горизонтальный ход пальца для свайпа недели: больше случайного дрожания при нажатии на день
+// (~10–15px), но меньше ширины двух ячеек дня на телефоне (~90px).
+const WEEK_SWIPE_PX = 40;
 const fmt1 = (n) => n.toLocaleString('ru-RU',{minimumFractionDigits:1,maximumFractionDigits:1});
 
 
@@ -117,7 +122,7 @@ export function TodayTab({entry, selectedDate, setSelectedDate, addTask, toggleT
   useEffect(()=>{ setEditId(null); }, [selectedDate]);
 
   // Оценка пишется по отпусканию ползунка, а не на каждый пиксель — иначе десятки записей в облако.
-  const commitRating = () => { if(ratingDraft!=null && ratingDraft!==entry.rating) updateEntry({rating:ratingDraft}); };
+  const commitRating = (v) => { if(v!=null && v!==entry.rating) updateEntry({rating:v}); };
   const setSleep = (v) => { const n = Math.max(0, Math.min(24, Math.round(v*2)/2)); setSleepInput(n); updateEntry({sleepHours:n}); };
   const commitSleepInput = () => { const v=parseFloat(String(sleepInput).replace(',','.')); if(!isNaN(v) && v!==entry.sleepHours) setSleep(v); };
 
@@ -133,6 +138,16 @@ export function TodayTab({entry, selectedDate, setSelectedDate, addTask, toggleT
   const sel = new Date(selectedDate+'T00:00:00');
   const monday = addDays(selectedDate, -((sel.getDay()+6)%7));
   const week = Array.from({length:7},(_,i)=>addDays(monday,i));
+  // Свайп по полосе недели — на неделю назад/вперёд, как стрелки (s055, запрос пользователя).
+  // Влево = следующая неделя (лента «уезжает» влево). Срабатывает, если палец ушёл по горизонтали дальше
+  // WEEK_SWIPE_PX и заметно больше, чем по вертикали — иначе это прокрутка страницы, а не свайп.
+  const swipeRef = useRef(null);
+  const [weekAnim,setWeekAnim] = useState('');
+  const shiftWeek = (dir) => { setWeekAnim(dir>0?'week-next':'week-prev'); setSelectedDate(addDays(selectedDate, 7*dir)); };
+  const onWeekTouchStart = (e) => { const t=e.touches[0]; swipeRef.current={x:t.clientX,y:t.clientY}; };
+  const onWeekTouchEnd = (e) => { const s=swipeRef.current; swipeRef.current=null; const t=e.changedTouches[0]; if(!s||!t) return;
+    const dx=t.clientX-s.x, dy=t.clientY-s.y;
+    if(Math.abs(dx)>=WEEK_SWIPE_PX && Math.abs(dx)>Math.abs(dy)*1.5){ haptic('tap'); shiftWeek(dx<0?1:-1); } };
   const hasData = (ds) => { const e=days[ds]; return !!(e && ((e.tasks&&e.tasks.length) || e.rating!=null || e.note || (e.tags&&e.tags.length) || e.sleepHours!=null)); };
 
   const questsDone = quests.filter(q=>q.deferred?q.claimed:q.done).length;
@@ -143,8 +158,9 @@ export function TodayTab({entry, selectedDate, setSelectedDate, addTask, toggleT
       {/* ---- выбор дня ---- */}
       <div style={{marginBottom:18}}>
         <div style={{display:'flex',alignItems:'center',gap:4,marginBottom:6}}>
-          <button style={S.navArrow} aria-label="Предыдущая неделя" onClick={()=>setSelectedDate(addDays(selectedDate,-7))}><Icon name="chevL"/></button>
-          <div style={{display:'grid',gridTemplateColumns:'repeat(7,minmax(0,1fr))',gap:2,flex:1}}>
+          <button style={S.navArrow} aria-label="Предыдущая неделя" onClick={()=>shiftWeek(-1)}><Icon name="chevL"/></button>
+          <div key={monday} className={weekAnim} onAnimationEnd={()=>setWeekAnim('')} onTouchStart={onWeekTouchStart} onTouchEnd={onWeekTouchEnd}
+            style={{display:'grid',gridTemplateColumns:'repeat(7,minmax(0,1fr))',gap:2,flex:1}}>
             {week.map((ds,i)=>{ const on=ds===selectedDate, isT=ds===today, fut=ds>today;
               return (
                 <button key={ds} onClick={()=>setSelectedDate(ds)} aria-label={ds} aria-pressed={on}
@@ -156,7 +172,7 @@ export function TodayTab({entry, selectedDate, setSelectedDate, addTask, toggleT
                 </button>
               ); })}
           </div>
-          <button style={S.navArrow} aria-label="Следующая неделя" onClick={()=>setSelectedDate(addDays(selectedDate,7))}><Icon name="chevR"/></button>
+          <button style={S.navArrow} aria-label="Следующая неделя" onClick={()=>shiftWeek(1)}><Icon name="chevR"/></button>
           <div style={{position:'relative'}}>
             <button style={S.navArrow} aria-label="Выбрать дату" onClick={()=>{ const el=dateInputRef.current; if(el){ try{ el.showPicker ? el.showPicker() : el.click(); }catch(e){ el.click(); } } }}><Icon name="calendar"/></button>
             <input ref={dateInputRef} type="date" value={selectedDate} onChange={e=>e.target.value && setSelectedDate(e.target.value)} onClick={openDatePicker}
@@ -383,11 +399,9 @@ export function TodayTab({entry, selectedDate, setSelectedDate, addTask, toggleT
           <span style={{fontSize:16,fontWeight:700,fontVariantNumeric:'tabular-nums',color:ratingDraft!=null?C.text:C.dim}}>
             {ratingDraft!=null ? <>{fmt1(ratingDraft)} <span style={{fontSize:12,color:C.dim,fontWeight:500}}>/ 10</span></> : <span style={{fontSize:13,fontWeight:500}}>не оценён</span>}
           </span>} />
-        <input type="range" className="lo-range" min="1" max="10" step="0.1" aria-label="Оценка дня от 1 до 10"
-          value={ratingDraft ?? 5} style={{width:'100%',opacity:ratingDraft==null?.45:1,'--p':`${((ratingDraft ?? 5)-1)/9*100}%`}}
-          onChange={e=>setRatingDraft(Math.round(parseFloat(e.target.value)*10)/10)}
-          onPointerUp={commitRating} onTouchEnd={commitRating} onKeyUp={commitRating} onBlur={commitRating} />
-        <div style={{display:'flex',justifyContent:'space-between',fontSize:10.5,color:C.faint,fontVariantNumeric:'tabular-nums',padding:'0 2px'}}>
+        {/* сдвинуть можно только взявшись за бегунок; нажатие на дорожку ничего не меняет (s055) */}
+        <RatingSlider value={ratingDraft} onChange={setRatingDraft} onCommit={commitRating} />
+        <div style={{display:'flex',justifyContent:'space-between',fontSize:10.5,color:C.faint,fontVariantNumeric:'tabular-nums',padding:'0 6px'}}>
           {Array.from({length:10},(_,i)=><span key={i}>{i+1}</span>)}
         </div>
       </div>

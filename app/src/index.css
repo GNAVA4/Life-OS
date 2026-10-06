@@ -57,6 +57,10 @@ input.lo-range::-moz-range-thumb{width:20px;height:20px;border:none;border-radiu
 .anim-toast{animation:lo-toast .22s cubic-bezier(.2,.8,.2,1) both}
 .anim-collapse{animation:lo-collapse .18s ease both}
 .anim-tab{animation:lo-fade .2s ease both}
+/* смена недели на «Сегодня» (стрелки и свайп, s055): новая неделя въезжает с той стороны, куда листали */
+@keyframes lo-week-next{from{opacity:0;transform:translateX(24px)}to{opacity:1;transform:none}}
+@keyframes lo-week-prev{from{opacity:0;transform:translateX(-24px)}to{opacity:1;transform:none}}
+.week-next{animation:lo-week-next .2s ease both} .week-prev{animation:lo-week-prev .2s ease both}
 .sel-pop{animation:lo-pop .14s ease both;transform-origin:top;}
 /* тактильные переходы */
 button,.chip,.icon-btn{transition:background .15s ease,border-color .15s ease,color .15s ease,transform .08s ease,opacity .15s ease;}
