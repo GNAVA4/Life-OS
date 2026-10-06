@@ -1121,8 +1121,12 @@ function App(){
     .filter(id => id==='today' || vis('tab.'+id));
   const sheetTabIds = ALL_MOBILE_TAB_IDS.filter(id => !mobileTabIds.includes(id) && vis('tab.'+id));
 
+  // кнопка «Добавить» (s056): вверху в шапке, круглая внизу справа (над меню) или обе — выбор в Настройках
+  const addBtnMode = settings.addBtn || 'both';
+  const showFab = !!addFn && addBtnMode!=='top';
+
   return (
-    <div style={isMobile ? {...S.root, padding:'16px 12px 92px'} : S.desk}>
+    <div style={isMobile ? {...S.root, padding:`16px 12px ${showFab?164:92}px`} : S.desk}>
       {/* Широкий экран (этап 7 редизайна): боковое меню вместо верхней строки вкладок. */}
       {!isMobile && (
         <DesktopSidebar tabIds={NAV.filter(n => n.id!=='settings' && (n.id==='today' || vis('tab.'+n.id))).map(n => n.id)}
@@ -1143,7 +1147,7 @@ function App(){
           <button onClick={()=>setSearchOpen(true)} title="Поиск" aria-label="Поиск" style={S.profileBtn}><Icon name="search" size={18}/></button>
           {tab==="today"
             ? <button onClick={()=>setProfileOpen(true)} title="Профиль" aria-label="Профиль" style={S.avatarBtn}>{user&&user.email ? user.email[0].toUpperCase() : <Icon name="user" size={16}/>}</button>
-            : addFn && <button onClick={()=>addFn()} title="Добавить" aria-label="Добавить" style={S.profileBtn}><Icon name="plus" size={20}/></button>}
+            : addFn && addBtnMode!=='fab' && <button onClick={()=>addFn()} title="Добавить" aria-label="Добавить" style={S.profileBtn}><Icon name="plus" size={20}/></button>}
         </div>
         <input ref={fileInputRef} type="file" accept="application/json,.json" style={{display:'none'}}
           onChange={e=>{ const f=e.target.files[0]; if(f) importJson(f); e.target.value=''; }} />
@@ -1234,6 +1238,7 @@ function App(){
       {tab==='settings' && <SettingsTab user={user} syncPaused={!!syncAsk} onLogin={()=>login().catch(err=>setImportMsg('Вход не удался: '+err.message))} onSyncCheck={openSyncCheck} onProfile={()=>setProfileOpen(true)} hidden={settings.hidden||{}} toggleModule={toggleModule}
         defaults={settings.defaults||{}} setDefault={setDefault} categories={categories} accounts={finance.accounts}
         mobileTabs={mobileTabIds} toggleMobileTab={toggleMobileTab}
+        addBtnMode={addBtnMode}
         soundOff={!!settings.soundOff} notifOff={!!settings.notifOff} hapticsOff={!!settings.hapticsOff}
         maskNetWorth={!!settings.maskNetWorth} maskDebts={!!settings.maskDebts} maskOps={!!settings.maskOps} maskAllFinance={!!settings.maskAllFinance}
         morningCfg={settings.morningSummary||null} setSettingFlag={setSettingFlag}
@@ -1242,6 +1247,15 @@ function App(){
         showGoalDeadline={!!settings.showGoalDeadline} billsNotif={settings.billsNotif||null}
         noteCfg={settings.noteNotif||null} goalPaceCfg={settings.goalPace||null} activity={settings.activity||null} />}
       </div>
+
+      {showFab && (
+        <button className="lo-fab" onClick={()=>{ haptic('tap'); addFn(); }} title="Добавить" aria-label="Добавить (кнопка внизу)"
+          style={{position:'fixed',right:isMobile?16:28,bottom:isMobile?'calc(76px + env(safe-area-inset-bottom))':28,zIndex:45,
+            width:56,height:56,borderRadius:'50%',border:'none',cursor:'pointer',display:'grid',placeItems:'center',
+            background:C.amber,color:C.bg,boxShadow:'0 6px 18px rgba(0,0,0,.45)'}}>
+          <Icon name="plus" size={26} stroke={2.4}/>
+        </button>
+      )}
 
       {isMobile && (
         <MobileBottomNav tabIds={mobileTabIds} tab={tab}

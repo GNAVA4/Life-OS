@@ -10,7 +10,7 @@ import { C, tint } from '../lib/theme.js';
 import { Select, SettingsDivider, SettingsGroup, SettingsNavCtx, SettingsRow, SettingsSection, SubHead, Toggle } from '../ui/primitives.jsx';
 import { Icon } from '../ui/Icon.jsx';
 
-export function SettingsTab({user=null, syncPaused=false, onLogin, onSyncCheck, onProfile, hidden, toggleModule, defaults, setDefault, categories, accounts, mobileTabs, toggleMobileTab, soundOff, notifOff, hapticsOff=false, maskNetWorth, maskDebts, maskOps, maskAllFinance, morningCfg, setSettingFlag, gamify=GAMIFY_DEFAULT, setGamify, requestNotifs, testNotif, showNotifDiag, notifMsg, deadlineCfg, showGoalDeadline=false, billsNotif=null, noteCfg=null, goalPaceCfg=null, activity=null}){
+export function SettingsTab({user=null, syncPaused=false, onLogin, onSyncCheck, onProfile, hidden, toggleModule, defaults, setDefault, categories, accounts, mobileTabs, toggleMobileTab, addBtnMode='both', soundOff, notifOff, hapticsOff=false, maskNetWorth, maskDebts, maskOps, maskAllFinance, morningCfg, setSettingFlag, gamify=GAMIFY_DEFAULT, setGamify, requestNotifs, testNotif, showNotifDiag, notifMsg, deadlineCfg, showGoalDeadline=false, billsNotif=null, noteCfg=null, goalPaceCfg=null, activity=null}){
   // ⏰ Напоминания в заметках: «за N дней» + просрочка (session: reminders-activity-pace)
   const nlDays = (noteCfg && noteCfg.days && noteCfg.days.length) ? noteCfg.days : NOTE_LEAD_DAYS_DEFAULT;
   const nOvOn = !(noteCfg && noteCfg.overdueOff);
@@ -371,6 +371,15 @@ export function SettingsTab({user=null, syncPaused=false, onLogin, onSyncCheck, 
               style={{background:on?tint(C.amber,.16):C.panelAlt,color:on?C.amber:C.dim,opacity:(!on&&full)?0.5:1}}>
               <Icon name={m.icon} size={14}/>{m.label}</div>;
           })}
+        </div>
+
+        <SettingsDivider/>
+        <SubHead>Кнопка «Добавить»</SubHead>
+        <div style={{...S.dimSpan,marginLeft:0,marginBottom:10,display:'block'}}>Где «+» в Привычках, Целях, Делах и Заметках: в шапке, круглой кнопкой внизу справа (над меню, не прокручивается) или обе.</div>
+        <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+          {[['top','Вверху'],['fab','Внизу справа'],['both','Обе']].map(([v,l])=>(
+            <div key={v} className="chip" aria-pressed={addBtnMode===v} onClick={()=>setSettingFlag('addBtn', v)}
+              style={{background:addBtnMode===v?tint(C.amber,.16):C.panelAlt,color:addBtnMode===v?C.amber:C.dim}}>{l}</div>))}
         </div>
 
         <SettingsDivider/>
