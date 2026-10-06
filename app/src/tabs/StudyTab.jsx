@@ -4,6 +4,7 @@
 // Новое: важность/срочность — цветные метки словами + полоса слева; статус всегда виден под названием
 // (раньше на телефоне переключатель уезжал); «свернуть/развернуть все»; правка дела после создания
 // (поля те же — updateStudyTask и раньше принимал патч).
+// s055: на телефоне строку можно смахнуть вправо (в архив) или влево (удалить) — с подтверждением кнопкой.
 import { useEffect, useMemo, useState } from 'react';
 import { BASE_EPICS, IMPORTANCE_COLOR, STUDY_IMPORTANCE, STUDY_STATUSES, STUDY_URGENCY, URGENCY_COLOR } from '../lib/constants.js';
 import { daysBetween, openDatePicker, todayStr } from '../lib/dates.js';
@@ -11,6 +12,7 @@ import { S } from '../lib/styles.js';
 import { C, tint } from '../lib/theme.js';
 import { Icon } from '../ui/Icon.jsx';
 import { ConfirmIconBtn, Modal, Select, StatusSeg } from '../ui/primitives.jsx';
+import { SwipeRow } from '../ui/SwipeRow.jsx';
 
 const SORTS = [{value:'createdAt',label:'по дате'},{value:'importance',label:'по важности'},{value:'urgency',label:'по срочности'},{value:'deadline',label:'по дедлайну'}];
 const ddmm = (ds) => new Date(ds+'T00:00:00').toLocaleDateString('ru-RU',{day:'numeric',month:'short'});
@@ -70,6 +72,8 @@ export function StudyTab({registerAdd, study, addStudyTask, updateStudyTask, del
   const [archiveShow,setArchiveShow] = useState(false);
   const [filterStatus,setFilterStatus] = useState('Все'); const [sortBy,setSortBy] = useState('createdAt');
   const [editId,setEditId] = useState(null);
+  // свайп строки дела: вправо — в архив, влево — удалить; открыта не больше одной строки (s055)
+  const [swiped,setSwiped] = useState(null); const [swipedSide,setSwipedSide] = useState(null);
   // «+» в шапке приложения — новое дело во всплывающем окне (референс Э4)
   useEffect(()=>{ if(!registerAdd) return; registerAdd(()=>setAddOpen(true)); return ()=>registerAdd(null); }, [registerAdd]);
   const today = todayStr();
@@ -153,7 +157,10 @@ export function StudyTab({registerAdd, study, addStudyTask, updateStudyTask, del
                 </div>
               );
               return (
-                <div key={t.id} style={{display:'flex',gap:12,padding:'11px 0',borderBottom:`1px solid ${C.border}`,alignItems:'stretch'}}>
+                <SwipeRow key={t.id} open={swiped===t.id?swipedSide:null} onOpen={side=>{ setSwiped(t.id); setSwipedSide(side); }} onClose={()=>setSwiped(null)}
+                  right={{label:'В архив',icon:'archive',color:C.cyan,onConfirm:()=>archiveStudyTask(t.id)}}
+                  left={{label:'Удалить',icon:'trash',color:C.red,onConfirm:()=>deleteStudyTask(t.id)}}>
+                <div style={{display:'flex',gap:12,padding:'11px 0',borderBottom:`1px solid ${C.border}`,alignItems:'stretch'}}>
                   <span title={`Важность: ${t.importance||'—'}`} style={{width:3,borderRadius:3,flex:'none',background:done?C.panelAlt:(IMPORTANCE_COLOR[t.importance]||C.panelAlt)}}/>
                   <div style={{flex:1,minWidth:0,display:'flex',flexDirection:'column',gap:7}}>
                     <div style={{display:'flex',gap:8,alignItems:'flex-start'}}>
@@ -172,6 +179,7 @@ export function StudyTab({registerAdd, study, addStudyTask, updateStudyTask, del
                     </div>
                   </div>
                 </div>
+                </SwipeRow>
               );
             })}
           </div>
