@@ -18,6 +18,7 @@ import { GoalLinkPicker } from '../ui/GoalLinkPicker.jsx';
 import { Icon } from '../ui/Icon.jsx';
 import { ConfirmIconBtn, Modal } from '../ui/primitives.jsx';
 import { RatingSlider } from '../ui/RatingSlider.jsx';
+import { AgendaPanel } from './today/AgendaPanel.jsx';
 
 const DIFFS = [{v:'easy',l:'Лёгкая',s:'Л'},{v:'medium',l:'Средняя',s:'С'},{v:'hard',l:'Тяжёлая',s:'Т'}];
 const diffShort = (d) => (DIFFS.find(x=>x.v===(d||'medium'))||DIFFS[1]).s;
@@ -55,6 +56,7 @@ export function TodayTab({entry, selectedDate, setSelectedDate, addTask, toggleT
   dailyTasks, toggleDaily, addDailyTask, deleteDailyTask,
   ongoing=[], addOngoing, finishOngoing, deleteOngoing, bills, maskOps=false,
   taskTemplates=[], saveTaskTemplate, applyTaskTemplate, deleteTaskTemplate, carryOverTasks, prevUndoneCount=0,
+  agenda=null, agendaTomorrow=[], agendaH=null,
   isToday=true, quests=[], weekly=null, combo={streak:0,mult:1}, coachInsights=[], collapsedUI={}, onToggleUI,
   days={}, streak=0, health=100, level=1, into=0, needed=100, levelMax=false, isMobile=true}){
   const today = todayStr();
@@ -198,7 +200,12 @@ export function TodayTab({entry, selectedDate, setSelectedDate, addTask, toggleT
         <div style={{height:2,background:C.border,borderRadius:2,marginTop:8}}><div style={{height:'100%',width:`${levelMax?100:Math.min(100,into/needed*100)}%`,background:C.amber,borderRadius:2}}/></div>
       </div>
 
-      {todaysBill && (
+      {agenda && agendaH && (
+        <AgendaPanel agenda={agenda} tomorrow={agendaTomorrow} isToday={isToday} date={selectedDate} maskOps={maskOps} h={agendaH}
+          collapsed={!!collapsedUI.agenda} onToggle={()=>onToggleUI && onToggleUI('agenda')} />
+      )}
+
+      {todaysBill && !(agenda && vis('agenda.bills')) && (
         <div style={{...S.plate,display:'flex',alignItems:'center',gap:10,marginBottom:14,padding:'10px 12px'}}>
           <span style={{color:C.amber,display:'flex'}}><Icon name="finance"/></span>
           <span style={{fontSize:13,flex:1}}>Платёж в этот день: {todaysBill.name} — {maskMoney(maskOps, todaysBill.amount)}</span>

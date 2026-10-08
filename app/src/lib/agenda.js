@@ -155,13 +155,18 @@ export function agendaNotifText(a, { hidden = {}, maskMoney = false, streak = 0 
 
 // Вечерний взгляд на завтра — короткая строка (что приходится на следующий день, без привычек:
 // они каждый день одни и те же и только раздувают текст).
-export function tomorrowText(a, { hidden = {} } = {}){
+// Пункты «на завтра» (без эмодзи — их показывает и экран, где эмодзи не используются, ADR-005).
+export function tomorrowItems(a, { hidden = {} } = {}){
   const on = (k) => !hidden[k];
-  const parts = [];
-  if(on('study')) a.study.filter(s=>!s.done).forEach(s => parts.push(`📌 ${s.label}`));
-  if(on('ongoing')) a.ongoing.filter(o=>!o.done).forEach(o => parts.push(`📌 ${o.label}`));
-  if(on('reminders')) a.reminders.filter(r=>!r.done && r.oneShot).forEach(r => parts.push(`⏰ ${r.time ? r.time+' ' : ''}${r.label}`));
-  if(on('goals')) a.goals.filter(g=>g.kind==='deadline' && !g.done).forEach(g => parts.push(`🎯 ${g.label}`));
-  if(on('bills')) a.bills.forEach(b => parts.push(`💳 ${b.label}`));
-  return parts;
+  const out = [];
+  if(on('study')) a.study.filter(s=>!s.done).forEach(s => out.push({ kind:'study', label:s.label }));
+  if(on('ongoing')) a.ongoing.filter(o=>!o.done).forEach(o => out.push({ kind:'ongoing', label:o.label }));
+  if(on('reminders')) a.reminders.filter(r=>!r.done && r.oneShot).forEach(r => out.push({ kind:'note', label:(r.time ? r.time+' ' : '')+r.label }));
+  if(on('goals')) a.goals.filter(g=>g.kind==='deadline' && !g.done).forEach(g => out.push({ kind:'goal', label:g.label }));
+  if(on('bills')) a.bills.forEach(b => out.push({ kind:'bill', label:b.label }));
+  return out;
+}
+const TOMORROW_EMOJI = { study:'📌', ongoing:'📌', note:'⏰', goal:'🎯', bill:'💳' };
+export function tomorrowText(a, opts = {}){
+  return tomorrowItems(a, opts).map(i => `${TOMORROW_EMOJI[i.kind]} ${i.label}`);
 }

@@ -19,6 +19,7 @@ import { isHabitScheduled, habitCompletedCount, habitCurrentStreak, habitBestStr
 import { migratePlans } from './lib/finance.js';
 import { migrateNotes, mergeStudyById } from './lib/notes.js';
 import { goalLinksOf, goalMode, liveGoalLinks, applyGoalLinks } from './lib/goals.js';
+import { agendaFor, tomorrowItems, AGENDA_SECTIONS } from './lib/agenda.js';
 import { ACH_TIERS, ACHIEVEMENTS, computeAchStats } from './lib/achievements.js';
 import { Modal } from './ui/primitives.jsx';
 import { RolloverModal } from './ui/RolloverModal.jsx';
@@ -690,6 +691,34 @@ function App(){
     if(h0 && delta) contributeToGoals(goalLinksOf(h0), delta>0?1:-1);
   };
 
+  // 📋 Повестка дня (s058): что приходится на выбранный день из других вкладок — для блока на «Сегодня».
+  // Тот же расчёт (lib/agenda.js), что у утренней сводки в уведомлениях. Объявлено ПОСЛЕ всех хендлеров:
+  // объект agendaH ссылается на них при рендере (иначе TDZ — чёрный экран, landmine s025/s051).
+  const agendaHidden = Object.fromEntries(AGENDA_SECTIONS.map(x => [x.key, !vis('agenda.'+x.key)]));
+  const agenda = useMemo(() => agendaFor(selectedDate, {study, notes, habits, goals, ongoing, bills}, {today: todayStr(), goalPaceCfg: settings.goalPace}),
+    [selectedDate, study, notes, habits, goals, ongoing, bills, settings.goalPace]);
+  const agendaTomorrow = useMemo(() => tomorrowItems(agendaFor(addDays(selectedDate,1), {study, notes, habits, goals, ongoing, bills}, {today: todayStr(), goalPaceCfg: settings.goalPace}), {hidden: agendaHidden}).map(i=>i.label),
+    [selectedDate, study, notes, habits, goals, ongoing, bills, settings.goalPace, settings.hidden]); // eslint-disable-line
+  // Переход из повестки к записи: вкладка + id, вкладка сама откроет запись и сбросит цель (onOpened).
+  const [openTarget,setOpenTarget] = useState(null);
+  const jumpTo = (tabId, id) => { setOpenTarget(id && (tabId==='study'||tabId==='notes') ? {tab:tabId, id} : null); setTab(tabId); };
+  const setReminderDone = (id, done, date, oneShot) => {
+    const n = notes.find(x=>x.id===id); if(!n) return;
+    if(oneShot) { updateNote(id, {remindDone: done}); return; }
+    const map = {...(n.remindDoneDays||{})}; if(done) map[date]=true; else delete map[date];
+    updateNote(id, {remindDoneDays: map});
+  };
+  const agendaH = {
+    open: jumpTo,
+    studyDone: (id, done) => updateStudyTask(id, {status: done ? 'Выполнено' : 'В процессе'}),
+    ongoingDone: (id) => finishOngoing(id),
+    reminderDone: setReminderDone,
+    habit: (id, ds) => toggleHabitDay(id, ds),
+    goalPlus: (scope, id) => { const g=(goals[scope]||[]).find(x=>x.id===id); if(g && g.counter) setGoalCounter(scope, id, {current:(g.counter.current||0)+1}); },
+    goalToggle: (scope, id, done) => setGoalProgress(scope, id, done ? 100 : 0),
+    goTomorrow: () => setSelectedDate(addDays(selectedDate, 1)),
+  };
+
   // ⚡ Шаблоны задач: сохранить набор задач и добавлять одним тапом. session 015.
   // Привязки к целям сохраняются вместе с задачей. При применении шаблона мёртвые привязки
   // отбрасываются (цель закрыта/в архиве/удалена) — строго по id, см. liveGoalLinks.
@@ -1200,6 +1229,7 @@ function App(){
         ongoing={ongoing} addOngoing={addOngoing} finishOngoing={finishOngoing} deleteOngoing={deleteOngoing}
         bills={bills} taskTemplates={taskTemplates} saveTaskTemplate={saveTaskTemplate} applyTaskTemplate={applyTaskTemplate} deleteTaskTemplate={deleteTaskTemplate}
         carryOverTasks={carryOverTasks} prevUndoneCount={prevUndoneTasks.length}
+        agenda={vis('today.agenda') && selectedDate>=todayStr() ? agenda : null} agendaTomorrow={agendaTomorrow} agendaH={agendaH}
         isToday={selectedDate===todayStr()} quests={todayQuests} weekly={weekly} combo={combo} coachInsights={coachInsights}
         collapsedUI={collapseState.ui||{}} onToggleUI={(key)=>toggleCollapse('ui',key)}
         days={days} streak={streak} health={meta.health ?? 100} level={level} into={into} needed={needed} levelMax={levelMax} />}
@@ -1211,9 +1241,9 @@ function App(){
         showGoalDeadline={!!settings.showGoalDeadline}
         collapsed={collapseState.goals||{}} onToggleCollapse={(sc)=>toggleCollapse('goals',sc)}
         archive={goalsArchive} restoreGoal={restoreGoal} deleteArchivedGoal={deleteArchivedGoal} />}
-      {tab==='study' && <StudyTab registerAdd={registerAdd} study={study} addStudyTask={addStudyTask} updateStudyTask={updateStudyTask} setStudyChecklist={setStudyChecklist} deleteStudyTask={deleteStudyTask} archiveStudyTask={archiveStudyTask} archive={studyArchive} deleteArchivedStudy={deleteArchivedStudy} restoreStudy={restoreStudy}
+      {tab==='study' && <StudyTab openId={openTarget&&openTarget.tab==='study'?openTarget.id:null} onOpened={()=>setOpenTarget(null)} registerAdd={registerAdd} study={study} addStudyTask={addStudyTask} updateStudyTask={updateStudyTask} setStudyChecklist={setStudyChecklist} deleteStudyTask={deleteStudyTask} archiveStudyTask={archiveStudyTask} archive={studyArchive} deleteArchivedStudy={deleteArchivedStudy} restoreStudy={restoreStudy}
         collapsed={collapseState.study||{}} onToggleCollapse={(epic)=>toggleCollapse('study',epic)} onSetCollapseAll={(keys,v)=>setCollapseAll('study',keys,v)} />}
-      {tab==='notes' && <NotesTab registerAdd={registerAdd} notes={notes} addNote={addNote} updateNote={updateNote} deleteNote={deleteNote} />}
+      {tab==='notes' && <NotesTab openId={openTarget&&openTarget.tab==='notes'?openTarget.id:null} onOpened={()=>setOpenTarget(null)} registerAdd={registerAdd} notes={notes} addNote={addNote} updateNote={updateNote} deleteNote={deleteNote} />}
       {tab==='finance' && <FinanceTab finance={finance} categories={categories} budgets={budgets} incomePlans={incomePlans} bills={bills} defaults={settings.defaults||{}}
         finMask={finMask} setSettingFlag={setSettingFlag} maskAll={!!settings.maskAllFinance}
         collapse={collapseState} toggleCollapse={toggleCollapse} dismissedAlerts={settings.dismissedAlerts||{}} dismissAlert={dismissAlert}

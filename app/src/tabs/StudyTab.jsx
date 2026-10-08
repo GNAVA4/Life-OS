@@ -96,7 +96,7 @@ function StudyForm({init, epicOptions, onSubmit, onCancel, submitLabel, onArchiv
   );
 }
 
-export function StudyTab({registerAdd, study, addStudyTask, updateStudyTask, setStudyChecklist, deleteStudyTask, archiveStudyTask, archive=[], deleteArchivedStudy, restoreStudy, collapsed={}, onToggleCollapse, onSetCollapseAll}){
+export function StudyTab({openId=null, onOpened, registerAdd, study, addStudyTask, updateStudyTask, setStudyChecklist, deleteStudyTask, archiveStudyTask, archive=[], deleteArchivedStudy, restoreStudy, collapsed={}, onToggleCollapse, onSetCollapseAll}){
   const [addOpen,setAddOpen] = useState(false);
   const [archiveShow,setArchiveShow] = useState(false);
   const [filterStatus,setFilterStatus] = useState('Все'); const [sortBy,setSortBy] = useState('createdAt');
@@ -107,6 +107,11 @@ export function StudyTab({registerAdd, study, addStudyTask, updateStudyTask, set
   // «+» в шапке приложения — новое дело во всплывающем окне (референс Э4)
   useEffect(()=>{ if(!registerAdd) return; registerAdd(()=>setAddOpen(true)); return ()=>registerAdd(null); }, [registerAdd]);
   const today = todayStr();
+  // Переход из повестки на «Сегодня» (s058): открыть форму этого дела — раскрыть его сферу, сбросить фильтр.
+  useEffect(()=>{ if(!openId) return; const t = study.find(s=>s.id===openId);
+    if(t){ setFilterStatus('Все'); if(collapsed[t.epic] && onToggleCollapse) onToggleCollapse(t.epic); setEditId(openId);
+      setTimeout(()=>{ try{ const el=document.querySelector(`[data-study-edit="${openId}"]`); el && el.scrollIntoView({block:'center'}); }catch(e){ /* нет DOM — не важно */ } }, 80); }
+    onOpened && onOpened(); }, [openId]); // eslint-disable-line
 
   const customEpics = [...new Set(study.map(s=>s.epic))].filter(e=>e && !BASE_EPICS.includes(e));
   const epicOptions = [...BASE_EPICS, ...customEpics];
@@ -181,7 +186,7 @@ export function StudyTab({registerAdd, study, addStudyTask, updateStudyTask, set
               const dl = deadlineText(t, today);
               const chk = t.checklist||[]; const chkDone = chk.filter(c=>c.done).length;
               if(editId===t.id) return (
-                <div key={t.id} style={{margin:'4px 0 10px'}}>
+                <div key={t.id} data-study-edit={t.id} style={{margin:'4px 0 10px'}}>
                   <StudyForm init={t} epicOptions={epicOptions} submitLabel="Сохранить" onCancel={()=>setEditId(null)}
                     onSubmit={({checklist,...v})=>{ setStudyChecklist(t.id, checklist, v); setEditId(null); }}
                     onArchive={()=>{ archiveStudyTask(t.id); setEditId(null); }} onDelete={()=>{ deleteStudyTask(t.id); setEditId(null); }} />

@@ -20,11 +20,13 @@ const CHECK_PREVIEW = 5; // сколько пунктов чек-листа ви
 
 const FILTERS = [{id:'Все',l:'Все'},{id:'Заметка',l:'Заметки'},{id:'Напоминание',l:'Напоминания'}];
 
-export function NotesTab({notes, addNote, updateNote, deleteNote, registerAdd}){
+export function NotesTab({notes, addNote, updateNote, deleteNote, registerAdd, openId=null, onOpened}){
   const [filter,setFilter] = useState('Все');
   const [editing,setEditing] = useState(null); // объект заметки или null; {} = новая
   // «+» в шапке приложения открывает новую заметку
   useEffect(()=>{ if(!registerAdd) return; registerAdd(()=>setEditing({})); return ()=>registerAdd(null); }, [registerAdd]);
+  // Переход из повестки на «Сегодня» (s058): сразу открыть эту заметку в редакторе.
+  useEffect(()=>{ if(!openId) return; const n = notes.find(x=>x.id===openId); if(n) setEditing(n); onOpened && onOpened(); }, [openId]); // eslint-disable-line
   const hasReminders = notes.some(n=>n.type==='Напоминание');
   const filtered = notes.filter(n=>filter==='Все'||n.type===filter)
     .sort((a,b)=> (b.pinned?1:0)-(a.pinned?1:0) || (((b.updatedAt||b.createdAt||'')>(a.updatedAt||a.createdAt||''))?1:-1)); // закреплённые вверх

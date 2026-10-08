@@ -33,6 +33,7 @@ export const MODULE_GROUPS = [
     {id:'tab.achievements', label:'Вкладка «Награды»'},
   ]},
   {group:'Сегодня', items:[
+    {id:'today.agenda', label:'Повестка дня (дела, напоминания, привычки, цели, платежи)'},
     {id:'today.carryover', label:'Кнопка «Перенести незакрытые со вчера»'},
     {id:'today.daily', label:'Ежедневные'},
     {id:'today.ongoing', label:'На несколько дней'},
@@ -44,6 +45,17 @@ export const MODULE_GROUPS = [
     {id:'today.rating', label:'Оценка дня'},
     {id:'today.sleep', label:'Сон'},
     {id:'today.note', label:'Что было · почему'},
+  ]},
+  // Разделы повестки дня (s058, запрос пользователя): каждый выключается отдельно.
+  {group:'Повестка дня — разделы', items:[
+    {id:'agenda.overdue', label:'Просрочено'},
+    {id:'agenda.study', label:'Дела со сроком'},
+    {id:'agenda.reminders', label:'Напоминания из заметок'},
+    {id:'agenda.habits', label:'Привычки'},
+    {id:'agenda.goals', label:'Цели (срок и темп)'},
+    {id:'agenda.bills', label:'Регулярные платежи'},
+    {id:'agenda.ongoing', label:'Длительные задачи'},
+    {id:'agenda.tomorrow', label:'Строка «Завтра»'},
   ]},
   // Периоды целей (s053, запрос пользователя): скрытый период пропадает со вкладки «Цели» и из выбора цели
   // для привязки; сами цели не удаляются и возвращаются при включении.
