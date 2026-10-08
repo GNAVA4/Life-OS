@@ -8,7 +8,7 @@
 // s056: чек-лист внутри дела — счётчик «2 / 5» в строке раскрывает пункты; галочки двигают статус (логика в App).
 import { useEffect, useMemo, useState } from 'react';
 import { BASE_EPICS, IMPORTANCE_COLOR, STUDY_IMPORTANCE, STUDY_STATUSES, STUDY_URGENCY, URGENCY_COLOR } from '../lib/constants.js';
-import { daysBetween, openDatePicker, todayStr } from '../lib/dates.js';
+import { addDays, daysBetween, openDatePicker, todayStr } from '../lib/dates.js';
 import { uid } from '../lib/format.js';
 import { S } from '../lib/styles.js';
 import { C, tint } from '../lib/theme.js';
@@ -17,7 +17,43 @@ import { Icon } from '../ui/Icon.jsx';
 import { ConfirmIconBtn, Modal, Select, StatusSeg } from '../ui/primitives.jsx';
 import { SwipeRow } from '../ui/SwipeRow.jsx';
 
-const SORTS = [{value:'createdAt',label:'по дате'},{value:'importance',label:'по важности'},{value:'urgency',label:'по срочности'},{value:'deadline',label:'по дедлайну'}];
+const SORTS = [{value:'createdAt',label:'по дате'},{value:'importance',label:'по важности'},{value:'urgency',label:'по срочности'},{value:'deadline',label:'по сроку'}];
+// s058 [user]: «по сроку» и «по срочности» — ОДНИМ списком без сфер (сфера — метка в строке), разбитым на группы
+// по времени / по срочности: так видно, что подходит сегодня-завтра, а не только внутри каждой сферы.
+// «по дате» и «по важности» — как раньше, по сферам. Выбор запоминается на устройстве (как период в «Целях»).
+const FLAT_SORTS = ['deadline','urgency'];
+const SORT_KEY = 'lifeos-ui:studySort';
+const readSort = () => { try { return localStorage.getItem(SORT_KEY); } catch { return null; } };
+const writeSort = (v) => { try { localStorage.setItem(SORT_KEY, v); } catch { /* приватный режим — не критично */ } };
+const rankOf = (arr, v) => arr.indexOf(v); // -1, если поле не задано (старые дела) — уходит в конец
+const byUrgImp = (a,b) => (rankOf(STUDY_URGENCY,b.urgency)-rankOf(STUDY_URGENCY,a.urgency)) || (rankOf(STUDY_IMPORTANCE,b.importance)-rankOf(STUDY_IMPORTANCE,a.importance));
+const byDeadline = (a,b) => ((a.deadline||'9999')<(b.deadline||'9999')?-1:(a.deadline||'9999')>(b.deadline||'9999')?1:0);
+
+// Группы для сплошного списка. Закрытые дела — всегда отдельной группой «Готово» в конце (свёрнута).
+// По сроку: внутри «Просрочено», «На этой неделе», «Позже» — ближайший срок первым; внутри «Сегодня» и
+// «Завтра» срок одинаковый, поэтому — по срочности, затем по важности. По срочности: внутри — по сроку.
+export function studyBuckets(list, mode, today){
+  const done = list.filter(t=>t.status==='Выполнено');
+  const open = list.filter(t=>t.status!=='Выполнено');
+  const out = [];
+  const push = (key, title, color, tasks, sorter) => { if(tasks.length) out.push({key, title, color, tasks: tasks.slice().sort(sorter)}); };
+  if(mode==='deadline'){
+    const tmr = addDays(today, 1);
+    const sunday = addDays(today, (7 - new Date(today+'T00:00:00').getDay()) % 7); // конец недели (вс); в воскресенье — сегодня
+    push('overdue','Просрочено',C.red, open.filter(t=>t.deadline && t.deadline<today), (a,b)=>byDeadline(a,b)||byUrgImp(a,b));
+    push('today','Сегодня',C.amber, open.filter(t=>t.deadline===today), byUrgImp);
+    push('tomorrow','Завтра',null, open.filter(t=>t.deadline===tmr), byUrgImp);
+    push('week','На этой неделе',null, open.filter(t=>t.deadline && t.deadline>tmr && t.deadline<=sunday), (a,b)=>byDeadline(a,b)||byUrgImp(a,b));
+    push('later','Позже',null, open.filter(t=>t.deadline && t.deadline>tmr && t.deadline>sunday), (a,b)=>byDeadline(a,b)||byUrgImp(a,b));
+    push('none','Без срока',null, open.filter(t=>!t.deadline), byUrgImp);
+  } else {
+    [...STUDY_URGENCY].reverse().forEach(u => push('u_'+u, u, URGENCY_COLOR[u]===C.dim?null:URGENCY_COLOR[u],
+      open.filter(t=>t.urgency===u), (a,b)=>byDeadline(a,b)||(rankOf(STUDY_IMPORTANCE,b.importance)-rankOf(STUDY_IMPORTANCE,a.importance))));
+    push('u_none','Срочность не задана',null, open.filter(t=>!STUDY_URGENCY.includes(t.urgency)), byDeadline);
+  }
+  push('done','Готово',null, done, (a,b)=>((b.completedAt||'')>(a.completedAt||'')?1:-1));
+  return out;
+}
 const ddmm = (ds) => new Date(ds+'T00:00:00').toLocaleDateString('ru-RU',{day:'numeric',month:'short'});
 const Lvl = ({text, color}) => text ? <span style={{fontSize:11,fontWeight:600,borderRadius:6,padding:'2px 7px',whiteSpace:'nowrap',
   background:color===C.dim?C.panelAlt:tint(color,.16),color:color===C.dim?C.dim:color}}>{text}</span> : null;
@@ -99,7 +135,10 @@ function StudyForm({init, epicOptions, onSubmit, onCancel, submitLabel, onArchiv
 export function StudyTab({openId=null, onOpened, registerAdd, study, addStudyTask, updateStudyTask, setStudyChecklist, deleteStudyTask, archiveStudyTask, archive=[], deleteArchivedStudy, restoreStudy, collapsed={}, onToggleCollapse, onSetCollapseAll}){
   const [addOpen,setAddOpen] = useState(false);
   const [archiveShow,setArchiveShow] = useState(false);
-  const [filterStatus,setFilterStatus] = useState('Все'); const [sortBy,setSortBy] = useState('createdAt');
+  const [filterStatus,setFilterStatus] = useState('Все');
+  const [sortBy,setSortByRaw] = useState(()=>{ const v=readSort(); return SORTS.some(x=>x.value===v) ? v : 'createdAt'; });
+  const setSortBy = (v) => { setSortByRaw(v); writeSort(v); };
+  const [doneOpen,setDoneOpen] = useState(false); // группа «Готово» в сплошном списке
   const [editId,setEditId] = useState(null);
   const [chkOpen,setChkOpen] = useState({}); // раскрытые чек-листы: {id:true}
   // свайп строки дела: вправо — в архив, влево — удалить; открыта не больше одной строки (s055)
@@ -131,8 +170,64 @@ export function StudyTab({openId=null, onOpened, registerAdd, study, addStudyTas
     return ordered;
   }, [study, filterStatus, sortBy]);
   const epicNames = Object.keys(grouped);
+  const flat = FLAT_SORTS.includes(sortBy);
+  const buckets = useMemo(()=> flat ? studyBuckets(study.filter(s=>filterStatus==='Все'||s.status===filterStatus), sortBy, today) : [],
+    [study, filterStatus, sortBy, flat, today]);
   const allCollapsed = epicNames.length>0 && epicNames.every(e=>collapsed[e]);
   const STATUS_SHORT = {'Не начато':'Не начато','В процессе':'В работе','Выполнено':'Готово'};
+
+  // Строка дела (общая для списка по сферам и сплошного списка; showEpic — метка сферы в строке).
+  const renderRow = (t, showEpic) => {
+              const done = t.status==='Выполнено';
+              const dl = deadlineText(t, today);
+              const chk = t.checklist||[]; const chkDone = chk.filter(c=>c.done).length;
+              if(editId===t.id) return (
+                <div key={t.id} data-study-edit={t.id} style={{margin:'4px 0 10px'}}>
+                  <StudyForm init={t} epicOptions={epicOptions} submitLabel="Сохранить" onCancel={()=>setEditId(null)}
+                    onSubmit={({checklist,...v})=>{ setStudyChecklist(t.id, checklist, v); setEditId(null); }}
+                    onArchive={()=>{ archiveStudyTask(t.id); setEditId(null); }} onDelete={()=>{ deleteStudyTask(t.id); setEditId(null); }} />
+                </div>
+              );
+              return (
+                <SwipeRow key={t.id} open={swiped===t.id?swipedSide:null} onOpen={side=>{ setSwiped(t.id); setSwipedSide(side); }} onClose={()=>setSwiped(null)}
+                  right={{label:'В архив',icon:'archive',color:C.cyan,onConfirm:()=>archiveStudyTask(t.id)}}
+                  left={{label:'Удалить',icon:'trash',color:C.red,onConfirm:()=>deleteStudyTask(t.id)}}>
+                <div style={{display:'flex',gap:12,padding:'11px 0',borderBottom:`1px solid ${C.border}`,alignItems:'stretch'}}>
+                  <span title={`Важность: ${t.importance||'—'}`} style={{width:3,borderRadius:3,flex:'none',background:done?C.panelAlt:(IMPORTANCE_COLOR[t.importance]||C.panelAlt)}}/>
+                  <div style={{flex:1,minWidth:0,display:'flex',flexDirection:'column',gap:7}}>
+                    <div style={{display:'flex',gap:8,alignItems:'flex-start'}}>
+                      <button aria-label={`Изменить дело: ${t.task}`} title="изменить, в архив, удалить" onClick={()=>setEditId(t.id)}
+                        style={{flex:1,minWidth:0,background:'none',border:'none',padding:0,textAlign:'left',cursor:'pointer',fontFamily:'inherit',fontSize:14.5,color:done?C.dim:C.text,textDecoration:done?'line-through':'none',textDecorationColor:C.faint,overflowWrap:'anywhere'}}>{t.task}</button>
+                    </div>
+                    {(showEpic || (!done && (t.importance || t.urgency || dl))) && (
+                      <div style={{display:'flex',gap:5,flexWrap:'wrap',alignItems:'center'}}>
+                        {showEpic && <span style={{fontSize:11,color:C.dim,background:C.panelAlt,borderRadius:6,padding:'2px 7px',whiteSpace:'nowrap'}}>{t.epic||'—'}</span>}
+                        {!done && <>
+                          <Lvl text={t.importance} color={IMPORTANCE_COLOR[t.importance]||C.dim} />
+                          <Lvl text={t.urgency} color={URGENCY_COLOR[t.urgency]||C.dim} />
+                          {dl && <span style={{fontSize:11.5,fontWeight:dl.bad?600:500,color:dl.col,display:'inline-flex',gap:3,alignItems:'center'}}><Icon name="clock" size={12}/>{dl.txt}</span>}
+                        </>}
+                      </div>
+                    )}
+                    <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+                      <StatusSeg value={t.status} onChange={v=>updateStudyTask(t.id,{status:v})} />
+                      {chk.length>0 && (
+                        <button aria-expanded={!!chkOpen[t.id]} aria-label={`Чек-лист: ${chkDone} из ${chk.length}`} onClick={()=>setChkOpen(o=>({...o,[t.id]:!o[t.id]}))}
+                          style={{background:'none',border:'none',padding:'4px 2px',cursor:'pointer',fontFamily:'inherit',fontSize:12.5,fontVariantNumeric:'tabular-nums',
+                            color:chkDone===chk.length?C.green:C.dim,display:'inline-flex',alignItems:'center',gap:4}}>
+                          <Icon name="check" size={13}/>{chkDone} / {chk.length}
+                          <span style={{display:'flex',transform:chkOpen[t.id]?'rotate(90deg)':'none',transition:'transform .15s'}}><Icon name="chevR" size={12}/></span>
+                        </button>
+                      )}
+                    </div>
+                    {chk.length>0 && chkOpen[t.id] && (
+                      <div className="anim-collapse"><Checklist items={chk} onChange={list=>setStudyChecklist(t.id, list)} /></div>
+                    )}
+                  </div>
+                </div>
+                </SwipeRow>
+              );
+  };
 
   return (
     <div>
@@ -155,7 +250,7 @@ export function StudyTab({openId=null, onOpened, registerAdd, study, addStudyTas
         <button title="сменить сортировку" style={{background:'none',border:'none',padding:'4px 0',color:C.dim,fontSize:13,cursor:'pointer',fontFamily:'inherit',display:'inline-flex',alignItems:'center',gap:4}}
           onClick={()=>{ const i=SORTS.findIndex(s=>s.value===sortBy); setSortBy(SORTS[(i+1)%SORTS.length].value); }}>
           сортировка: <span style={{color:C.text}}>{(SORTS.find(s=>s.value===sortBy)||SORTS[0]).label.toLowerCase()}</span><Icon name="chevR" size={13}/></button>
-        {epicNames.length>1 && onSetCollapseAll && (
+        {!flat && epicNames.length>1 && onSetCollapseAll && (
           <button style={{background:'none',border:'none',color:C.dim,fontSize:12.5,cursor:'pointer',fontFamily:'inherit'}}
             onClick={()=>onSetCollapseAll(epicNames, !allCollapsed)}>{allCollapsed?'Развернуть все':'Свернуть все'}</button>
         )}
@@ -169,7 +264,7 @@ export function StudyTab({openId=null, onOpened, registerAdd, study, addStudyTas
         </div>
       )}
 
-      {Object.entries(grouped).map(([epicName,tasks])=>{
+      {!flat && Object.entries(grouped).map(([epicName,tasks])=>{
         const isC = !!collapsed[epicName]; const doneCount = tasks.filter(t=>t.status==='Выполнено').length;
         const overdueN = tasks.filter(t=>t.deadline && t.status!=='Выполнено' && t.deadline<today).length;
         return (
@@ -181,54 +276,22 @@ export function StudyTab({openId=null, onOpened, registerAdd, study, addStudyTas
               {overdueN>0 && <span style={{fontSize:11.5,fontWeight:600,color:C.red}}>{overdueN} просроч.</span>}
               <span style={{fontSize:12,color:C.dim,fontWeight:500,fontVariantNumeric:'tabular-nums'}}>{doneCount} / {tasks.length}</span>
             </button>
-            {!isC && tasks.map(t=>{
-              const done = t.status==='Выполнено';
-              const dl = deadlineText(t, today);
-              const chk = t.checklist||[]; const chkDone = chk.filter(c=>c.done).length;
-              if(editId===t.id) return (
-                <div key={t.id} data-study-edit={t.id} style={{margin:'4px 0 10px'}}>
-                  <StudyForm init={t} epicOptions={epicOptions} submitLabel="Сохранить" onCancel={()=>setEditId(null)}
-                    onSubmit={({checklist,...v})=>{ setStudyChecklist(t.id, checklist, v); setEditId(null); }}
-                    onArchive={()=>{ archiveStudyTask(t.id); setEditId(null); }} onDelete={()=>{ deleteStudyTask(t.id); setEditId(null); }} />
-                </div>
-              );
-              return (
-                <SwipeRow key={t.id} open={swiped===t.id?swipedSide:null} onOpen={side=>{ setSwiped(t.id); setSwipedSide(side); }} onClose={()=>setSwiped(null)}
-                  right={{label:'В архив',icon:'archive',color:C.cyan,onConfirm:()=>archiveStudyTask(t.id)}}
-                  left={{label:'Удалить',icon:'trash',color:C.red,onConfirm:()=>deleteStudyTask(t.id)}}>
-                <div style={{display:'flex',gap:12,padding:'11px 0',borderBottom:`1px solid ${C.border}`,alignItems:'stretch'}}>
-                  <span title={`Важность: ${t.importance||'—'}`} style={{width:3,borderRadius:3,flex:'none',background:done?C.panelAlt:(IMPORTANCE_COLOR[t.importance]||C.panelAlt)}}/>
-                  <div style={{flex:1,minWidth:0,display:'flex',flexDirection:'column',gap:7}}>
-                    <div style={{display:'flex',gap:8,alignItems:'flex-start'}}>
-                      <button aria-label={`Изменить дело: ${t.task}`} title="изменить, в архив, удалить" onClick={()=>setEditId(t.id)}
-                        style={{flex:1,minWidth:0,background:'none',border:'none',padding:0,textAlign:'left',cursor:'pointer',fontFamily:'inherit',fontSize:14.5,color:done?C.dim:C.text,textDecoration:done?'line-through':'none',textDecorationColor:C.faint,overflowWrap:'anywhere'}}>{t.task}</button>
-                    </div>
-                    {!done && (t.importance || t.urgency || dl) && (
-                      <div style={{display:'flex',gap:5,flexWrap:'wrap',alignItems:'center'}}>
-                        <Lvl text={t.importance} color={IMPORTANCE_COLOR[t.importance]||C.dim} />
-                        <Lvl text={t.urgency} color={URGENCY_COLOR[t.urgency]||C.dim} />
-                        {dl && <span style={{fontSize:11.5,fontWeight:dl.bad?600:500,color:dl.col,display:'inline-flex',gap:3,alignItems:'center'}}><Icon name="clock" size={12}/>{dl.txt}</span>}
-                      </div>
-                    )}
-                    <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
-                      <StatusSeg value={t.status} onChange={v=>updateStudyTask(t.id,{status:v})} />
-                      {chk.length>0 && (
-                        <button aria-expanded={!!chkOpen[t.id]} aria-label={`Чек-лист: ${chkDone} из ${chk.length}`} onClick={()=>setChkOpen(o=>({...o,[t.id]:!o[t.id]}))}
-                          style={{background:'none',border:'none',padding:'4px 2px',cursor:'pointer',fontFamily:'inherit',fontSize:12.5,fontVariantNumeric:'tabular-nums',
-                            color:chkDone===chk.length?C.green:C.dim,display:'inline-flex',alignItems:'center',gap:4}}>
-                          <Icon name="check" size={13}/>{chkDone} / {chk.length}
-                          <span style={{display:'flex',transform:chkOpen[t.id]?'rotate(90deg)':'none',transition:'transform .15s'}}><Icon name="chevR" size={12}/></span>
-                        </button>
-                      )}
-                    </div>
-                    {chk.length>0 && chkOpen[t.id] && (
-                      <div className="anim-collapse"><Checklist items={chk} onChange={list=>setStudyChecklist(t.id, list)} /></div>
-                    )}
-                  </div>
-                </div>
-                </SwipeRow>
-              );
-            })}
+            {!isC && tasks.map(t=>renderRow(t, false))}
+          </div>
+        );
+      })}
+
+      {flat && buckets.map(bk=>{
+        const isDone = bk.key==='done'; const shown = !isDone || doneOpen || filterStatus==='Выполнено';
+        return (
+          <div key={bk.key} style={{marginBottom:shown?12:0,borderTop:`1px solid ${C.border}`}}>
+            {isDone
+              ? <button onClick={()=>setDoneOpen(o=>!o)} aria-expanded={shown}
+                  style={{display:'flex',alignItems:'center',gap:8,width:'100%',background:'none',border:'none',color:C.dim,cursor:'pointer',padding:'12px 0',fontFamily:'inherit',fontSize:12,fontWeight:600,letterSpacing:'.05em',textTransform:'uppercase'}}>
+                  <span style={{flex:1,textAlign:'left'}}>{bk.title} · {bk.tasks.length}</span>
+                  <span style={{display:'flex',transform:shown?'rotate(90deg)':'none',transition:'transform .15s'}}><Icon name="chevR" size={14}/></span></button>
+              : <div style={{fontSize:12,fontWeight:600,letterSpacing:'.05em',textTransform:'uppercase',color:bk.color||C.dim,padding:'12px 0 2px'}}>{bk.title} · {bk.tasks.length}</div>}
+            {shown && bk.tasks.map(t=>renderRow(t, true))}
           </div>
         );
       })}
