@@ -1,7 +1,8 @@
 // Вкладка/раздел: SettingsTab (вынесено из App.jsx, session: decompose phase 3)
 import { useEffect, useState } from 'react';
-import { ACTIVITY_DEFAULT, ALL_MOBILE_TAB_IDS, AWAY_DAYS_MAX, BUILD_ID, GOAL_PACE_DEFAULT, NOTE_LEAD_DAYS_DEFAULT, OVERDUE_TIMES_DEFAULT, OVERDUE_TIMES_MAX, TAB_META } from '../lib/constants.js';
+import { ACTIVITY_DEFAULT, ALL_MOBILE_TAB_IDS, AWAY_DAYS_MAX, BUILD_ID, EVENING_TIME_DEFAULT, GOAL_PACE_DEFAULT, MORNING_TIME_DEFAULT, NOTE_LEAD_DAYS_DEFAULT, OVERDUE_TIMES_DEFAULT, OVERDUE_TIMES_MAX, TAB_META } from '../lib/constants.js';
 import { GAMIFY_DEFAULT, LEVEL_CAP, WEEKLY_XP } from '../lib/gamify.js';
+import { AGENDA_SECTIONS } from '../lib/agenda.js';
 import { MODULE_GROUPS } from '../lib/storage.js';
 import { DAY_ROLLOVER_HOUR } from '../lib/dates.js';
 import { helpSections } from '../lib/help.js';
@@ -28,7 +29,12 @@ export function SettingsTab({user=null, syncPaused=false, onLogin, onSyncCheck, 
   const dlDays = (deadlineCfg && deadlineCfg.days && deadlineCfg.days.length) ? deadlineCfg.days : [3,1];
   const dlTime = (deadlineCfg && deadlineCfg.time) || '09:00';
   const msOn = !!(morningCfg && !morningCfg.off);
-  const msTime = (morningCfg && morningCfg.time) || '08:00';
+  const msTime = (morningCfg && morningCfg.time) || MORNING_TIME_DEFAULT;
+  // Правка сводки сохраняет остальные её поля (разделы, вечер) — раньше переключатель писал {off,time} целиком.
+  const setMs = (patch) => setSettingFlag('morningSummary', {time:msTime, ...(morningCfg||{}), off:false, ...patch});
+  const msHide = (morningCfg && morningCfg.hide) || {};
+  const msEve = (morningCfg && morningCfg.evening) || {};
+  const msEveTime = msEve.time || EVENING_TIME_DEFAULT;
   const billsOn = !!(billsNotif && !billsNotif.off);
   const billsTime = (billsNotif && billsNotif.time) || '09:00';
   const billsLead = (billsNotif && billsNotif.leadDays!=null) ? billsNotif.leadDays : 1;
@@ -64,7 +70,7 @@ export function SettingsTab({user=null, syncPaused=false, onLogin, onSyncCheck, 
       {!screen && (
         <SettingsGroup title="Уведомления">
           <SettingsRow label="Утренняя сводка" meta={msOn?msTime:null} chevron={false}>
-            <Toggle label="Утренняя сводка" on={msOn} onChange={v=> v ? setSettingFlag('morningSummary', {off:false, time:msTime}) : setSettingFlag('morningSummary', {...(morningCfg||{}), off:true})} />
+            <Toggle label="Утренняя сводка" on={msOn} onChange={v=> v ? setMs({}) : setSettingFlag('morningSummary', {...(morningCfg||{}), off:true})} />
           </SettingsRow>
           <SettingsRow label="Привычки и напоминания" chevron={false}>
             <Toggle label="Привычки и напоминания" on={!notifOff} onChange={v=>setSettingFlag('notifOff', v?false:true)} />
@@ -166,15 +172,38 @@ export function SettingsTab({user=null, syncPaused=false, onLogin, onSyncCheck, 
         <SettingsDivider/>
         <SubHead>Утренняя сводка</SubHead>
         <label className="row-hover" style={{...S.taskRow, cursor:'pointer'}}>
-          <input type="checkbox" checked={msOn} onChange={()=> msOn ? setSettingFlag('morningSummary', {...(morningCfg||{}), off:true}) : setSettingFlag('morningSummary', {off:false, time:msTime})} />
+          <input type="checkbox" checked={msOn} onChange={()=> msOn ? setSettingFlag('morningSummary', {...(morningCfg||{}), off:true}) : setMs({})} />
           <div style={{flex:1}}>Уведомление утром со сводкой дня</div>
           <span style={{fontSize:11,color:C.dim}}>{msOn?'вкл':'выкл'}</span>
         </label>
-        <div style={{...S.dimSpan,marginLeft:0,marginTop:6,display:'block'}}>Раз в день: сколько привычек, дедлайнов и напоминаний на сегодня.</div>
+        <div style={{...S.dimSpan,marginLeft:0,marginTop:6,display:'block'}}>Каждое утро — что приходится на день: просрочка, сроки дел, напоминания по времени, привычки, темп целей, платежи. Потяни уведомление вниз, чтобы увидеть список целиком. То же, что блок «Повестка» на «Сегодня».</div>
         {msOn && (
           <div style={{display:'flex',gap:8,alignItems:'center',marginTop:10}}>
             <span style={{fontSize:12,color:C.dim}}>время:</span>
-            <input style={{...S.input,maxWidth:120}} type="time" value={msTime} onChange={e=>setSettingFlag('morningSummary', {off:false, time:e.target.value})} />
+            <input style={{...S.input,maxWidth:120}} type="time" value={msTime} onChange={e=>setMs({time:e.target.value})} />
+          </div>
+        )}
+        {msOn && (
+          <div style={{marginTop:10}}>
+            <div style={{fontSize:12,color:C.dim,marginBottom:6}}>Что включать:</div>
+            <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+              {AGENDA_SECTIONS.map(x=>{ const on=!msHide[x.key]; return (
+                <div key={x.key} className="chip" aria-pressed={on} onClick={()=>setMs({hide:{...msHide,[x.key]:on}})}
+                  style={{background:on?C.amber:C.panelAlt,color:on?'#1A1200':C.dim,borderColor:on?C.amber:C.border}}>{x.label}</div>
+              ); })}
+            </div>
+            <label className="row-hover" style={{...S.taskRow, cursor:'pointer', marginTop:12}}>
+              <input type="checkbox" checked={!!msEve.on} onChange={()=>setMs({evening:{...msEve, on:!msEve.on, time:msEveTime}})} />
+              <div style={{flex:1}}>Вечером — что завтра</div>
+              <span style={{fontSize:11,color:C.dim}}>{msEve.on?'вкл':'выкл'}</span>
+            </label>
+            <div style={{...S.dimSpan,marginLeft:0,marginTop:6,display:'block'}}>Сроки дел, разовые напоминания, цели и платежи на завтра. Если на завтра ничего нет — не приходит.</div>
+            {msEve.on && (
+              <div style={{display:'flex',gap:8,alignItems:'center',marginTop:8}}>
+                <span style={{fontSize:12,color:C.dim}}>время:</span>
+                <input style={{...S.input,maxWidth:120}} type="time" value={msEveTime} onChange={e=>setMs({evening:{...msEve, on:true, time:e.target.value}})} />
+              </div>
+            )}
           </div>
         )}
 

@@ -15,7 +15,7 @@ import { maskMoney, uid } from './lib/format.js';
 import { loadKey, saveKey, saveRaw, setPushHook, setHiddenModules, vis } from './lib/storage.js';
 import { planSync, diffSides, keysToPush, markDirty, markSynced, loadDirty, SYNCED_UID_KEY, SYNC_ACK_MS, withTimeout } from './lib/syncPlan.js';
 import { replayHealth, mergeMetaHealth, COMBO_CAP_DAYS, WEEKLY_XP, gamifyCfg, questsForDate, weeklyForPeriod, levelForXp, rankForLevel, nextRank, playLevelUpSound, playAchSound, impulsePenaltyRemaining } from './lib/gamify.js';
-import { isHabitScheduled, habitDoneOn, habitCompletedCount, habitCurrentStreak, habitBestStreak, habitChallengeDone } from './lib/habits.js';
+import { isHabitScheduled, habitCompletedCount, habitCurrentStreak, habitBestStreak, habitChallengeDone } from './lib/habits.js';
 import { migratePlans } from './lib/finance.js';
 import { migrateNotes, mergeStudyById } from './lib/notes.js';
 import { goalLinksOf, goalMode, liveGoalLinks, applyGoalLinks } from './lib/goals.js';
@@ -615,7 +615,7 @@ function App(){
         const n = await syncNotifications({habits: habitsForNotif(), notes, study, goals, ongoing, bills,
           deadlineCfg: settings.deadlineNotif, morningCfg: settings.morningSummary, billsCfg: settings.billsNotif,
           noteCfg: settings.noteNotif, goalPaceCfg: settings.goalPace,
-          activity: activityState(), activitySettings: settings, morningBody: computeMorningBody(), enabled:true});
+          activity: activityState(), activitySettings: settings, summaryCtx: summaryCtx(), enabled:true});
         // У Android есть потолок запланированных уведомлений (~500 на приложение): молча упереться в
         // него = часть напоминаний просто не встанет. Предупреждаем заранее.
         setNotifMsg(`Разрешение выдано. Запланировано уведомлений: ${n}.`
@@ -995,19 +995,9 @@ function App(){
   useEffect(() => { if(toasts.length===0) return; const t=setTimeout(()=>setToasts(x=>x.slice(1)), 4500); return ()=>clearTimeout(t); }, [toasts]);
   // нативные уведомления: пересобираем расписание при изменении привычек/напоминаний/тумблера (на вебе no-op)
   const habitsForNotif = () => habits.map(h => ({ ...h, streak: habitCurrentStreak(h, todayStr()) }));
-  // 🌅 текст утренней сводки: сколько привычек/дедлайнов/напоминаний на сегодня. session 019.
-  const computeMorningBody = () => {
-    const t=todayStr(); const dObj=new Date(t+'T00:00:00'); const wd=dObj.getDay(); const dom=dObj.getDate();
-    const habitsToday = habits.filter(h=>isHabitScheduled(h,t) && !habitDoneOn(h,t)).length;
-    const remToday = notes.filter(n=>n.type==='Напоминание').filter(n=>{ const r=n.repeat||'none';
-      if(r==='daily') return true;
-      if(r==='weekly') return (n.remindWeekday!=null?n.remindWeekday:(n.remindDate?new Date(n.remindDate+'T00:00:00').getDay():-1))===wd;
-      if(r==='monthly') return (n.remindDay!=null?n.remindDay:(n.remindDate?new Date(n.remindDate+'T00:00:00').getDate():-1))===dom;
-      return n.remindDate===t; }).length;
-    const dl = study.filter(s=>s.deadline && s.status!=='Выполнено' && s.deadline>=t && s.deadline<=addDays(t,3)).length;
-    const parts=[]; if(habitsToday) parts.push(`${habitsToday} привыч.`); if(dl) parts.push(`${dl} дедлайн.`); if(remToday) parts.push(`${remToday} напомин.`);
-    return parts.length ? `Сегодня: ${parts.join(' · ')}` : 'На сегодня ничего не запланировано — начни что-то новое!';
-  };
+  // 🌅 Утренняя сводка (s058): текст каждого дня считает notifications.js из повестки (lib/agenda.js) —
+  // App даёт только то, чего нет в данных записей: серию (для пустого дня) и приватность сумм.
+  const summaryCtx = () => ({ streak, maskMoney: !!(settings.maskAllFinance || settings.maskOps) });
   // 🔔 Состояние активности для уведомлений «опиши день» / «вчера ноль» / «серия сгорит».
   // Считается по СЕГОДНЯШНЕМУ дню (не по выбранному в календаре — уведомление про сегодня).
   const activityState = () => {
@@ -1030,9 +1020,10 @@ function App(){
     deadlineCfg: settings.deadlineNotif, morningCfg: settings.morningSummary, billsCfg: settings.billsNotif,
     noteCfg: settings.noteNotif, goalPaceCfg: settings.goalPace,
     activity: activityState(), activitySettings: settings,
-    morningBody: computeMorningBody(), enabled: !settings.notifOff }); },
+    summaryCtx: summaryCtx(), enabled: !settings.notifOff }); },
     [habits, notes, study, goals, ongoing, bills, actSig, settings.notifOff, settings.deadlineNotif,
-     settings.morningSummary, settings.billsNotif, settings.noteNotif, settings.goalPace, settings.activity]);
+     settings.morningSummary, settings.billsNotif, settings.noteNotif, settings.goalPace, settings.activity,
+     settings.maskAllFinance, settings.maskOps]);
   // Android-виджет «Задачи на сегодня»: пишем прогресс по одноразовым задачам СЕГОДНЯ (session 023).
   useEffect(() => { const t = todayStr(); const e = days[t] || {}; const tasks = e.tasks || [];
     updateTodayWidget(tasks.filter(x=>x.done).length, tasks.length, t); }, [days]);

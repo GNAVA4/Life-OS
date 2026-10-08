@@ -6,7 +6,8 @@ import { Capacitor } from '@capacitor/core';
 import { LocalNotifications } from '@capacitor/local-notifications';
 // «Сегодня» для сравнения дат (просрочен ли дедлайн) — логический день проекта, а не new Date().
 // Реальный new Date() здесь остаётся только для РАСЧЁТА ВРЕМЕНИ срабатывания (nextDaily и пр.).
-import { OVERDUE_TIMES_DEFAULT, OVERDUE_TIMES_MAX, NOTE_LEAD_DAYS_DEFAULT, GOAL_PACE_DEFAULT } from './lib/constants.js';
+import { OVERDUE_TIMES_DEFAULT, OVERDUE_TIMES_MAX, NOTE_LEAD_DAYS_DEFAULT, GOAL_PACE_DEFAULT, MORNING_TIME_DEFAULT, EVENING_TIME_DEFAULT, SUMMARY_DAYS_AHEAD } from './lib/constants.js';
+import { agendaFor, agendaNotifText, tomorrowText, dayHeading } from './lib/agenda.js';
 import { todayStr } from './lib/dates.js';
 import { KIND_META, deadlineItems, overdueBody, overdueOf } from './lib/deadlines.js';
 import { reminderDone, reminderItems } from './lib/notes.js';
@@ -227,15 +228,41 @@ function billNotifs(bills, cfg){
   return out;
 }
 
-// 🌅 Утренняя сводка: одно ежедневное уведомление в заданное время с краткой сводкой дня.
-// Тело (body) считается в App (сколько привычек/дедлайнов/напоминаний сегодня) и фиксируется на момент
-// планирования — обновляется при каждом запуске приложения (пересборка расписания).
-function morningSummaryNotif(cfg, body){
+// 🌅 Утренняя сводка (s058): РАЗОВЫЕ уведомления на каждый из ближайших SUMMARY_DAYS_AHEAD дней, у каждого
+// свой текст из повестки ИМЕННО этого дня (lib/agenda.js — тот же расчёт, что блок «Повестка» на «Сегодня»).
+// Раньше было одно повторяющееся уведомление с текстом на момент планирования: без захода в приложение
+// каждое утро приходила одна и та же сводка о прошлом, а при планировании вечером — сводка про вчера.
+// День сводки = календарная дата срабатывания (утро — это план на наступающий день, даже до 9:00).
+// Расписание пересобирается при каждом запуске, поэтому закрытое между запусками уходит из текста.
+// ids: 400000+k утро, 400010+k вечер.
+const localDate = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+export function summaryNotifs(cfg, sources, ctx){
   if(!cfg || cfg.off) return [];
-  const hm = HM(cfg.time || '08:00'); if(!hm) return [];
-  const [hh,mm] = hm;
-  return [{ id:400000, title:'🌅 План на день', body: body || 'Загляни в Life OS — спланируй день', channelId:CHANNEL_ID,
-    schedule:{ at: nextDaily(hh,mm), every:'day', allowWhileIdle:true } }];
+  const out = [];
+  const today = todayStr();
+  const hidden = cfg.hide || {};
+  const opts = { today, goalPaceCfg: ctx.goalPaceCfg };
+  const dayAt = (k, hm) => { const at = new Date(); at.setHours(hm[0], hm[1], 0, 0); at.setDate(at.getDate()+k); return at; };
+  const mhm = HM(cfg.time || MORNING_TIME_DEFAULT);
+  if(mhm) for(let k=0; k<SUMMARY_DAYS_AHEAD+1 && out.length<SUMMARY_DAYS_AHEAD; k++){
+    const at = dayAt(k, mhm); if(at.getTime() <= Date.now()) continue;
+    const t = agendaNotifText(agendaFor(localDate(at), sources, opts), { hidden, maskMoney:ctx.maskMoney, streak:ctx.streak });
+    out.push({ id: 400000 + out.length, title:t.title, body:t.body, ...(t.largeBody ? { largeBody:t.largeBody } : {}),
+      channelId:CHANNEL_ID, schedule:{ at, allowWhileIdle:true } });
+  }
+  const ev = cfg.evening;
+  const ehm = ev && ev.on ? HM(ev.time || EVENING_TIME_DEFAULT) : null;
+  let ei = 0;
+  if(ehm) for(let k=0; k<SUMMARY_DAYS_AHEAD+1 && ei<SUMMARY_DAYS_AHEAD; k++){
+    const at = dayAt(k, ehm); if(at.getTime() <= Date.now()) continue;
+    const next = new Date(at); next.setDate(next.getDate()+1);
+    const parts = tomorrowText(agendaFor(localDate(next), sources, opts), { hidden });
+    const id = 400010 + ei++;
+    if(!parts.length) continue;            // на завтра ничего — молчим, а не шлём «ничего нет»
+    out.push({ id, title:`🌙 Завтра · ${dayHeading(localDate(next))}`, body: parts.slice(0,3).join(' · ') + (parts.length>3?` и ещё ${parts.length-3}`:''),
+      largeBody: parts.join('\n'), channelId:CHANNEL_ID, schedule:{ at, allowWhileIdle:true } });
+  }
+  return out;
 }
 
 // 🎯 Темп целей в штуках: одно ежедневное уведомление, если по какой-то цели требуется уже ≈штука в
@@ -270,13 +297,13 @@ function activityNotifs(state, cfg){
 }
 
 // пересобрать ВСЕ уведомления (снять запланированные, потом запланировать заново). Возвращает число запланированных (-1 при ошибке планирования).
-export async function syncNotifications({ habits=[], notes=[], study=[], goals={}, ongoing=[], bills=[], deadlineCfg=null, morningCfg=null, billsCfg=null, noteCfg=null, goalPaceCfg=null, activity=null, activitySettings=null, morningBody='', enabled=true }){
+export async function syncNotifications({ habits=[], notes=[], study=[], goals={}, ongoing=[], bills=[], deadlineCfg=null, morningCfg=null, billsCfg=null, noteCfg=null, goalPaceCfg=null, activity=null, activitySettings=null, summaryCtx={}, enabled=true }){
   const l = ln(); if(!l) return 0;
   await ensureChannel(l);
   try{ const pend = await withTimeout(l.getPending(), 4000, 'getPending'); if(pend.notifications && pend.notifications.length) await withTimeout(l.cancel({ notifications: pend.notifications.map(n=>({id:n.id})) }), 4000, 'cancel'); }catch(e){}
   if(!enabled) return 0;
   const list = [...habitNotifs(habits), ...noteNotifs(notes, noteCfg), ...deadlineNotifs({study, goals, ongoing}, deadlineCfg),
-    ...billNotifs(bills, billsCfg), ...morningSummaryNotif(morningCfg, morningBody),
+    ...billNotifs(bills, billsCfg), ...summaryNotifs(morningCfg, {study, notes, habits, goals, ongoing, bills}, {...summaryCtx, goalPaceCfg}),
     ...goalPaceNotifs(goals, goalPaceCfg),
     ...(activity ? activityNotifs(activity, activityCfg(activitySettings)) : [])];
   if(list.length){ try{ await withTimeout(l.schedule({ notifications: list }), 4000, 'schedule'); }catch(e){ return -1; } }
