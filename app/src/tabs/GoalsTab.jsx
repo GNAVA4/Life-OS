@@ -33,7 +33,7 @@ function periodTitle(scope, today){
   return { name, left: scope==='day' ? null : left };
 }
 
-export function GoalsTab({registerAdd, goals, addGoal, setGoalProgress, addGoalSubtask, toggleGoalSubtask, deleteGoalSubtask, deleteGoal, renameGoal, setGoalMode, setGoalCounter, setGoalDeadline, archiveGoal, archive=[], restoreGoal, deleteArchivedGoal, showGoalDeadline=false, collapsed={}, onToggleCollapse}){
+export function GoalsTab({registerAdd, goals, addGoal, setGoalProgress, addGoalSubtask, toggleGoalSubtask, deleteGoalSubtask, deleteGoal, renameGoal, setGoalMode, setGoalCounter, setGoalDeadline, archiveGoal, archive=[], restoreGoal, deleteArchivedGoal, showGoalDeadline=false, collapsed={}, onToggleCollapse, stepsCollapsed={}, onToggleSteps}){
   const today = todayStr();
   // Широкое окно (≥1600px): все четыре периода колонками рядом [user, s049]. 4 колонки × ~300px + промежутки + меню 216 + поля ≈ 1600.
   const wide = !useIsMobile(1599);
@@ -70,6 +70,7 @@ export function GoalsTab({registerAdd, goals, addGoal, setGoalProgress, addGoalS
     const showPace = p && !p.done && (mode!=='none' || g.deadline);
     const behind = p && !p.done && !p.overdue && p.need>0 && mode==='counter' && p.need>=1;
     const menuOpen = menuId===g.id;
+    const stepsOpen = !stepsCollapsed[g.id]; // шаги свёрнуты по нажатию на «3 / 6 ›» [user, s059]; по умолчанию раскрыты
     return (
       <div key={g.id} style={{padding:'12px 0',borderBottom:`1px solid ${C.border}`,display:'flex',flexDirection:'column',gap:9}}>
         {editId===g.id ? (
@@ -90,7 +91,15 @@ export function GoalsTab({registerAdd, goals, addGoal, setGoalProgress, addGoalS
                 <button className="cnt-btn" style={S.counterBtn} aria-label="плюс" onClick={()=>setGoalCounter(sc,g.id,{current:(g.counter.current||0)+1})}><Icon name="plus" size={15}/></button>
               </div>
             )}
-            {mode==='subtasks' && <span style={{fontSize:12.5,color:C.dim,fontVariantNumeric:'tabular-nums',flex:'none',paddingTop:2}}>{(g.subtasks||[]).filter(s=>s.done).length} / {(g.subtasks||[]).length}</span>}
+            {mode==='subtasks' && (()=>{ const st=g.subtasks||[]; const n=st.filter(s=>s.done).length;
+              return (
+                <button aria-expanded={stepsOpen} aria-label={`Шаги: ${n} из ${st.length}`} title={stepsOpen?'свернуть шаги':'показать шаги'}
+                  onClick={()=>onToggleSteps && onToggleSteps(g.id)}
+                  style={{background:'none',border:'none',padding:'2px 2px',cursor:'pointer',fontFamily:'inherit',fontSize:12.5,fontVariantNumeric:'tabular-nums',flex:'none',
+                    color:st.length && n===st.length?C.green:C.dim,display:'inline-flex',alignItems:'center',gap:4}}>
+                  {n} / {st.length}
+                  <span style={{display:'flex',transform:stepsOpen?'rotate(90deg)':'none',transition:'transform .15s'}}><Icon name="chevR" size={12}/></span>
+                </button>); })()}
             {mode==='slider' && <span style={{fontSize:12.5,color:done?C.green:C.dim,fontVariantNumeric:'tabular-nums',flex:'none',paddingTop:2}}>{g.progress||0}%</span>}
             {done && g.completedAt && <span style={{fontSize:11.5,color:C.green,background:tint(C.green,.12),borderRadius:20,padding:'2px 8px',flex:'none'}}>{ddmm(g.completedAt)}</span>}
             <button className="icon-btn" aria-label="Действия с целью" aria-expanded={menuOpen} onClick={()=>setMenuId(menuOpen?null:g.id)}><Icon name="more" size={18}/></button>
@@ -132,8 +141,8 @@ export function GoalsTab({registerAdd, goals, addGoal, setGoalProgress, addGoalS
             style={{width:'100%','--p':`${g.progress||0}%`}} onChange={e=>setGoalProgress(sc,g.id,parseInt(e.target.value,10))} />
         )}
 
-        {mode==='subtasks' && (
-          <div style={{display:'flex',flexDirection:'column',gap:6,paddingLeft:2}}>
+        {mode==='subtasks' && stepsOpen && (
+          <div className="anim-collapse" style={{display:'flex',flexDirection:'column',gap:6,paddingLeft:2}}>
             {(g.subtasks||[]).map(s=>(
               <div key={s.id} style={{display:'flex',alignItems:'center',gap:10}}>
                 <Check checked={s.done} onChange={()=>toggleGoalSubtask(sc,g.id,s.id)} label={s.text} />

@@ -1247,6 +1247,7 @@ function App(){
         setGoalMode={setGoalMode} setGoalCounter={setGoalCounter} setGoalDeadline={setGoalDeadline} archiveGoal={archiveGoal}
         showGoalDeadline={!!settings.showGoalDeadline}
         collapsed={collapseState.goals||{}} onToggleCollapse={(sc)=>toggleCollapse('goals',sc)}
+        stepsCollapsed={collapseState.goalSteps||{}} onToggleSteps={(id)=>toggleCollapse('goalSteps',id)}
         archive={goalsArchive} restoreGoal={restoreGoal} deleteArchivedGoal={deleteArchivedGoal} />}
       {tab==='study' && <StudyTab openId={openTarget&&openTarget.tab==='study'?openTarget.id:null} onOpened={()=>setOpenTarget(null)} registerAdd={registerAdd} study={study} addStudyTask={addStudyTask} updateStudyTask={updateStudyTask} setStudyChecklist={setStudyChecklist} deleteStudyTask={deleteStudyTask} archiveStudyTask={archiveStudyTask} archive={studyArchive} deleteArchivedStudy={deleteArchivedStudy} restoreStudy={restoreStudy}
         collapsed={collapseState.study||{}} onToggleCollapse={(epic)=>toggleCollapse('study',epic)} onSetCollapseAll={(keys,v)=>setCollapseAll('study',keys,v)} />}
