@@ -65,6 +65,9 @@ input.lo-range::-moz-range-thumb{width:20px;height:20px;border:none;border-radiu
 /* тактильные переходы */
 button,.chip,.icon-btn{transition:background .15s ease,border-color .15s ease,color .15s ease,transform .08s ease,opacity .15s ease;}
 button:active,.chip:active{transform:scale(.96);}
+/* Широкие заголовки-раскрывашки НЕ сжимаем: scale(.96) у кнопки ~1100px сдвигает левый край на ~22px —
+   стрелка уезжает из-под курсора, отпускание мыши мимо кнопки, клик не засчитывается (s059). */
+button[aria-expanded]:active{transform:none;opacity:.7;}
 .cnt-btn:hover{background:rgba(255,255,255,.06);}
 input,textarea{transition:border-color .15s ease,background .15s ease;}
 .row-hover{transition:background .12s ease;}
