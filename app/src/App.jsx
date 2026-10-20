@@ -18,7 +18,7 @@ import { replayHealth, mergeMetaHealth, COMBO_CAP_DAYS, WEEKLY_XP, gamifyCfg, qu
 import { isHabitScheduled, habitCompletedCount, habitCurrentStreak, habitBestStreak, habitChallengeDone } from './lib/habits.js';
 import { migratePlans } from './lib/finance.js';
 import { migrateNotes, mergeStudyById } from './lib/notes.js';
-import { goalLinksOf, goalMode, liveGoalLinks, applyGoalLinks } from './lib/goals.js';
+import { goalLinksOf, goalMode, liveGoalLinks, applyGoalLinks, staleGoalScopes } from './lib/goals.js';
 import { agendaFor, tomorrowItems, AGENDA_SECTIONS } from './lib/agenda.js';
 import { ACH_TIERS, ACHIEVEMENTS, computeAchStats } from './lib/achievements.js';
 import { Modal } from './ui/primitives.jsx';
@@ -135,8 +135,8 @@ function App(){
     ['week','month','year'].forEach(sc=>{ loadedGoals[sc]=(loadedGoals[sc]||[]).map(x=>{ if(!x.period){ goalsPeriodChanged=true; return {...x, period:periodOf(sc)}; } return x; }); });
     setGoals(loadedGoals); if(goalsPeriodChanged) saveKey('lifeos:goals', loadedGoals);
     setGoalsArchive(loadKey('lifeos:goalsArchive', []));
-    const staleScopes = ['week','month','year'].filter(sc=>(loadedGoals[sc]||[]).some(x=>x.period && x.period!==periodOf(sc)));
-    if(staleScopes.length) setRollover({scopes:staleScopes});
+    // Окно «Новый период» здесь НЕ решаем: у вошедшего пользователя облако приедет позже и перезапишет
+    // цели — выбор, сделанный до этого, терялся и окно возвращалось каждый запуск. См. checkRollover.
     // миграция заметок: перенос старых «Дело» в «Дела» + новая модель заметок
     const rawStudy = loadKey('lifeos:study', []);
     const { notes:migNotes, toStudy, changed:notesChanged } = migrateNotes(loadKey('lifeos:notes', []));
@@ -231,6 +231,12 @@ function App(){
   // вместо этого ключ помечается «записан мимо облака» (dirty). Так видно, что устройство накопило своё,
   // и при входе облако не затрёт это молча. Хук отправки в облако поднимается только в startSync.
   const markDirtyHook = useCallback((key) => { if(LIFEOS_KEYS.includes(key)) markDirty(localStorage, key); }, []);
+  // Окно «Новый период» — по целям, которые останутся после синка: без входа — сразу, со входом — после
+  // адопции облака (или когда синк не стартовал). Читает localStorage: там уже облачные цели. bug_2026-10-20.
+  const checkRollover = useCallback(() => {
+    const scopes = staleGoalScopes(loadKey('lifeos:goals', {}));
+    setRollover(scopes.length ? {scopes} : null);
+  }, []);
   const readLocal = () => { const o = {}; LIFEOS_KEYS.forEach(k => { const v = localStorage.getItem(k); if(v != null) o[k] = v; }); return o; };
   const syncUnsubRef = useRef(() => {});
   // {uid, email, plan, local, cloud, open, busy, err} — стороны расходятся, синк на паузе до решения пользователя
@@ -239,8 +245,8 @@ function App(){
   useEffect(() => onAuth(u => {
     setUser(u);
     setPushHook(u ? null : markDirtyHook);
-    if(!u) setSyncAsk(null);
-  }), [markDirtyHook]);
+    if(!u){ setSyncAsk(null); checkRollover(); }
+  }), [markDirtyHook, checkRollover]);
 
   // prefer 'cloud'  — по ключам, что есть в облаке, берём облако; недостающие досеваем с устройства (прежнее поведение).
   // prefer 'device' — устройство уходит в облако по всем своим ключам; из облака берём только то, чего тут нет.
@@ -256,8 +262,9 @@ function App(){
     // ждём отправку ДО подписки: иначе первый снимок подписки принёс бы старые облачные значения обратно
     try{ await withTimeout(Promise.all(pushes), SYNC_ACK_MS); }catch(e){ /* офлайн — записи остаются в очереди Firestore */ }
     markSynced(localStorage, uid);
+    checkRollover(); // цели уже облачные, pushHook поднят — выбор в окне доедет до облака
     return subscribe(uid, applyRemote); // live updates from other devices
-  }, [applyRemote, recomputeHealth]);
+  }, [applyRemote, recomputeHealth, checkRollover]);
 
   useEffect(() => {
     if(!user) return;
@@ -267,16 +274,16 @@ function App(){
       let cloud;
       // Облако не прочиталось → НЕ считаем его пустым (раньше было `cloud = {}`, и устройство досевало
       // поверх него ВСЁ своё). Остаёмся в режиме «мимо облака» до следующего запуска.
-      try { cloud = await getCloudState(uid); } catch(e){ if(!cancelled) setPushHook(markDirtyHook); return; }
+      try { cloud = await getCloudState(uid); } catch(e){ if(!cancelled){ setPushHook(markDirtyHook); checkRollover(); } return; }
       if(cancelled) return;
       const local = readLocal();
       const plan = planSync({ uid, syncedUid: localStorage.getItem(SYNCED_UID_KEY), dirty: loadDirty(localStorage), local, cloud, keys: LIFEOS_KEYS });
-      if(plan.mode === 'ask'){ setPushHook(markDirtyHook); setSyncAsk({ uid, email: user.email, plan, local, cloud, open: true }); return; }
+      if(plan.mode === 'ask'){ setPushHook(markDirtyHook); setSyncAsk({ uid, email: user.email, plan, local, cloud, open: true }); checkRollover(); return; }
       const unsub = await startSync(uid, cloud, 'cloud');
       if(cancelled) unsub(); else syncUnsubRef.current = unsub;
     })();
     return () => { cancelled = true; syncUnsubRef.current(); syncUnsubRef.current = () => {}; };
-  }, [user, startSync, markDirtyHook]);
+  }, [user, startSync, markDirtyHook, checkRollover]);
 
   // Выбор в диалоге. Перед заменой копия ПРОИГРАВШЕЙ стороны сохраняется снимком в облаке
   // (users/{uid}/snapshots); не сохранилась (нет связи) → ничего не меняем.

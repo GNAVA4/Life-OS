@@ -1,6 +1,10 @@
 // Привязка «выполнил → вклад в цель»: опции пикера, поиск цели по ключу, нормализация ссылок.
 import { GL_SCOPE, GOAL_PACE_DEFAULT } from './constants.js';
-import { todayStr, toLocalISODate, daysBetween } from './dates.js';
+import { todayStr, toLocalISODate, daysBetween, periodOf } from './dates.js';
+
+// Скоупы, где есть цели прошлого периода (повод для окна «Новый период»). today — для тестов.
+export const staleGoalScopes = (goals, today = todayStr()) =>
+  ['week','month','year'].filter(sc => ((goals && goals[sc]) || []).some(x => x.period && x.period !== periodOf(sc, today)));
 import { vis } from './storage.js';
 
 export const goalLinkOptions = (goals) => { const out=[{value:'',label:'— без привязки —'}];
